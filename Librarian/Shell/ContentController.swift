@@ -6,7 +6,8 @@ final class ContentController: NSViewController {
     let model: AppModel
 
     private let maxGridAssets = 3000
-    private var collectionView: NSCollectionView!
+    private var collectionView: AppKitGalleryCollectionView!
+    private let galleryLayout = AppKitGalleryLayout()
     private var scrollView: NSScrollView!
     private var overlayLabel: NSTextField!
     private var screenshotActionBar: NSView!
@@ -25,6 +26,11 @@ final class ContentController: NSViewController {
     private var isLoadingAssets = false
     private var lastLoadedIndexedCount = -1
     private var lastLoadedSidebarKind: SidebarItem.Kind?
+    private var zoomRestoreToken = 0
+    private var pinchAccumulator: CGFloat = 0
+    private var lastMagnification: CGFloat = 0
+    private let pinchThreshold: CGFloat = 0.14
+    private var selectionAnchorIndex: Int?
 
     init(model: AppModel) {
         self.model = model
@@ -37,21 +43,32 @@ final class ContentController: NSViewController {
     override func loadView() {
         let container = NSView()
 
-        let layout = NSCollectionViewFlowLayout()
-        layout.itemSize = NSSize(width: 160, height: 160)
-        layout.minimumInteritemSpacing = 2
-        layout.minimumLineSpacing = 2
-        layout.sectionInset = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-
-        collectionView = NSCollectionView()
-        collectionView.collectionViewLayout = layout
+        collectionView = AppKitGalleryCollectionView()
+        galleryLayout.columnCount = model.galleryColumnCount
+        collectionView.collectionViewLayout = galleryLayout
         collectionView.backgroundColors = [.clear]
+        collectionView.wantsLayer = true
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = true
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.register(AssetGridItem.self, forItemWithIdentifier: .assetGridItem)
+        collectionView.addGestureRecognizer(
+            NSMagnificationGestureRecognizer(target: self, action: #selector(handleMagnification(_:)))
+        )
+        collectionView.onBackgroundClick = { [weak self] in
+            guard let self else { return }
+            self.selectionAnchorIndex = nil
+            self.model.setSelectedAsset(nil)
+            self.updateScreenshotActionBarState()
+        }
+        collectionView.onModifiedItemClick = { [weak self] indexPath, modifiers in
+            self?.handleModifiedItemClick(indexPath: indexPath, modifiers: modifiers)
+        }
+        collectionView.onMoveSelection = { [weak self] direction, extendingSelection in
+            self?.moveSelection(direction, extendingSelection: extendingSelection)
+        }
 
         scrollView = NSScrollView()
         scrollView.documentView = collectionView
@@ -141,6 +158,12 @@ final class ContentController: NSViewController {
             name: .librarianLogUpdated,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(galleryZoomChanged),
+            name: .librarianGalleryZoomChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
@@ -164,6 +187,10 @@ final class ContentController: NSViewController {
         if selectedSidebarKind() == .log {
             refreshLogPane()
         }
+    }
+
+    @objc private func galleryZoomChanged() {
+        applyColumnCount(model.galleryColumnCount, animated: true)
     }
 
     private func loadAssetsIfNeeded(force: Bool) {
@@ -216,6 +243,9 @@ final class ContentController: NSViewController {
                 self.syncModelSelectionFromCollection()
                 self.updateOverlay()
                 self.updateScreenshotActionBarState()
+                if self.collectionView.selectionIndexPaths.isEmpty {
+                    self.selectionAnchorIndex = nil
+                }
             }
         }
     }
@@ -289,9 +319,122 @@ final class ContentController: NSViewController {
     }
 
     private func thumbnailTargetSize() -> CGSize {
-        let size = (collectionView.collectionViewLayout as? NSCollectionViewFlowLayout)?.itemSize ?? NSSize(width: 160, height: 160)
+        let size = NSSize(width: galleryLayout.tileSide, height: galleryLayout.tileSide)
         let scale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+
+    private func thumbnailTileSide() -> CGFloat {
+        galleryLayout.tileSide
+    }
+
+    private func applyColumnCount(_ targetColumnCount: Int, animated: Bool) {
+        guard targetColumnCount > 0 else { return }
+        guard galleryLayout.columnCount != targetColumnCount else { return }
+
+        zoomRestoreToken += 1
+        let restoreToken = zoomRestoreToken
+        let anchor = captureZoomTransitionAnchor()
+        let canAnimate = animated
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            && view.window != nil
+            && collectionView.numberOfItems(inSection: 0) > 0
+
+        if canAnimate {
+            applyFadeTransition(to: collectionView)
+        }
+
+        galleryLayout.columnCount = targetColumnCount
+        galleryLayout.invalidateLayout()
+        view.layoutSubtreeIfNeeded()
+        collectionView.visibleItems().forEach { item in
+            (item as? AssetGridItem)?.updateTileSide(galleryLayout.tileSide, animated: canAnimate)
+        }
+        restoreZoomTransitionAnchor(anchor, token: restoreToken)
+    }
+
+    private func applyFadeTransition(to view: NSView) {
+        guard let layer = view.layer else { return }
+        layer.removeAnimation(forKey: "galleryZoomFade")
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let transition = CATransition()
+        transition.type = .fade
+        transition.duration = 0.16
+        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(transition, forKey: "galleryZoomFade")
+    }
+
+    private struct ZoomTransitionAnchor {
+        let itemIndex: Int
+    }
+
+    private func captureZoomTransitionAnchor() -> ZoomTransitionAnchor? {
+        if let selectedIdentifier = model.selectedAsset?.localIdentifier,
+           let index = displayAssets.firstIndex(where: { $0.localIdentifier == selectedIdentifier }) {
+            return ZoomTransitionAnchor(itemIndex: index)
+        }
+
+        let visible = collectionView.indexPathsForVisibleItems()
+        guard !visible.isEmpty else { return nil }
+        let visibleRect = collectionView.visibleRect
+        let center = CGPoint(x: visibleRect.midX, y: visibleRect.midY)
+        guard let currentLayout = collectionView.collectionViewLayout else { return nil }
+
+        let best = visible.min { lhs, rhs in
+            let lhsFrame = currentLayout.layoutAttributesForItem(at: lhs)?.frame ?? .zero
+            let rhsFrame = currentLayout.layoutAttributesForItem(at: rhs)?.frame ?? .zero
+            let lhsCenter = CGPoint(x: lhsFrame.midX, y: lhsFrame.midY)
+            let rhsCenter = CGPoint(x: rhsFrame.midX, y: rhsFrame.midY)
+            let lhsDistance = hypot(lhsCenter.x - center.x, lhsCenter.y - center.y)
+            let rhsDistance = hypot(rhsCenter.x - center.x, rhsCenter.y - center.y)
+            return lhsDistance < rhsDistance
+        }
+
+        guard let index = best?.item else { return nil }
+        return ZoomTransitionAnchor(itemIndex: index)
+    }
+
+    private func restoreZoomTransitionAnchor(_ anchor: ZoomTransitionAnchor?, token: Int) {
+        guard let anchor else { return }
+        guard anchor.itemIndex >= 0, anchor.itemIndex < displayAssets.count else { return }
+        guard collectionView.numberOfSections > 0 else { return }
+        let currentCount = collectionView.numberOfItems(inSection: 0)
+        guard anchor.itemIndex < currentCount else { return }
+
+        let indexPath = IndexPath(item: anchor.itemIndex, section: 0)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard token == self.zoomRestoreToken else { return }
+            guard self.collectionView.numberOfSections > 0 else { return }
+            let liveCount = self.collectionView.numberOfItems(inSection: 0)
+            guard anchor.itemIndex < liveCount else { return }
+            self.collectionView.scrollToItems(at: [indexPath], scrollPosition: .nearestVerticalEdge)
+        }
+    }
+
+    @objc
+    private func handleMagnification(_ gesture: NSMagnificationGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            pinchAccumulator = 0
+            lastMagnification = 0
+        case .changed:
+            let delta = gesture.magnification - lastMagnification
+            lastMagnification = gesture.magnification
+            pinchAccumulator += delta
+
+            while pinchAccumulator >= pinchThreshold {
+                model.adjustGalleryGridLevel(by: -1)
+                pinchAccumulator -= pinchThreshold
+            }
+            while pinchAccumulator <= -pinchThreshold {
+                model.adjustGalleryGridLevel(by: 1)
+                pinchAccumulator += pinchThreshold
+            }
+        default:
+            pinchAccumulator = 0
+            lastMagnification = 0
+        }
     }
 
     private func selectedSidebarKind() -> SidebarItem.Kind {
@@ -578,7 +721,15 @@ extension ContentController: NSCollectionViewDataSource {
         }
 
         let asset = displayAssets[indexPath.item]
-        item.prepare(localIdentifier: asset.localIdentifier)
+        let preferredAspectRatio: CGFloat? = {
+            guard asset.pixelWidth > 0, asset.pixelHeight > 0 else { return nil }
+            return CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
+        }()
+        item.prepare(
+            localIdentifier: asset.localIdentifier,
+            preferredAspectRatio: preferredAspectRatio,
+            tileSide: thumbnailTileSide()
+        )
 
         guard let phAsset = model.photosService.fetchAsset(localIdentifier: asset.localIdentifier) else {
             item.applyImage(nil, forLocalIdentifier: asset.localIdentifier)
@@ -638,6 +789,173 @@ extension ContentController {
         }
         model.setSelectedAsset(displayAssets[selectedIndex])
     }
+
+    private func handleModifiedItemClick(indexPath: IndexPath, modifiers: NSEvent.ModifierFlags) {
+        guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return }
+        let hasCommand = modifiers.contains(.command)
+        let hasShift = modifiers.contains(.shift)
+        let clicked = indexPath.item
+
+        var nextSelection = collectionView.selectionIndexPaths
+        if hasShift {
+            let anchor = selectionAnchorIndex ?? collectionView.selectionIndexPaths.first?.item ?? clicked
+            let range = min(anchor, clicked)...max(anchor, clicked)
+            let rangeSelection = Set(range.map { IndexPath(item: $0, section: 0) })
+            if hasCommand {
+                nextSelection.formUnion(rangeSelection)
+            } else {
+                nextSelection = rangeSelection
+            }
+            selectionAnchorIndex = anchor
+        } else if hasCommand {
+            let clickedPath = IndexPath(item: clicked, section: 0)
+            if nextSelection.contains(clickedPath) {
+                nextSelection.remove(clickedPath)
+            } else {
+                nextSelection.insert(clickedPath)
+            }
+            selectionAnchorIndex = clicked
+        }
+
+        collectionView.selectionIndexPaths = nextSelection
+        collectionView.scrollToItems(at: [IndexPath(item: clicked, section: 0)], scrollPosition: .nearestVerticalEdge)
+        syncModelSelectionFromCollection()
+        updateScreenshotActionBarState()
+    }
+
+    private func moveSelection(_ direction: MoveCommandDirection, extendingSelection: Bool) {
+        guard !displayAssets.isEmpty else { return }
+        let current = collectionView.selectionIndexPaths.map(\.item).sorted()
+        let focus = current.last ?? 0
+        let columns = max(model.galleryColumnCount, 1)
+
+        let candidate: Int
+        switch direction {
+        case .left:
+            candidate = focus - 1
+        case .right:
+            candidate = focus + 1
+        case .up:
+            candidate = focus - columns
+        case .down:
+            candidate = focus + columns
+        }
+        let next = max(0, min(displayAssets.count - 1, candidate))
+        guard next != focus || current.isEmpty else { return }
+
+        if extendingSelection {
+            let anchor = selectionAnchorIndex ?? focus
+            selectionAnchorIndex = anchor
+            let range = min(anchor, next)...max(anchor, next)
+            let nextSelection = Set(range.map { IndexPath(item: $0, section: 0) })
+            collectionView.selectionIndexPaths = nextSelection
+        } else {
+            selectionAnchorIndex = next
+            collectionView.selectionIndexPaths = [IndexPath(item: next, section: 0)]
+        }
+
+        collectionView.scrollToItems(at: [IndexPath(item: next, section: 0)], scrollPosition: .nearestVerticalEdge)
+        syncModelSelectionFromCollection()
+        updateScreenshotActionBarState()
+    }
+}
+
+private final class AppKitGalleryLayout: NSCollectionViewFlowLayout {
+    var columnCount: Int = 4 {
+        didSet {
+            if oldValue != columnCount {
+                invalidateLayout()
+            }
+        }
+    }
+
+    private let defaultInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
+    private let horizontalSpacing: CGFloat = 14
+    private let verticalSpacing: CGFloat = 16
+
+    var tileSide: CGFloat {
+        max(40, floor(itemSize.width))
+    }
+
+    override init() {
+        super.init()
+        sectionInset = defaultInsets
+        minimumInteritemSpacing = horizontalSpacing
+        minimumLineSpacing = verticalSpacing
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepare() {
+        super.prepare()
+        guard let collectionView else { return }
+
+        let columns = max(columnCount, 1)
+        let usableWidth = max(
+            collectionView.bounds.width - sectionInset.left - sectionInset.right - CGFloat(columns - 1) * minimumInteritemSpacing,
+            1
+        )
+        let side = max(1, floor(usableWidth / CGFloat(columns)))
+        itemSize = NSSize(width: side, height: side)
+    }
+
+    override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
+        true
+    }
+}
+
+private enum MoveCommandDirection {
+    case left
+    case right
+    case up
+    case down
+}
+
+private final class AppKitGalleryCollectionView: NSCollectionView {
+    var onBackgroundClick: (() -> Void)?
+    var onMoveSelection: ((MoveCommandDirection, Bool) -> Void)?
+    var onModifiedItemClick: ((IndexPath, NSEvent.ModifierFlags) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let indexPath = indexPathForItem(at: point) else {
+            deselectAll(nil)
+            onBackgroundClick?()
+            return
+        }
+
+        let selectionModifiers = event.modifierFlags.intersection([.command, .shift])
+        if !selectionModifiers.isEmpty {
+            onModifiedItemClick?(indexPath, selectionModifiers)
+            return
+        }
+
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let movementModifiers = event.modifierFlags.intersection([.shift, .command, .control, .option, .function])
+        if movementModifiers.subtracting([.shift]).isEmpty {
+            let extendingSelection = movementModifiers.contains(.shift)
+            let direction: MoveCommandDirection?
+            switch event.keyCode {
+            case 123: direction = .left
+            case 124: direction = .right
+            case 125: direction = .down
+            case 126: direction = .up
+            default: direction = nil
+            }
+            if let direction {
+                onMoveSelection?(direction, extendingSelection)
+                return
+            }
+        }
+
+        super.keyDown(with: event)
+    }
 }
 
 // MARK: - Item identifier
@@ -651,22 +969,35 @@ private extension NSUserInterfaceItemIdentifier {
 private final class AssetGridItem: NSCollectionViewItem {
 
     private let fallback = NSImageView()
+    private let selectionBackgroundView = NSView()
+    private let thumbnailCornerRadius: CGFloat = 8
+    private let imageInset: CGFloat = 4
     private var representedLocalIdentifier: String?
+    private var preferredAspectRatio: CGFloat?
+    private var currentTileSide: CGFloat = 160
+    private var imageWidthConstraint: NSLayoutConstraint?
+    private var imageHeightConstraint: NSLayoutConstraint?
 
     override func loadView() {
         view = NSView()
         view.wantsLayer = true
-        view.layer?.cornerRadius = 4
-        view.layer?.masksToBounds = true
-        view.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.15).cgColor
-        view.layer?.borderWidth = 0
-        view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        view.layer?.backgroundColor = NSColor.clear.cgColor
 
         let imageView = NSImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.imageScaling = .scaleAxesIndependently
+        imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.animates = true
+        imageView.wantsLayer = true
+        imageView.layer?.cornerRadius = thumbnailCornerRadius
+        imageView.layer?.masksToBounds = true
         self.imageView = imageView
+        
+        selectionBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        selectionBackgroundView.wantsLayer = true
+        selectionBackgroundView.layer?.cornerRadius = thumbnailCornerRadius
+        selectionBackgroundView.layer?.masksToBounds = true
+        selectionBackgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        view.addSubview(selectionBackgroundView)
         view.addSubview(imageView)
 
         fallback.translatesAutoresizingMaskIntoConstraints = false
@@ -676,39 +1007,125 @@ private final class AssetGridItem: NSCollectionViewItem {
         view.addSubview(fallback)
 
         NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: view.topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            selectionBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            selectionBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            selectionBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
+            selectionBackgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            imageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
 
             fallback.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             fallback.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
+        imageWidthConstraint = imageView.widthAnchor.constraint(equalToConstant: 20)
+        imageHeightConstraint = imageView.heightAnchor.constraint(equalToConstant: 20)
+        imageWidthConstraint?.isActive = true
+        imageHeightConstraint?.isActive = true
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let side = max(1, floor(min(view.bounds.width, view.bounds.height)))
+        updateTileSide(side)
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         representedLocalIdentifier = nil
+        preferredAspectRatio = nil
         imageView?.image = nil
         fallback.isHidden = false
         isSelected = false
     }
 
-    func prepare(localIdentifier: String) {
+    func prepare(localIdentifier: String, preferredAspectRatio: CGFloat?, tileSide: CGFloat) {
         representedLocalIdentifier = localIdentifier
+        self.preferredAspectRatio = preferredAspectRatio
         imageView?.image = nil
         fallback.isHidden = false
+        updateTileSide(tileSide)
     }
 
     func applyImage(_ image: NSImage?, forLocalIdentifier identifier: String) {
         guard representedLocalIdentifier == identifier else { return }
         imageView?.image = image
         fallback.isHidden = image != nil
+        updateGeometry()
     }
 
     override var isSelected: Bool {
         didSet {
-            view.layer?.borderWidth = isSelected ? 3 : 0
+            selectionBackgroundView.layer?.backgroundColor = isSelected
+                ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
+                : NSColor.clear.cgColor
         }
+    }
+
+    private func updateTileSide(_ tileSide: CGFloat) {
+        currentTileSide = tileSide
+        updateGeometry()
+    }
+
+    func updateTileSide(_ tileSide: CGFloat, animated: Bool) {
+        currentTileSide = tileSide
+        updateGeometry(animated: animated)
+    }
+
+    private func updateGeometry() {
+        updateGeometry(animated: false)
+    }
+
+    private func updateGeometry(animated: Bool) {
+        let fitted = fittedImageSize(in: currentTileSide)
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            imageWidthConstraint?.constant = fitted.width
+            imageHeightConstraint?.constant = fitted.height
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            imageWidthConstraint?.animator().constant = fitted.width
+            imageHeightConstraint?.animator().constant = fitted.height
+        }
+    }
+
+    private func fittedImageSize(in tileSide: CGFloat) -> CGSize {
+        let availableSide = max(1, floor(tileSide - imageInset * 2))
+        let aspect: CGFloat
+        if let size = resolvedImageSize(imageView?.image), size.width > 0, size.height > 0 {
+            aspect = size.width / size.height
+        } else if let preferredAspectRatio, preferredAspectRatio > 0 {
+            aspect = preferredAspectRatio
+        } else {
+            aspect = 1
+        }
+
+        if aspect >= 1 {
+            return CGSize(width: availableSide, height: max(1, floor(availableSide / aspect)))
+        } else {
+            return CGSize(width: max(1, floor(availableSide * aspect)), height: availableSide)
+        }
+    }
+
+    private func resolvedImageSize(_ image: NSImage?) -> CGSize? {
+        guard let image else { return nil }
+        if image.size.width > 0, image.size.height > 0 {
+            return image.size
+        }
+        if let bitmap = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first,
+           bitmap.pixelsWide > 0,
+           bitmap.pixelsHigh > 0 {
+            return CGSize(width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
+        }
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+           cgImage.width > 0,
+           cgImage.height > 0 {
+            return CGSize(width: cgImage.width, height: cgImage.height)
+        }
+        return nil
     }
 }

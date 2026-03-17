@@ -312,4 +312,5 @@ extension Notification.Name {
     static let librarianSidebarSelectionChanged = Notification.Name("com.librarian.app.sidebarSelectionChanged")
     static let librarianSelectionChanged = Notification.Name("com.librarian.app.selectionChanged")
     static let librarianLogUpdated = Notification.Name("com.librarian.app.logUpdated")
+    static let librarianGalleryZoomChanged = Notification.Name("com.librarian.app.galleryZoomChanged")
 }

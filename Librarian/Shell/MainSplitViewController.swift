@@ -142,6 +142,12 @@ final class MainSplitViewController: NSSplitViewController {
             name: .librarianSidebarSelectionChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(modelStateChanged),
+            name: .librarianGalleryZoomChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
@@ -150,6 +156,7 @@ final class MainSplitViewController: NSSplitViewController {
 
     @objc private func sidebarSelectionChanged() {
         refreshWindowTitle()
+        toolbarDelegate.refresh(model: model)
     }
 
     @objc private func innerSplitDidResize(_ notification: Notification) {
@@ -196,5 +203,26 @@ final class MainSplitViewController: NSSplitViewController {
 
     @objc func openSelectionInPhotos(_ sender: Any?) {
         contentController.openSelectionInPhotos()
+    }
+
+    @objc func zoomOutAction(_ sender: Any?) {
+        guard isGallerySidebarSelection else { return }
+        model.decreaseGalleryZoom()
+        toolbarDelegate.refresh(model: model)
+    }
+
+    @objc func zoomInAction(_ sender: Any?) {
+        guard isGallerySidebarSelection else { return }
+        model.increaseGalleryZoom()
+        toolbarDelegate.refresh(model: model)
+    }
+
+    private var isGallerySidebarSelection: Bool {
+        switch model.selectedSidebarItem?.kind ?? .allPhotos {
+        case .allPhotos, .recents, .favourites, .screenshots:
+            return true
+        case .indexing, .log:
+            return false
+        }
     }
 }

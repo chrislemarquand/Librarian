@@ -19,15 +19,36 @@ final class AppModel: ObservableObject {
     @Published var indexedAssetCount = 0
     @Published var selectedAsset: IndexedAsset?
     @Published var indexingProgress: IndexingProgress = .idle
+    @Published var galleryGridLevel: Int = 4 {
+        didSet {
+            let clamped = min(max(galleryGridLevel, Self.galleryColumnRange.lowerBound), Self.galleryColumnRange.upperBound)
+            if galleryGridLevel != clamped {
+                galleryGridLevel = clamped
+                return
+            }
+            UserDefaults.standard.set(galleryGridLevel, forKey: Self.galleryGridLevelKey)
+            NotificationCenter.default.post(name: .librarianGalleryZoomChanged, object: nil)
+        }
+    }
 
     private var changeTracker: PhotosChangeTracker?
     private var pendingChangeSyncTask: Task<Void, Never>?
+
+    static let galleryColumnRange = 2 ... 9
+    private static let galleryGridLevelKey = "ui.gallery.grid.level"
 
     // MARK: - Init
 
     init() {
         self.photosService = PhotosLibraryService()
         self.database = DatabaseManager()
+        let defaults = UserDefaults.standard
+        let storedLevel = defaults.integer(forKey: Self.galleryGridLevelKey)
+        if storedLevel == 0 {
+            galleryGridLevel = 4
+        } else {
+            galleryGridLevel = min(max(storedLevel, Self.galleryColumnRange.lowerBound), Self.galleryColumnRange.upperBound)
+        }
     }
 
     // MARK: - Setup
@@ -152,6 +173,34 @@ final class AppModel: ObservableObject {
         }
         selectedAsset = asset
         NotificationCenter.default.post(name: .librarianSelectionChanged, object: nil)
+    }
+
+    var galleryColumnCount: Int {
+        galleryGridLevel
+    }
+
+    var canIncreaseGalleryZoom: Bool {
+        galleryGridLevel > Self.galleryColumnRange.lowerBound
+    }
+
+    var canDecreaseGalleryZoom: Bool {
+        galleryGridLevel < Self.galleryColumnRange.upperBound
+    }
+
+    func increaseGalleryZoom() {
+        galleryGridLevel = max(galleryGridLevel - 1, Self.galleryColumnRange.lowerBound)
+    }
+
+    func decreaseGalleryZoom() {
+        galleryGridLevel = min(galleryGridLevel + 1, Self.galleryColumnRange.upperBound)
+    }
+
+    func adjustGalleryGridLevel(by delta: Int) {
+        guard delta != 0 else { return }
+        galleryGridLevel = min(
+            max(galleryGridLevel + delta, Self.galleryColumnRange.lowerBound),
+            Self.galleryColumnRange.upperBound
+        )
     }
 
     deinit {

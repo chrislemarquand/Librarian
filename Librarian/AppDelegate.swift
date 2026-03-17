@@ -2,7 +2,11 @@ import Cocoa
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
+    private var appModel: AppModel?
+    private var splitController: MainSplitViewController?
     private var mainWindow: NSWindow?
+    private var windowAppearanceObservation: NSKeyValueObservation?
+    private var lastWindowAppearanceName: NSAppearance.Name?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -28,18 +32,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.setFrameAutosaveName("com.librarian.app.MainWindow")
         window.center()
 
-        let toolbar = NSToolbar(identifier: "com.librarian.app.MainToolbar")
-        toolbar.delegate = splitVC.toolbarDelegate
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        window.toolbar = toolbar
+        appModel = model
+        splitController = splitVC
+        installMainToolbar(on: window, resetDelegateState: true)
+        installWindowAppearanceObservationIfNeeded(on: window)
 
         mainWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         Task { await model.setup() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        windowAppearanceObservation = nil
+        lastWindowAppearanceName = nil
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -104,6 +111,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windowsMenu = windowMenu
 
         NSApp.mainMenu = mainMenu
+    }
+
+    private func installMainToolbar(on window: NSWindow, resetDelegateState: Bool) {
+        guard let splitVC = splitController else { return }
+        if resetDelegateState {
+            splitVC.toolbarDelegate.resetCachedToolbarReferences()
+        }
+
+        let toolbar = NSToolbar(identifier: "com.librarian.app.MainToolbar.v2")
+        toolbar.delegate = splitVC.toolbarDelegate
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        window.toolbar = toolbar
+    }
+
+    private func installWindowAppearanceObservationIfNeeded(on window: NSWindow) {
+        guard windowAppearanceObservation == nil else { return }
+        lastWindowAppearanceName = window.effectiveAppearance.name
+        windowAppearanceObservation = window.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, change in
+            guard let self, let newName = change.newValue?.name else { return }
+            DispatchQueue.main.async {
+                guard self.lastWindowAppearanceName != newName else { return }
+                self.lastWindowAppearanceName = newName
+                self.rebuildToolbarForCurrentAppearance()
+            }
+        }
+    }
+
+    private func rebuildToolbarForCurrentAppearance() {
+        guard let window = mainWindow, let model = appModel, let splitVC = splitController else { return }
+        installMainToolbar(on: window, resetDelegateState: true)
+        splitVC.toolbarDelegate.refresh(model: model)
+        window.toolbar?.validateVisibleItems()
     }
 }
 
