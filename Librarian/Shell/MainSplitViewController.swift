@@ -92,6 +92,8 @@ final class MainSplitViewController: NSSplitViewController {
 
         sidebarController.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         sidebarController.view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        inspectorController.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        inspectorController.view.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
     private var inspectorSplitItem: NSSplitViewItem? {

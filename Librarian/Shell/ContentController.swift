@@ -937,6 +937,13 @@ private final class AppKitGalleryCollectionView: NSCollectionView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
+           event.keyCode == 53 { // Escape
+            deselectAll(nil)
+            onBackgroundClick?()
+            return
+        }
+
         let movementModifiers = event.modifierFlags.intersection([.shift, .command, .control, .option, .function])
         if movementModifiers.subtracting([.shift]).isEmpty {
             let extendingSelection = movementModifiers.contains(.shift)

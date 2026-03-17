@@ -1,19 +1,17 @@
 import Cocoa
 import Photos
+import SwiftUI
+import Combine
 
 final class InspectorController: NSViewController {
 
     let model: AppModel
-
-    private var scrollView: NSScrollView!
-    private var documentView: NSView!
-    private var stackView: NSStackView!
-    private var emptyLabel: NSTextField!
-    private var previewImageView: NSImageView!
-    private var representedPreviewIdentifier: String?
+    private let viewModel: InspectorReadOnlyViewModel
+    private var hostingController: NSHostingController<AnyView>?
 
     init(model: AppModel) {
         self.model = model
+        self.viewModel = InspectorReadOnlyViewModel(model: model)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -23,58 +21,25 @@ final class InspectorController: NSViewController {
     override func loadView() {
         let container = NSView()
         container.wantsLayer = true
-
-        emptyLabel = NSTextField(labelWithString: "No Selection")
-        emptyLabel.font = NSFont.systemFont(ofSize: 13)
-        emptyLabel.textColor = .secondaryLabelColor
-        emptyLabel.alignment = .center
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(emptyLabel)
-
-        stackView = NSStackView()
-        stackView.orientation = .vertical
-        stackView.alignment = .leading
-        stackView.spacing = 12
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.isHidden = true
-
-        previewImageView = NSImageView()
-        previewImageView.imageScaling = .scaleProportionallyUpOrDown
-        previewImageView.wantsLayer = true
-        previewImageView.layer?.cornerRadius = 8
-        previewImageView.layer?.masksToBounds = true
-        previewImageView.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.15).cgColor
-        previewImageView.translatesAutoresizingMaskIntoConstraints = false
-        previewImageView.heightAnchor.constraint(equalToConstant: 180).isActive = true
-        previewImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
-
-        documentView = NSView()
-        documentView.translatesAutoresizingMaskIntoConstraints = false
-        documentView.addSubview(stackView)
-
-        scrollView = NSScrollView()
-        scrollView.documentView = documentView
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(scrollView)
+        let rootView = AnyView(
+            InspectorReadOnlyView(viewModel: viewModel)
+                .tint(.accentColor)
+        )
+        let host = NSHostingController(rootView: rootView)
+        host.sizingOptions = []
+        addChild(host)
+        let hostedView = host.view
+        hostedView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(hostedView)
 
         NSLayoutConstraint.activate([
-            emptyLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            stackView.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 16),
-            stackView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 16),
-            stackView.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -16),
-            stackView.bottomAnchor.constraint(lessThanOrEqualTo: documentView.bottomAnchor, constant: -16),
-            stackView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor, constant: -32),
+            hostedView.topAnchor.constraint(equalTo: container.topAnchor),
+            hostedView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hostedView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            hostedView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+
+        hostingController = host
 
         view = container
     }
@@ -88,35 +53,11 @@ final class InspectorController: NSViewController {
     // MARK: - State
 
     func showEmpty() {
-        emptyLabel.isHidden = false
-        scrollView.isHidden = true
-        stackView.isHidden = true
-        representedPreviewIdentifier = nil
-        previewImageView.image = nil
+        viewModel.showEmpty()
     }
 
-    // Phase 2 will populate the stack with preview + metadata rows
     func showAsset(_ asset: IndexedAsset) {
-        emptyLabel.isHidden = true
-        scrollView.isHidden = false
-        stackView.isHidden = false
-        stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        stackView.addArrangedSubview(previewImageView)
-        previewImageView.image = nil
-        representedPreviewIdentifier = asset.localIdentifier
-        requestPreviewImage(for: asset.localIdentifier)
-        stackView.addArrangedSubview(makeTitleLabel("Asset Details"))
-        stackView.addArrangedSubview(makeRow(title: "Local Identifier", value: asset.localIdentifier))
-        stackView.addArrangedSubview(makeRow(title: "Type", value: mediaTypeLabel(for: asset.mediaType)))
-        stackView.addArrangedSubview(makeRow(title: "Captured", value: formattedDate(asset.creationDate)))
-        stackView.addArrangedSubview(makeRow(title: "Modified", value: formattedDate(asset.modificationDate)))
-        stackView.addArrangedSubview(makeRow(title: "Dimensions", value: dimensionsText(width: asset.pixelWidth, height: asset.pixelHeight)))
-        stackView.addArrangedSubview(makeRow(title: "Favorite", value: yesNo(asset.isFavorite)))
-        stackView.addArrangedSubview(makeRow(title: "Hidden", value: yesNo(asset.isHidden)))
-        stackView.addArrangedSubview(makeRow(title: "Cloud State", value: asset.iCloudDownloadState))
-        stackView.addArrangedSubview(makeRow(title: "Local Thumbnail", value: yesNo(asset.hasLocalThumbnail)))
-        stackView.addArrangedSubview(makeRow(title: "Local Original", value: yesNo(asset.hasLocalOriginal)))
-        stackView.addArrangedSubview(makeRow(title: "Deleted In Photos", value: yesNo(asset.isDeletedFromPhotos)))
+        viewModel.showAsset(asset)
     }
 
     // MARK: - Model observation
@@ -141,43 +82,151 @@ final class InspectorController: NSViewController {
             showEmpty()
         }
     }
+}
 
-    private func makeTitleLabel(_ title: String) -> NSTextField {
-        let label = NSTextField(labelWithString: title)
-        label.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        label.textColor = .labelColor
-        return label
+@MainActor
+private final class InspectorReadOnlyViewModel: ObservableObject {
+    @Published private(set) var selectedAsset: IndexedAsset?
+    @Published private(set) var previewImage: NSImage?
+    @Published private(set) var isPreviewLoading = false
+    @Published private(set) var collapsedSections: Set<String>
+
+    private let model: AppModel
+    private var representedPreviewIdentifier: String?
+
+    private static let collapsedSectionsKey = "ui.librarian.inspector.collapsed.sections"
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    init(model: AppModel) {
+        self.model = model
+        let stored = UserDefaults.standard.stringArray(forKey: Self.collapsedSectionsKey) ?? []
+        self.collapsedSections = Set(stored)
     }
 
-    private func makeRow(title: String, value: String) -> NSView {
-        let titleLabel = NSTextField(labelWithString: title.uppercased())
-        titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        titleLabel.textColor = .secondaryLabelColor
+    func showEmpty() {
+        selectedAsset = nil
+        previewImage = nil
+        isPreviewLoading = false
+        representedPreviewIdentifier = nil
+    }
 
-        let valueLabel = NSTextField(labelWithString: value)
-        valueLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        valueLabel.textColor = .labelColor
-        valueLabel.lineBreakMode = .byTruncatingMiddle
-        valueLabel.maximumNumberOfLines = 2
+    func showAsset(_ asset: IndexedAsset) {
+        selectedAsset = asset
+        previewImage = nil
+        representedPreviewIdentifier = asset.localIdentifier
+        requestPreviewImage(for: asset.localIdentifier)
+    }
 
-        let row = NSStackView(views: [titleLabel, valueLabel])
-        row.orientation = .vertical
-        row.alignment = .leading
-        row.spacing = 2
-        return row
+    func toggleSection(_ title: String) {
+        if collapsedSections.contains(title) {
+            collapsedSections.remove(title)
+        } else {
+            collapsedSections.insert(title)
+        }
+        UserDefaults.standard.set(Array(collapsedSections), forKey: Self.collapsedSectionsKey)
+    }
+
+    func isSectionCollapsed(_ title: String) -> Bool {
+        collapsedSections.contains(title)
+    }
+
+    func sections(for asset: IndexedAsset) -> [InspectorSection] {
+        let dimensions = dimensionsText(width: asset.pixelWidth, height: asset.pixelHeight)
+        let megapixels = megapixelsText(width: asset.pixelWidth, height: asset.pixelHeight)
+        return [
+            InspectorSection(
+                title: "General",
+                rows: [
+                    InspectorFieldRow(title: "Local Identifier", value: asset.localIdentifier),
+                    InspectorFieldRow(title: "Type", value: mediaTypeLabel(for: asset.mediaType)),
+                ]
+            ),
+            InspectorSection(
+                title: "Dates",
+                rows: [
+                    InspectorFieldRow(title: "Captured", value: formattedDate(asset.creationDate)),
+                    InspectorFieldRow(title: "Modified", value: formattedDate(asset.modificationDate)),
+                ]
+            ),
+            InspectorSection(
+                title: "Image",
+                rows: [
+                    InspectorFieldRow(title: "Dimensions", value: dimensions),
+                    InspectorFieldRow(title: "Megapixels", value: megapixels),
+                ]
+            ),
+            InspectorSection(
+                title: "Flags",
+                rows: [
+                    InspectorFieldRow(title: "Favorite", value: yesNo(asset.isFavorite)),
+                    InspectorFieldRow(title: "Hidden", value: yesNo(asset.isHidden)),
+                    InspectorFieldRow(title: "Deleted In Photos", value: yesNo(asset.isDeletedFromPhotos)),
+                    InspectorFieldRow(title: "Screenshot", value: yesNo(asset.isScreenshot)),
+                ]
+            ),
+            InspectorSection(
+                title: "Storage",
+                rows: [
+                    InspectorFieldRow(title: "Cloud State", value: asset.iCloudDownloadState),
+                    InspectorFieldRow(title: "Local Thumbnail", value: yesNo(asset.hasLocalThumbnail)),
+                    InspectorFieldRow(title: "Local Original", value: yesNo(asset.hasLocalOriginal)),
+                ]
+            ),
+        ]
+    }
+
+    var title: String {
+        guard let asset = selectedAsset else { return "" }
+        return asset.localIdentifier.split(separator: "/").first.map(String.init) ?? asset.localIdentifier
+    }
+
+    var subtitle: String {
+        guard let asset = selectedAsset else { return "" }
+        let type = mediaTypeLabel(for: asset.mediaType)
+        let dimensions = dimensionsText(width: asset.pixelWidth, height: asset.pixelHeight)
+        return "\(type) • \(dimensions)"
+    }
+
+    private func requestPreviewImage(for localIdentifier: String) {
+        guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else {
+            isPreviewLoading = false
+            return
+        }
+
+        isPreviewLoading = true
+        _ = model.photosService.requestThumbnail(
+            for: asset,
+            targetSize: CGSize(width: 520, height: 520),
+            deliveryMode: .highQualityFormat
+        ) { [weak self] image in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard self.representedPreviewIdentifier == localIdentifier else { return }
+                self.previewImage = image
+                self.isPreviewLoading = false
+            }
+        }
     }
 
     private func formattedDate(_ date: Date?) -> String {
         guard let date else { return "Unknown" }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return Self.dateFormatter.string(from: date)
     }
 
     private func dimensionsText(width: Int, height: Int) -> String {
         guard width > 0, height > 0 else { return "Unknown" }
         return "\(width) × \(height)"
+    }
+
+    private func megapixelsText(width: Int, height: Int) -> String {
+        guard width > 0, height > 0 else { return "Unknown" }
+        let megapixels = (Double(width) * Double(height)) / 1_000_000
+        return String(format: "%.1f MP", megapixels)
     }
 
     private func yesNo(_ value: Bool) -> String {
@@ -192,16 +241,137 @@ final class InspectorController: NSViewController {
         default: return "Unknown (\(value))"
         }
     }
+}
 
-    private func requestPreviewImage(for localIdentifier: String) {
-        guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else { return }
-        _ = model.photosService.requestThumbnail(
-            for: asset,
-            targetSize: CGSize(width: 520, height: 520),
-            deliveryMode: .highQualityFormat
-        ) { [weak self] image in
-            guard let self, self.representedPreviewIdentifier == localIdentifier else { return }
-            self.previewImageView.image = image
+private struct InspectorSection: Identifiable {
+    let title: String
+    let rows: [InspectorFieldRow]
+
+    var id: String { title }
+}
+
+private struct InspectorFieldRow: Identifiable {
+    let title: String
+    let value: String
+
+    var id: String { title }
+}
+
+private struct InspectorReadOnlyView: View {
+    @ObservedObject var viewModel: InspectorReadOnlyViewModel
+
+    private let topScrollStartInset: CGFloat = 56
+    private let contentHorizontalInset: CGFloat = 16
+    private let sectionInnerInset: CGFloat = 12
+
+    var body: some View {
+        ScrollView {
+            if let asset = viewModel.selectedAsset {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(viewModel.title)
+                            .font(.title3.weight(.semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(viewModel.subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, contentHorizontalInset)
+
+                    DisclosureGroup(
+                        isExpanded: Binding(
+                            get: { !viewModel.isSectionCollapsed("Preview") },
+                            set: { _ in viewModel.toggleSection("Preview") }
+                        )
+                    ) {
+                        previewCard
+                            .padding(sectionInnerInset)
+                            .background(sectionCardBackground)
+                    } label: {
+                        sectionHeader("Preview")
+                    }
+                    .padding(.horizontal, contentHorizontalInset)
+
+                    ForEach(viewModel.sections(for: asset)) { section in
+                        DisclosureGroup(
+                            isExpanded: Binding(
+                                get: { !viewModel.isSectionCollapsed(section.title) },
+                                set: { _ in viewModel.toggleSection(section.title) }
+                            )
+                        ) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(section.rows) { row in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(row.title.uppercased())
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(row.value)
+                                            .font(.body.monospaced())
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(2)
+                                            .truncationMode(.middle)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(sectionInnerInset)
+                            .background(sectionCardBackground)
+                        } label: {
+                            sectionHeader(section.title)
+                        }
+                        .padding(.horizontal, contentHorizontalInset)
+                    }
+                }
+                .padding(.vertical, 12)
+            } else {
+                ContentUnavailableView(
+                    "No Selection",
+                    systemImage: "slider.horizontal.3",
+                    description: Text("Select a photo to view metadata.")
+                )
+                .frame(maxWidth: .infinity)
+                .containerRelativeFrame(.vertical, alignment: .center)
+            }
         }
+        .ignoresSafeArea(.container, edges: .top)
+        .contentMargins(.top, topScrollStartInset, for: .scrollContent)
+    }
+
+    private var previewCard: some View {
+        ZStack {
+            if let image = viewModel.previewImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.quaternary.opacity(0.22))
+            }
+        }
+        .frame(height: 220)
+        .overlay {
+            if viewModel.isPreviewLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private var sectionCardBackground: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(.quaternary.opacity(0.35))
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .tracking(0.4)
     }
 }
