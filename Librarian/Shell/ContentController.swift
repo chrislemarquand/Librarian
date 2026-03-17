@@ -5,7 +5,8 @@ final class ContentController: NSViewController {
 
     let model: AppModel
 
-    private let maxGridAssets = 3000
+    private let galleryPageSize = 600
+    private let loadMoreRemainingThreshold: CGFloat = 1800
     private var collectionView: AppKitGalleryCollectionView!
     private let galleryLayout = AppKitGalleryLayout()
     private var scrollView: NSScrollView!
@@ -24,6 +25,8 @@ final class ContentController: NSViewController {
     private var logEmptyLabel: NSTextField!
     private var displayAssets: [IndexedAsset] = []
     private var isLoadingAssets = false
+    private var canLoadMoreAssets = true
+    private var loadGeneration = 0
     private var lastLoadedIndexedCount = -1
     private var lastLoadedAssetDataVersion = -1
     private var lastLoadedSidebarKind: SidebarItem.Kind?
@@ -75,6 +78,7 @@ final class ContentController: NSViewController {
         scrollView.documentView = collectionView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
 
@@ -131,12 +135,14 @@ final class ContentController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        observeScroll()
         loadAssetsIfNeeded(force: true)
         updateOverlay()
         observeModel()
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         model.photosService.stopAllThumbnailCaching()
     }
 
@@ -210,10 +216,11 @@ final class ContentController: NSViewController {
     private func loadAssetsIfNeeded(force: Bool) {
         guard model.photosAuthState == .authorized else { return }
         let sidebarKind = selectedSidebarKind()
-        guard force || displayAssets.isEmpty else { return }
-        guard !isLoadingAssets else { return }
 
         if sidebarKind == .indexing || sidebarKind == .log {
+            loadGeneration &+= 1
+            canLoadMoreAssets = false
+            isLoadingAssets = false
             displayAssets = []
             model.photosService.stopAllThumbnailCaching()
             lastLoadedSidebarKind = sidebarKind
@@ -225,46 +232,123 @@ final class ContentController: NSViewController {
         }
 
         guard !model.isIndexing else { return }
+        let shouldReload = force || displayAssets.isEmpty || lastLoadedSidebarKind != sidebarKind
+        if shouldReload {
+            resetPagedLoadState(for: sidebarKind)
+            fetchPage(sidebarKind: sidebarKind, offset: 0, replaceExisting: true)
+        } else {
+            loadNextPageIfNeeded()
+        }
+    }
+
+    private func resetPagedLoadState(for sidebarKind: SidebarItem.Kind) {
+        loadGeneration &+= 1
+        canLoadMoreAssets = true
+        isLoadingAssets = false
+        lastLoadedSidebarKind = sidebarKind
+    }
+
+    private func fetchPage(sidebarKind: SidebarItem.Kind, offset: Int, replaceExisting: Bool) {
+        guard !isLoadingAssets else { return }
+        if !replaceExisting && !canLoadMoreAssets {
+            return
+        }
+        guard sidebarKind == selectedSidebarKind() else { return }
 
         isLoadingAssets = true
         updateOverlay()
 
         let database = model.database
-        let maxGridAssets = self.maxGridAssets
+        let pageSize = self.galleryPageSize
+        let generation = loadGeneration
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
             let assets: [IndexedAsset]
             switch sidebarKind {
             case .allPhotos:
-                assets = (try? database.assetRepository.fetchForGrid(limit: maxGridAssets)) ?? []
+                assets = (try? database.assetRepository.fetchForGrid(limit: pageSize, offset: offset)) ?? []
             case .recents:
-                assets = (try? database.assetRepository.fetchRecentsForGrid(since: recentCutoff, limit: maxGridAssets)) ?? []
+                assets = (try? database.assetRepository.fetchRecentsForGrid(since: recentCutoff, limit: pageSize, offset: offset)) ?? []
             case .favourites:
-                assets = (try? database.assetRepository.fetchFavouritesForGrid(limit: maxGridAssets)) ?? []
+                assets = (try? database.assetRepository.fetchFavouritesForGrid(limit: pageSize, offset: offset)) ?? []
             case .screenshots:
-                assets = (try? database.assetRepository.fetchScreenshotsForReview(limit: maxGridAssets)) ?? []
+                assets = (try? database.assetRepository.fetchScreenshotsForReview(limit: pageSize, offset: offset)) ?? []
             case .setAsideForArchive:
-                assets = (try? database.assetRepository.fetchArchiveCandidatesForGrid(limit: maxGridAssets)) ?? []
+                assets = (try? database.assetRepository.fetchArchiveCandidatesForGrid(limit: pageSize, offset: offset)) ?? []
             case .indexing, .log:
                 assets = []
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.displayAssets = assets
+                guard generation == self.loadGeneration else { return }
+                guard sidebarKind == self.selectedSidebarKind() else { return }
+
+                if replaceExisting {
+                    self.displayAssets = assets
+                    self.model.photosService.stopAllThumbnailCaching()
+                    self.collectionView.reloadData()
+                    self.syncModelSelectionFromCollection()
+                    if self.collectionView.selectionIndexPaths.isEmpty {
+                        self.selectionAnchorIndex = nil
+                    }
+                } else if !assets.isEmpty {
+                    let start = self.displayAssets.count
+                    self.displayAssets.append(contentsOf: assets)
+                    let indexPaths = Set((start ..< self.displayAssets.count).map { IndexPath(item: $0, section: 0) })
+                    self.collectionView.performBatchUpdates({
+                        self.collectionView.insertItems(at: indexPaths)
+                    })
+                }
+
+                self.canLoadMoreAssets = assets.count == pageSize
                 self.lastLoadedIndexedCount = self.model.indexedAssetCount
                 self.lastLoadedAssetDataVersion = self.model.assetDataVersion
                 self.lastLoadedSidebarKind = sidebarKind
                 self.isLoadingAssets = false
-                self.model.photosService.stopAllThumbnailCaching()
-                self.collectionView.reloadData()
-                self.syncModelSelectionFromCollection()
                 self.updateOverlay()
                 self.updateScreenshotActionBarState()
-                if self.collectionView.selectionIndexPaths.isEmpty {
-                    self.selectionAnchorIndex = nil
+                if !replaceExisting, !assets.isEmpty {
+                    self.syncModelSelectionFromCollection()
+                }
+                if self.shouldLoadNextPageForCurrentScrollPosition() {
+                    self.loadNextPageIfNeeded()
                 }
             }
         }
+    }
+
+    private func observeScroll() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(scrollBoundsDidChange),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+    }
+
+    @objc private func scrollBoundsDidChange() {
+        loadNextPageIfNeeded()
+    }
+
+    private func loadNextPageIfNeeded() {
+        guard model.photosAuthState == .authorized else { return }
+        guard !model.isIndexing else { return }
+        guard !isLoadingAssets else { return }
+        guard canLoadMoreAssets else { return }
+
+        let sidebarKind = selectedSidebarKind()
+        guard sidebarKind != .indexing, sidebarKind != .log else { return }
+        guard shouldLoadNextPageForCurrentScrollPosition() else { return }
+
+        fetchPage(sidebarKind: sidebarKind, offset: displayAssets.count, replaceExisting: false)
+    }
+
+    private func shouldLoadNextPageForCurrentScrollPosition() -> Bool {
+        guard !displayAssets.isEmpty else { return true }
+        guard let documentView = scrollView.documentView else { return false }
+        let visibleRect = scrollView.contentView.bounds
+        let remaining = documentView.bounds.maxY - visibleRect.maxY
+        return remaining <= loadMoreRemainingThreshold
     }
 
     private func updateOverlay() {
@@ -307,7 +391,7 @@ final class ContentController: NSViewController {
                 collectionView.isHidden = true
                 indexingPane.isHidden = true
                 logPane.isHidden = true
-            } else if isLoadingAssets {
+            } else if isLoadingAssets, displayAssets.isEmpty {
                 overlayLabel.stringValue = loadingMessage(for: sidebarKind)
                 overlayLabel.isHidden = false
                 collectionView.isHidden = true

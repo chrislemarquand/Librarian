@@ -87,23 +87,24 @@ final class AssetRepository {
         }
     }
 
-    func fetchForGrid(limit: Int) throws -> [IndexedAsset] {
-        try fetchActiveAssets(whereClause: nil, arguments: StatementArguments(), limit: limit)
+    func fetchForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try fetchActiveAssets(whereClause: nil, arguments: StatementArguments(), limit: limit, offset: offset)
     }
 
-    func fetchFavouritesForGrid(limit: Int) throws -> [IndexedAsset] {
-        try fetchActiveAssets(whereClause: "a.isFavorite = 1", arguments: StatementArguments(), limit: limit)
+    func fetchFavouritesForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try fetchActiveAssets(whereClause: "a.isFavorite = 1", arguments: StatementArguments(), limit: limit, offset: offset)
     }
 
-    func fetchRecentsForGrid(since date: Date, limit: Int) throws -> [IndexedAsset] {
+    func fetchRecentsForGrid(since date: Date, limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
         try fetchActiveAssets(
             whereClause: "a.creationDate IS NOT NULL AND a.creationDate >= ?",
             arguments: StatementArguments([date]),
-            limit: limit
+            limit: limit,
+            offset: offset
         )
     }
 
-    func fetchScreenshotsForReview(limit: Int) throws -> [IndexedAsset] {
+    func fetchScreenshotsForReview(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
         try db.read { db in
             let request = SQLRequest<IndexedAsset>(
                 sql: """
@@ -115,14 +116,15 @@ final class AssetRepository {
                       AND (sr.decision IS NULL OR sr.decision = ?)
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ?
+                    OFFSET ?
                 """,
-                arguments: [ScreenshotReviewDecision.none.rawValue, limit]
+                arguments: [ScreenshotReviewDecision.none.rawValue, limit, offset]
             )
             return try request.fetchAll(db)
         }
     }
 
-    func fetchArchiveCandidatesForGrid(limit: Int) throws -> [IndexedAsset] {
+    func fetchArchiveCandidatesForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
         try db.read { db in
             let request = SQLRequest<IndexedAsset>(
                 sql: """
@@ -134,12 +136,14 @@ final class AssetRepository {
                       AND ac.status IN (?, ?, ?)
                     ORDER BY ac.queuedAt DESC, a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ?
+                    OFFSET ?
                 """,
                 arguments: [
                     ArchiveCandidateStatus.pending.rawValue,
                     ArchiveCandidateStatus.exporting.rawValue,
                     ArchiveCandidateStatus.failed.rawValue,
-                    limit
+                    limit,
+                    offset
                 ]
             )
             return try request.fetchAll(db)
@@ -386,7 +390,7 @@ final class AssetRepository {
         }
     }
 
-    private func fetchActiveAssets(whereClause: String?, arguments: StatementArguments, limit: Int) throws -> [IndexedAsset] {
+    private func fetchActiveAssets(whereClause: String?, arguments: StatementArguments, limit: Int, offset: Int) throws -> [IndexedAsset] {
         try db.read { db in
             var sql = """
                 SELECT a.*
@@ -395,9 +399,10 @@ final class AssetRepository {
             if let whereClause, !whereClause.isEmpty {
                 sql += "\nWHERE \(whereClause)"
             }
-            sql += "\nORDER BY a.creationDate DESC, a.localIdentifier DESC\nLIMIT ?"
+            sql += "\nORDER BY a.creationDate DESC, a.localIdentifier DESC\nLIMIT ?\nOFFSET ?"
             var finalArguments = arguments
             finalArguments += [limit]
+            finalArguments += [offset]
             let request = SQLRequest<IndexedAsset>(sql: sql, arguments: finalArguments)
             return try request.fetchAll(db)
         }
