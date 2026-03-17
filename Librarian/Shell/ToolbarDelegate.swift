@@ -38,6 +38,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
+            .flexibleSpace,
             .toggleSidebar,
             .librarianSidebarSeparator,
             .librarianIndexingProgress,
@@ -92,6 +93,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
 
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.view = container
+            item.isBordered = false
             item.visibilityPriority = .low
             item.label = "Activity"
             progressSpinner = spinner
@@ -107,6 +109,8 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             item.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Toggle Inspector")
             item.target = splitVC
             item.action = #selector(MainSplitViewController.toggleInspector(_:))
+            item.autovalidates = false
+            item.isEnabled = true
             item.isBordered = true
             inspectorToggleItem = item
 
@@ -164,6 +168,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
     private func updateInspectorToggle(model: AppModel) {
         guard let item = inspectorToggleItem else { return }
         item.label = model.isInspectorCollapsed ? "Show Inspector" : "Hide Inspector"
+        item.isEnabled = true
     }
 
     private func updateZoomItems(model: AppModel) {

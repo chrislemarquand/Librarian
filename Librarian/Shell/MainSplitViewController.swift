@@ -36,11 +36,13 @@ final class MainSplitViewController: NSSplitViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         buildSplitLayout()
+        inspectorSplitItem?.isCollapsed = true
         toolbarDelegate.configure(splitVC: self)
-        toolbarDelegate.refresh(model: model)
         observeModelState()
         installKeyEventMonitor()
         observeInnerSplitResize()
+        syncInspectorState()
+        toolbarDelegate.refresh(model: model)
     }
 
     override func viewDidAppear() {
@@ -64,9 +66,6 @@ final class MainSplitViewController: NSSplitViewController {
 
         let sidebarWrap = NSSplitViewItem(sidebarWithViewController: sidebarController)
         sidebarWrap.minimumThickness = 200
-        sidebarWrap.maximumThickness = 380
-        sidebarWrap.canCollapse = true
-        sidebarWrap.holdingPriority = .defaultHigh
         sidebarWrap.allowsFullHeightLayout = true
         addSplitViewItem(sidebarWrap)
 

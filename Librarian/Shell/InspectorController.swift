@@ -23,7 +23,7 @@ final class InspectorController: NSViewController {
         container.wantsLayer = true
         let rootView = AnyView(
             InspectorReadOnlyView(viewModel: viewModel)
-                .tint(.accentColor)
+                .tint(AppTheme.accentColor)
         )
         let host = NSHostingController(rootView: rootView)
         host.sizingOptions = []
@@ -371,7 +371,7 @@ private struct InspectorReadOnlyView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
             .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(AppTheme.accentColor)
             .tracking(0.4)
     }
 }

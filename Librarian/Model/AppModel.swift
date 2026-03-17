@@ -1,6 +1,17 @@
 import Cocoa
 import Photos
 import Combine
+import SwiftUI
+
+enum AppTheme {
+    static var accentNSColor: NSColor {
+        .systemRed
+    }
+
+    static var accentColor: Color {
+        Color(nsColor: accentNSColor)
+    }
+}
 
 @MainActor
 final class AppModel: ObservableObject {

@@ -23,7 +23,6 @@ struct SidebarItem: Equatable {
     let kind: Kind
     var title: String
     var symbolName: String
-    var badge: String?
 
     static let allItems: [SidebarItem] = [
         SidebarItem(section: .library, kind: .allPhotos,   title: "All Photos",  symbolName: "photo.on.rectangle.angled"),
@@ -210,6 +209,17 @@ extension SidebarController: NSOutlineViewDelegate {
         item is SidebarItem
     }
 
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+        guard item is SidebarItem else { return nil }
+        let id = NSUserInterfaceItemIdentifier("SidebarSelectionRowView")
+        if let reused = outlineView.makeView(withIdentifier: id, owner: nil) as? SidebarSelectionRowView {
+            return reused
+        }
+        let rowView = SidebarSelectionRowView()
+        rowView.identifier = id
+        return rowView
+    }
+
     func outlineViewSelectionDidChange(_ notification: Notification) {
         let row = outlineView.selectedRow
         guard row >= 0, let sidebarItem = outlineView.item(atRow: row) as? SidebarItem else { return }
@@ -249,6 +259,10 @@ extension SidebarController: NSOutlineViewDelegate {
             cell = NSTableCellView()
             cell.identifier = id
 
+            let iconContainer = NSView()
+            iconContainer.translatesAutoresizingMaskIntoConstraints = false
+            iconContainer.identifier = NSUserInterfaceItemIdentifier("iconContainer")
+
             let icon = NSImageView()
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.identifier = NSUserInterfaceItemIdentifier("icon")
@@ -258,50 +272,46 @@ extension SidebarController: NSOutlineViewDelegate {
             title.lineBreakMode = .byTruncatingTail
             title.identifier = NSUserInterfaceItemIdentifier("title")
 
-            let badge = NSTextField(labelWithString: "")
-            badge.translatesAutoresizingMaskIntoConstraints = false
-            badge.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-            badge.textColor = .secondaryLabelColor
-            badge.alignment = .right
-            badge.identifier = NSUserInterfaceItemIdentifier("badge")
-
-            cell.addSubview(icon)
+            iconContainer.addSubview(icon)
+            cell.addSubview(iconContainer)
             cell.addSubview(title)
-            cell.addSubview(badge)
             cell.imageView = icon
             cell.textField = title
 
             NSLayoutConstraint.activate([
-                icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+                iconContainer.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+                iconContainer.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                iconContainer.widthAnchor.constraint(equalToConstant: 20),
+                iconContainer.heightAnchor.constraint(equalToConstant: 16),
+
+                icon.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
                 icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                icon.widthAnchor.constraint(equalToConstant: 16),
-                icon.heightAnchor.constraint(equalToConstant: 16),
 
-                title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
+                title.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 6),
                 title.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                title.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -6),
-
-                badge.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
-                badge.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
+                title.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -8),
             ])
         }
 
         cell.textField?.stringValue = sidebarItem.title
         cell.imageView?.image = NSImage(systemSymbolName: sidebarItem.symbolName, accessibilityDescription: sidebarItem.title)
-        if let badgeLabel = cell.subviews.first(where: { $0.identifier == NSUserInterfaceItemIdentifier("badge") }) as? NSTextField {
-            if let badge = sidebarItem.badge {
-                badgeLabel.stringValue = badge
-                badgeLabel.isHidden = false
-            } else if sidebarItem.kind == .allPhotos, model.indexedAssetCount > 0 {
-                badgeLabel.stringValue = model.indexedAssetCount.formatted()
-                badgeLabel.isHidden = false
-            } else {
-                badgeLabel.isHidden = true
-            }
-        }
 
         return cell
+    }
+}
+
+private final class SidebarSelectionRowView: NSTableRowView {
+    override var interiorBackgroundStyle: NSView.BackgroundStyle {
+        isSelected ? .emphasized : .normal
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard selectionHighlightStyle != .none, isSelected else { return }
+        let fillColor = AppTheme.accentNSColor.withAlphaComponent(isEmphasized ? 1.0 : 0.55)
+        fillColor.setFill()
+        let selectionRect = bounds.insetBy(dx: 6, dy: 2)
+        let path = NSBezierPath(roundedRect: selectionRect, xRadius: 8, yRadius: 8)
+        path.fill()
     }
 }
 

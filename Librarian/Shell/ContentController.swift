@@ -1064,7 +1064,7 @@ private final class AssetGridItem: NSCollectionViewItem {
     override var isSelected: Bool {
         didSet {
             selectionBackgroundView.layer?.backgroundColor = isSelected
-                ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
+                ? AppTheme.accentNSColor.withAlphaComponent(0.22).cgColor
                 : NSColor.clear.cgColor
         }
     }
