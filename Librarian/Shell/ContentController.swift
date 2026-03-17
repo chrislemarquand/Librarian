@@ -25,6 +25,7 @@ final class ContentController: NSViewController {
     private var displayAssets: [IndexedAsset] = []
     private var isLoadingAssets = false
     private var lastLoadedIndexedCount = -1
+    private var lastLoadedAssetDataVersion = -1
     private var lastLoadedSidebarKind: SidebarItem.Kind?
     private var zoomRestoreToken = 0
     private var pinchAccumulator: CGFloat = 0
@@ -164,11 +165,18 @@ final class ContentController: NSViewController {
             name: .librarianGalleryZoomChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(archiveQueueChanged),
+            name: .librarianArchiveQueueChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
         if model.photosAuthState == .authorized {
             let shouldForceReload = model.indexedAssetCount != lastLoadedIndexedCount
+                || model.assetDataVersion != lastLoadedAssetDataVersion
                 || selectedSidebarKind() != lastLoadedSidebarKind
             loadAssetsIfNeeded(force: shouldForceReload)
         }
@@ -191,6 +199,12 @@ final class ContentController: NSViewController {
 
     @objc private func galleryZoomChanged() {
         applyColumnCount(model.galleryColumnCount, animated: true)
+    }
+
+    @objc private func archiveQueueChanged() {
+        if selectedSidebarKind() == .setAsideForArchive {
+            loadAssetsIfNeeded(force: true)
+        }
     }
 
     private func loadAssetsIfNeeded(force: Bool) {
@@ -229,6 +243,8 @@ final class ContentController: NSViewController {
                 assets = (try? database.assetRepository.fetchFavouritesForGrid(limit: maxGridAssets)) ?? []
             case .screenshots:
                 assets = (try? database.assetRepository.fetchScreenshotsForReview(limit: maxGridAssets)) ?? []
+            case .setAsideForArchive:
+                assets = (try? database.assetRepository.fetchArchiveCandidatesForGrid(limit: maxGridAssets)) ?? []
             case .indexing, .log:
                 assets = []
             }
@@ -236,6 +252,7 @@ final class ContentController: NSViewController {
                 guard let self else { return }
                 self.displayAssets = assets
                 self.lastLoadedIndexedCount = self.model.indexedAssetCount
+                self.lastLoadedAssetDataVersion = self.model.assetDataVersion
                 self.lastLoadedSidebarKind = sidebarKind
                 self.isLoadingAssets = false
                 self.model.photosService.stopAllThumbnailCaching()
@@ -447,6 +464,7 @@ final class ContentController: NSViewController {
         case .recents: return "Loading photos from the past 30 days…"
         case .favourites: return "Loading favourites…"
         case .screenshots: return "Loading screenshots queue…"
+        case .setAsideForArchive: return "Loading archive set-aside queue…"
         case .indexing: return "Indexing your library…"
         case .log: return "Loading log…"
         }
@@ -462,6 +480,8 @@ final class ContentController: NSViewController {
             return "No favourites found."
         case .screenshots:
             return "No screenshots pending review."
+        case .setAsideForArchive:
+            return "No photos set aside for archive."
         case .indexing:
             return "Indexing is idle."
         case .log:
@@ -641,7 +661,10 @@ final class ContentController: NSViewController {
         if sidebarKind == .indexing {
             return true
         }
-        if sidebarKind == .allPhotos, displayAssets.isEmpty, (model.isIndexing || isLoadingAssets || model.indexedAssetCount == 0) {
+        if sidebarKind == .allPhotos, model.isIndexing {
+            return true
+        }
+        if sidebarKind == .allPhotos, displayAssets.isEmpty, (isLoadingAssets || model.indexedAssetCount == 0) {
             return true
         }
         return false
@@ -669,6 +692,9 @@ final class ContentController: NSViewController {
         guard !selectedAssets.isEmpty else { return }
         do {
             try model.database.assetRepository.setScreenshotDecision(identifiers: selectedAssets, decision: decision)
+            if decision == .archiveCandidate {
+                try model.queueAssetsForArchive(localIdentifiers: selectedAssets)
+            }
             AppLog.shared.info("Marked \(selectedAssets.count) screenshot(s) as \(decision.rawValue)")
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
@@ -685,6 +711,47 @@ final class ContentController: NSViewController {
             .filter { $0 >= 0 && $0 < displayAssets.count }
             .sorted()
             .map { displayAssets[$0].localIdentifier }
+    }
+
+    var hasSelectedAssets: Bool {
+        !selectedAssetIdentifiers().isEmpty
+    }
+
+    func queueSelectedAssetsForArchive() {
+        let identifiers = selectedAssetIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.queueAssetsForArchive(localIdentifiers: identifiers)
+            AppLog.shared.info("Set aside \(identifiers.count) selected photo(s) for archive")
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+        } catch {
+            AppLog.shared.error("Failed to set aside photos for archive: \(error.localizedDescription)")
+        }
+    }
+
+    var canPutBackFromArchiveQueue: Bool {
+        selectedSidebarKind() == .setAsideForArchive && hasSelectedAssets
+    }
+
+    func putBackSelectedArchiveAssets() {
+        guard selectedSidebarKind() == .setAsideForArchive else { return }
+        let identifiers = selectedAssetIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.unqueueAssetsForArchive(localIdentifiers: identifiers)
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+            AppLog.shared.info("Put back \(identifiers.count) item(s) from archive set-aside queue")
+        } catch {
+            AppLog.shared.error("Failed to put back selected archive items: \(error.localizedDescription)")
+        }
+    }
+
+    func refreshDisplayedAssets() {
+        loadAssetsIfNeeded(force: true)
     }
 
     private func updateScreenshotActionBarState() {

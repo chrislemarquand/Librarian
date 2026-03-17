@@ -34,6 +34,18 @@ final class PhotosLibraryService {
         PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil).firstObject
     }
 
+    /// Fetches multiple assets by local identifiers.
+    func fetchAssets(localIdentifiers: [String]) -> [PHAsset] {
+        guard !localIdentifiers.isEmpty else { return [] }
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: localIdentifiers, options: nil)
+        var assets: [PHAsset] = []
+        assets.reserveCapacity(fetchResult.count)
+        fetchResult.enumerateObjects { asset, _, _ in
+            assets.append(asset)
+        }
+        return assets
+    }
+
     // MARK: - Thumbnail
 
     func requestThumbnail(
@@ -105,6 +117,40 @@ final class PhotosLibraryService {
             logger.error("Failed to reveal asset in Photos: \(String(describing: error), privacy: .public)")
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/System/Applications/Photos.app"), configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
         }
+    }
+
+    // MARK: - Deletion
+
+    func deleteAssets(localIdentifiers: [String]) async throws -> [String] {
+        let uniqueIdentifiers = Array(Set(localIdentifiers))
+        guard !uniqueIdentifiers.isEmpty else { return [] }
+
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: uniqueIdentifiers, options: nil)
+        guard fetchResult.count > 0 else { return [] }
+        var foundIdentifiers: [String] = []
+        fetchResult.enumerateObjects { asset, _, _ in
+            foundIdentifiers.append(asset.localIdentifier)
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.deleteAssets(fetchResult)
+            }) { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                if success {
+                    continuation.resume(returning: ())
+                } else {
+                    continuation.resume(throwing: NSError(domain: "com.librarian.app.photos", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "Deletion request failed."
+                    ]))
+                }
+            }
+        }
+
+        return foundIdentifiers
     }
 
     private func makeThumbnailOptions(deliveryMode: PHImageRequestOptionsDeliveryMode) -> PHImageRequestOptions {

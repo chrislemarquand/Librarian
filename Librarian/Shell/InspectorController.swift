@@ -69,6 +69,12 @@ final class InspectorController: NSViewController {
             name: .librarianSelectionChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(selectionChanged),
+            name: .librarianArchiveQueueChanged,
+            object: nil
+        )
     }
 
     @objc private func selectionChanged() {
@@ -87,6 +93,7 @@ final class InspectorController: NSViewController {
 @MainActor
 private final class InspectorReadOnlyViewModel: ObservableObject {
     @Published private(set) var selectedAsset: IndexedAsset?
+    @Published private(set) var archiveCandidateInfo: ArchiveCandidateInfo?
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var isPreviewLoading = false
     @Published private(set) var collapsedSections: Set<String>
@@ -110,6 +117,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     func showEmpty() {
         selectedAsset = nil
+        archiveCandidateInfo = nil
         previewImage = nil
         isPreviewLoading = false
         representedPreviewIdentifier = nil
@@ -117,6 +125,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     func showAsset(_ asset: IndexedAsset) {
         selectedAsset = asset
+        archiveCandidateInfo = model.archiveCandidateInfo(for: asset.localIdentifier)
         previewImage = nil
         representedPreviewIdentifier = asset.localIdentifier
         requestPreviewImage(for: asset.localIdentifier)
@@ -138,7 +147,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     func sections(for asset: IndexedAsset) -> [InspectorSection] {
         let dimensions = dimensionsText(width: asset.pixelWidth, height: asset.pixelHeight)
         let megapixels = megapixelsText(width: asset.pixelWidth, height: asset.pixelHeight)
-        return [
+        var sections: [InspectorSection] = [
             InspectorSection(
                 title: "General",
                 rows: [
@@ -178,6 +187,28 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
                 ]
             ),
         ]
+
+        if let archiveCandidateInfo {
+            var archiveRows: [InspectorFieldRow] = [
+                InspectorFieldRow(title: "Status", value: archiveStatusLabel(archiveCandidateInfo.status)),
+                InspectorFieldRow(title: "Queued", value: formattedDate(archiveCandidateInfo.queuedAt)),
+            ]
+            if let exportedAt = archiveCandidateInfo.exportedAt {
+                archiveRows.append(InspectorFieldRow(title: "Exported", value: formattedDate(exportedAt)))
+            }
+            if let deletedAt = archiveCandidateInfo.deletedAt {
+                archiveRows.append(InspectorFieldRow(title: "Deleted", value: formattedDate(deletedAt)))
+            }
+            if let archivePath = archiveCandidateInfo.archivePath, !archivePath.isEmpty {
+                archiveRows.append(InspectorFieldRow(title: "Archive Path", value: archivePath))
+            }
+            if let error = archiveCandidateInfo.lastError, !error.isEmpty {
+                archiveRows.append(InspectorFieldRow(title: "Last Error", value: error))
+            }
+            sections.append(InspectorSection(title: "Archive", rows: archiveRows))
+        }
+
+        return sections
     }
 
     var title: String {
@@ -231,6 +262,16 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     private func yesNo(_ value: Bool) -> String {
         value ? "Yes" : "No"
+    }
+
+    private func archiveStatusLabel(_ status: ArchiveCandidateStatus) -> String {
+        switch status {
+        case .pending: return "Pending"
+        case .exporting: return "Exporting"
+        case .exported: return "Exported"
+        case .deleted: return "Deleted"
+        case .failed: return "Failed"
+        }
     }
 
     private func mediaTypeLabel(for value: Int) -> String {

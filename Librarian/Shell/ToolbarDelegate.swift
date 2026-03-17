@@ -6,6 +6,9 @@ extension NSToolbarItem.Identifier {
     static let librarianIndexingProgress  = NSToolbarItem.Identifier("com.librarian.app.toolbar.indexingProgress")
     static let librarianZoomOut           = NSToolbarItem.Identifier("com.librarian.app.toolbar.zoomOut")
     static let librarianZoomIn            = NSToolbarItem.Identifier("com.librarian.app.toolbar.zoomIn")
+    static let librarianSetAside          = NSToolbarItem.Identifier("com.librarian.app.toolbar.setAside")
+    static let librarianPutBack           = NSToolbarItem.Identifier("com.librarian.app.toolbar.putBack")
+    static let librarianSendToArchive     = NSToolbarItem.Identifier("com.librarian.app.toolbar.sendToArchive")
     static let librarianToggleInspector   = NSToolbarItem.Identifier("com.librarian.app.toolbar.toggleInspector")
 }
 
@@ -15,6 +18,9 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
     private weak var progressSpinner: NSProgressIndicator?
     private weak var zoomOutItem: NSToolbarItem?
     private weak var zoomInItem: NSToolbarItem?
+    private weak var setAsideItem: NSToolbarItem?
+    private weak var putBackItem: NSToolbarItem?
+    private weak var sendToArchiveItem: NSToolbarItem?
     private weak var inspectorToggleItem: NSToolbarItem?
 
     func configure(splitVC: MainSplitViewController) {
@@ -25,12 +31,16 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
         progressSpinner = nil
         zoomOutItem = nil
         zoomInItem = nil
+        setAsideItem = nil
+        putBackItem = nil
+        sendToArchiveItem = nil
         inspectorToggleItem = nil
     }
 
     func refresh(model: AppModel) {
         updateProgressSpinner(model: model)
         updateZoomItems(model: model)
+        updateArchiveItems(model: model)
         updateInspectorToggle(model: model)
     }
 
@@ -44,6 +54,9 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             .librarianIndexingProgress,
             .librarianZoomOut,
             .librarianZoomIn,
+            .librarianSetAside,
+            .librarianPutBack,
+            .librarianSendToArchive,
             .flexibleSpace,
             .librarianInspectorSeparator,
             .librarianToggleInspector,
@@ -149,6 +162,51 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             }
             return item
 
+        case .librarianSetAside:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Set Aside"
+            item.paletteLabel = "Set Aside"
+            item.image = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: "Set Aside for Archive")
+            item.autovalidates = false
+            item.target = splitVC
+            item.action = #selector(MainSplitViewController.setAsideSelectionAction(_:))
+            item.toolTip = "Set selected photos aside for archive"
+            setAsideItem = item
+            if let model = splitVC?.model {
+                updateArchiveItems(model: model)
+            }
+            return item
+
+        case .librarianSendToArchive:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Send to Archive"
+            item.paletteLabel = "Send to Archive"
+            item.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Send to Archive")
+            item.autovalidates = false
+            item.target = splitVC
+            item.action = #selector(MainSplitViewController.sendToArchiveAction(_:))
+            item.toolTip = "Export set-aside photos and delete from Photos"
+            sendToArchiveItem = item
+            if let model = splitVC?.model {
+                updateArchiveItems(model: model)
+            }
+            return item
+
+        case .librarianPutBack:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Put Back"
+            item.paletteLabel = "Put Back"
+            item.image = NSImage(systemSymbolName: "arrow.uturn.left.circle", accessibilityDescription: "Put Back")
+            item.autovalidates = false
+            item.target = splitVC
+            item.action = #selector(MainSplitViewController.putBackSelectionAction(_:))
+            item.toolTip = "Remove selected photos from set-aside archive queue"
+            putBackItem = item
+            if let model = splitVC?.model {
+                updateArchiveItems(model: model)
+            }
+            return item
+
         default:
             return nil
         }
@@ -158,7 +216,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
 
     private func updateProgressSpinner(model: AppModel) {
         guard let spinner = progressSpinner else { return }
-        if model.isIndexing {
+        if model.isIndexing || model.isSendingArchive {
             spinner.startAnimation(nil)
         } else {
             spinner.stopAnimation(nil)
@@ -174,12 +232,27 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
     private func updateZoomItems(model: AppModel) {
         let isGalleryContext: Bool
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
-        case .allPhotos, .recents, .favourites, .screenshots:
+        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive:
             isGalleryContext = true
         case .indexing, .log:
             isGalleryContext = false
         }
         zoomOutItem?.isEnabled = isGalleryContext && model.canDecreaseGalleryZoom
         zoomInItem?.isEnabled = isGalleryContext && model.canIncreaseGalleryZoom
+    }
+
+    private func updateArchiveItems(model: AppModel) {
+        setAsideItem?.isEnabled = splitVC?.canSetAsideSelection == true && !model.isSendingArchive
+        let canPutBackSelection = splitVC?.canPutBackSelection == true
+        let canPutBackFailed = splitVC?.canPutBackFailedItems == true
+        putBackItem?.isEnabled = canPutBackSelection || canPutBackFailed
+        if canPutBackSelection {
+            putBackItem?.toolTip = "Remove selected photos from set-aside archive queue"
+        } else if canPutBackFailed {
+            putBackItem?.toolTip = "Remove all failed items from set-aside archive queue"
+        } else {
+            putBackItem?.toolTip = "Remove selected photos from set-aside archive queue"
+        }
+        sendToArchiveItem?.isEnabled = model.pendingArchiveCandidateCount > 0 && !model.isSendingArchive
     }
 }

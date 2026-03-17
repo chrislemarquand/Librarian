@@ -53,5 +53,54 @@ enum LibrarianMigrations {
             }
             try db.create(index: "screenshot_review_decision", on: "screenshot_review", columns: ["decision"])
         }
+
+        migrator.registerMigration("v3_add_archive_candidate_queue") { db in
+            try db.create(table: "archive_candidate") { t in
+                t.column("assetLocalIdentifier", .text).notNull().primaryKey()
+                t.column("status", .text).notNull().defaults(to: "pending")
+                t.column("queuedAt", .datetime).notNull()
+                t.column("exportedAt", .datetime)
+                t.column("deletedAt", .datetime)
+                t.column("archivePath", .text)
+                t.column("lastError", .text)
+                t.foreignKey(["assetLocalIdentifier"], references: "asset", onDelete: .cascade)
+            }
+            try db.create(index: "archive_candidate_status", on: "archive_candidate", columns: ["status"])
+            try db.create(index: "archive_candidate_queuedAt", on: "archive_candidate", columns: ["queuedAt"])
+        }
+
+        migrator.registerMigration("v4_add_active_asset_view") { db in
+            try db.execute(
+                sql: """
+                    CREATE VIEW IF NOT EXISTS asset_active AS
+                    SELECT a.*
+                    FROM asset a
+                    WHERE a.isDeletedFromPhotos = 0
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM archive_candidate ac
+                        WHERE ac.assetLocalIdentifier = a.localIdentifier
+                    )
+                """
+            )
+        }
+
+        migrator.registerMigration("v5_refine_active_asset_view_filters") { db in
+            try db.execute(sql: "DROP VIEW IF EXISTS asset_active")
+            try db.execute(
+                sql: """
+                    CREATE VIEW asset_active AS
+                    SELECT a.*
+                    FROM asset a
+                    WHERE a.isDeletedFromPhotos = 0
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM archive_candidate ac
+                        WHERE ac.assetLocalIdentifier = a.localIdentifier
+                          AND ac.status IN ('pending', 'exporting', 'failed', 'exported')
+                      )
+                """
+            )
+        }
     }
 }

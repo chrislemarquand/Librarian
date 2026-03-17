@@ -4,6 +4,7 @@ import Cocoa
 
 enum SidebarSection: String, CaseIterable {
     case library = "Library"
+    case archive = "Archive"
     case tasks   = "Tasks"
 
     var title: String { rawValue }
@@ -15,6 +16,7 @@ struct SidebarItem: Equatable {
         case recents
         case favourites
         case screenshots
+        case setAsideForArchive
         case indexing
         case log
     }
@@ -29,6 +31,7 @@ struct SidebarItem: Equatable {
         SidebarItem(section: .library, kind: .recents,     title: "Recents",     symbolName: "clock"),
         SidebarItem(section: .library, kind: .favourites,  title: "Favourites",  symbolName: "heart"),
         SidebarItem(section: .library, kind: .screenshots, title: "Screenshots", symbolName: "camera.viewfinder"),
+        SidebarItem(section: .archive, kind: .setAsideForArchive, title: "Set Aside for Archive", symbolName: "tray.full"),
         SidebarItem(section: .tasks,   kind: .log,         title: "Log",         symbolName: "list.bullet.rectangle"),
     ]
 
@@ -44,6 +47,7 @@ extension SidebarItem.Kind {
         case .recents: return "recents"
         case .favourites: return "favourites"
         case .screenshots: return "screenshots"
+        case .setAsideForArchive: return "setAsideForArchive"
         case .indexing: return "indexing"
         case .log: return "log"
         }
@@ -323,4 +327,5 @@ extension Notification.Name {
     static let librarianSelectionChanged = Notification.Name("com.librarian.app.selectionChanged")
     static let librarianLogUpdated = Notification.Name("com.librarian.app.logUpdated")
     static let librarianGalleryZoomChanged = Notification.Name("com.librarian.app.galleryZoomChanged")
+    static let librarianArchiveQueueChanged = Notification.Name("com.librarian.app.archiveQueueChanged")
 }

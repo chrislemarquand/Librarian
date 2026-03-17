@@ -15,7 +15,6 @@ final class MainSplitViewController: NSSplitViewController {
 
     private static let mainSplitAutosave = "com.librarian.app.MainSplit"
     private static let innerSplitAutosave = "com.librarian.app.InnerSplit"
-
     private var didApplyInitialSplit = false
     private var keyEventMonitor: Any?
 
@@ -149,6 +148,18 @@ final class MainSplitViewController: NSSplitViewController {
             name: .librarianGalleryZoomChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(modelStateChanged),
+            name: .librarianSelectionChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(modelStateChanged),
+            name: .librarianArchiveQueueChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
@@ -206,6 +217,61 @@ final class MainSplitViewController: NSSplitViewController {
         contentController.openSelectionInPhotos()
     }
 
+    @objc func setAsideSelectionAction(_ sender: Any?) {
+        contentController.queueSelectedAssetsForArchive()
+        toolbarDelegate.refresh(model: model)
+    }
+
+    @objc func putBackSelectionAction(_ sender: Any?) {
+        if canPutBackSelection {
+            contentController.putBackSelectedArchiveAssets()
+        } else if canPutBackFailedItems {
+            do {
+                let removed = try model.unqueueFailedArchiveAssets()
+                if removed > 0 {
+                    showArchiveAlert(
+                        title: "Put Back Failed Items",
+                        message: "Removed \(removed) failed item(s) from Set Aside."
+                    )
+                }
+                contentController.refreshDisplayedAssets()
+            } catch {
+                AppLog.shared.error("Failed to put back failed archive items: \(error.localizedDescription)")
+                showArchiveAlert(title: "Put Back Failed Items", message: error.localizedDescription)
+            }
+        }
+        toolbarDelegate.refresh(model: model)
+    }
+
+    @objc func sendToArchiveAction(_ sender: Any?) {
+        guard model.pendingArchiveCandidateCount > 0 else { return }
+        guard let archiveRoot = resolveOrPromptArchiveRoot() else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didAccess = archiveRoot.startAccessingSecurityScopedResource()
+            defer {
+                if didAccess {
+                    archiveRoot.stopAccessingSecurityScopedResource()
+                }
+            }
+            do {
+                try await self.model.sendPendingArchive(to: archiveRoot)
+                self.showArchiveAlert(
+                    title: "Archive Complete",
+                    message: "Set-aside photos were exported and moved to Recently Deleted in Photos."
+                )
+            } catch {
+                AppLog.shared.error("Send to archive failed: \(error.localizedDescription)")
+                self.showArchiveAlert(
+                    title: "Archive Failed",
+                    message: error.localizedDescription
+                )
+            }
+            self.contentController.refreshDisplayedAssets()
+            self.toolbarDelegate.refresh(model: self.model)
+        }
+    }
+
     @objc func zoomOutAction(_ sender: Any?) {
         guard isGallerySidebarSelection else { return }
         model.decreaseGalleryZoom()
@@ -220,10 +286,60 @@ final class MainSplitViewController: NSSplitViewController {
 
     private var isGallerySidebarSelection: Bool {
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
-        case .allPhotos, .recents, .favourites, .screenshots:
+        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive:
             return true
         case .indexing, .log:
             return false
+        }
+    }
+
+    var canSetAsideSelection: Bool {
+        isGallerySidebarSelection && contentController.hasSelectedAssets
+    }
+
+    var canPutBackSelection: Bool {
+        contentController.canPutBackFromArchiveQueue && !model.isSendingArchive
+    }
+
+    var canPutBackFailedItems: Bool {
+        model.selectedSidebarItem?.kind == .setAsideForArchive
+            && model.failedArchiveCandidateCount > 0
+            && !model.isSendingArchive
+    }
+
+    private func resolveOrPromptArchiveRoot() -> URL? {
+        if let existing = ArchiveSettings.restoreArchiveRootURL() {
+            return existing
+        }
+        guard let chosen = promptForArchiveRoot() else { return nil }
+        guard ArchiveSettings.persistArchiveRootURL(chosen) else { return nil }
+        return chosen
+    }
+
+    private func promptForArchiveRoot() -> URL? {
+        let panel = NSOpenPanel()
+        panel.prompt = "Set Archive Folder"
+        panel.message = "Choose where Librarian should export archived photos."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        let result = panel.runModal()
+        guard result == .OK else { return nil }
+        return panel.url
+    }
+
+    private func showArchiveAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
         }
     }
 }

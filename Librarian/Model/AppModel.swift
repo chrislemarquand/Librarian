@@ -13,6 +13,44 @@ enum AppTheme {
     }
 }
 
+enum ArchiveSettings {
+    static let bookmarkKey = "com.librarian.app.archiveRootBookmark"
+
+    static func restoreArchiveRootURL() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else {
+            return nil
+        }
+        var stale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: data,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        ) else {
+            return nil
+        }
+        if stale {
+            _ = persistArchiveRootURL(url)
+        }
+        return url
+    }
+
+    @discardableResult
+    static func persistArchiveRootURL(_ url: URL) -> Bool {
+        guard let bookmark = try? url.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) else {
+            AppLog.shared.error("Failed to save archive root bookmark")
+            return false
+        }
+        UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
+        AppLog.shared.info("Archive root set to: \(url.path)")
+        return true
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
 
@@ -27,7 +65,11 @@ final class AppModel: ObservableObject {
     @Published var selectedSidebarItem: SidebarItem? = SidebarItem.allItems.first
     @Published var isInspectorCollapsed = false
     @Published var isIndexing = false
+    @Published var isSendingArchive = false
     @Published var indexedAssetCount = 0
+    @Published var pendingArchiveCandidateCount = 0
+    @Published var failedArchiveCandidateCount = 0
+    @Published var assetDataVersion: Int = 0
     @Published var selectedAsset: IndexedAsset?
     @Published var indexingProgress: IndexingProgress = .idle
     @Published var galleryGridLevel: Int = 4 {
@@ -43,7 +85,12 @@ final class AppModel: ObservableObject {
     }
 
     private var changeTracker: PhotosChangeTracker?
-    private var pendingChangeSyncTask: Task<Void, Never>?
+    private var pendingDeltaApplyTask: Task<Void, Never>?
+    private var pendingUnknownReconcileTask: Task<Void, Never>?
+    private var suppressChangeSyncUntil: Date = .distantPast
+    private var suppressChangeSyncReason: String?
+    private var pendingUpsertsByIdentifier: [String: IndexedAsset] = [:]
+    private var pendingDeletedIdentifiers: Set<String> = []
 
     static let galleryColumnRange = 2 ... 9
     private static let galleryGridLevelKey = "ui.gallery.grid.level"
@@ -77,6 +124,8 @@ final class AppModel: ObservableObject {
 
         // Load persisted count before requesting Photos access so UI isn't blank
         indexedAssetCount = (try? database.assetRepository.count()) ?? 0
+        pendingArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.pending, .exporting, .failed])) ?? 0
+        failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
         AppLog.shared.info("Loaded persisted index count: \(indexedAssetCount)")
 
         await requestPhotosAccess()
@@ -93,6 +142,7 @@ final class AppModel: ObservableObject {
         switch status {
         case .authorized:
             registerChangeTracking()
+            suppressChangeSync(for: 8, reason: "initialAuthorization")
             if indexedAssetCount == 0 {
                 await startInitialIndex()
             } else {
@@ -126,6 +176,10 @@ final class AppModel: ObservableObject {
 
     private func startInitialIndex() async {
         await startIndexing(reason: "initial", userVisibleProgress: true)
+    }
+
+    func rebuildIndexManually() async {
+        await startIndexing(reason: "manualRebuild", userVisibleProgress: true)
     }
 
     private func startBackgroundSync(reason: String) async {
@@ -163,6 +217,7 @@ final class AppModel: ObservableObject {
 
         isIndexing = false
         indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
+        assetDataVersion &+= 1
         notifyIndexingStateChanged()
     }
 
@@ -184,6 +239,140 @@ final class AppModel: ObservableObject {
         }
         selectedAsset = asset
         NotificationCenter.default.post(name: .librarianSelectionChanged, object: nil)
+    }
+
+    func queueAssetsForArchive(localIdentifiers: [String]) throws {
+        let identifiers = Array(Set(localIdentifiers))
+        guard !identifiers.isEmpty else { return }
+        try database.assetRepository.queueForArchive(identifiers: identifiers)
+        AppLog.shared.info("Queued \(identifiers.count) item(s) for archive")
+        refreshArchiveCandidateCount()
+    }
+
+    func unqueueAssetsForArchive(localIdentifiers: [String]) throws {
+        let identifiers = Array(Set(localIdentifiers))
+        guard !identifiers.isEmpty else { return }
+        try database.assetRepository.removeFromArchiveQueue(identifiers: identifiers)
+        AppLog.shared.info("Removed \(identifiers.count) item(s) from archive set-aside queue")
+        refreshArchiveCandidateCount()
+    }
+
+    func unqueueFailedArchiveAssets() throws -> Int {
+        let failed = try database.assetRepository.fetchArchiveCandidateIdentifiers(statuses: [.failed])
+        guard !failed.isEmpty else { return 0 }
+        try database.assetRepository.removeFromArchiveQueue(identifiers: failed)
+        AppLog.shared.info("Removed \(failed.count) failed item(s) from archive set-aside queue")
+        refreshArchiveCandidateCount()
+        assetDataVersion &+= 1
+        return failed.count
+    }
+
+    func archiveCandidateInfo(for localIdentifier: String) -> ArchiveCandidateInfo? {
+        try? database.assetRepository.fetchArchiveCandidateInfo(localIdentifier: localIdentifier)
+    }
+
+    func sendPendingArchive(to archiveRootURL: URL) async throws {
+        guard !isSendingArchive else { return }
+        let identifiers = try database.assetRepository.fetchArchiveCandidateIdentifiers(
+            statuses: [.pending, .failed]
+        )
+        guard !identifiers.isEmpty else { return }
+
+        isSendingArchive = true
+        defer { isSendingArchive = false }
+
+        let job = try database.jobRepository.create(type: .archiveExport)
+        try database.jobRepository.markRunning(job)
+
+        do {
+            try database.assetRepository.markArchiveCandidatesExporting(identifiers: identifiers)
+            refreshArchiveCandidateCount()
+            let exportTargets = [
+                ArchiveExportTarget(
+                    destination: archiveRootForExport(archiveRootURL),
+                    localIdentifiers: identifiers
+                )
+            ]
+            let exportResult = try await Task.detached(priority: .utility) {
+                try runOsxPhotosExportBatch(targets: exportTargets)
+            }.value
+            let exportedIdentifiers = Array(Set(exportResult.exportedGroups.flatMap(\.localIdentifiers)))
+            let failedIdentifiers = Array(Set(exportResult.failures.map(\.identifier)))
+
+            if !failedIdentifiers.isEmpty {
+                let failedByIdentifier = Dictionary(grouping: exportResult.failures, by: \.identifier)
+                let summary = failedIdentifiers.compactMap { identifier -> String? in
+                    guard let failures = failedByIdentifier[identifier], let message = failures.first?.message else { return nil }
+                    return "\(identifier): \(message)"
+                }.joined(separator: " | ")
+                try database.assetRepository.markArchiveCandidatesFailed(identifiers: failedIdentifiers, error: summary)
+                AppLog.shared.error("Archive export failed for \(failedIdentifiers.count) item(s): \(summary)")
+            }
+
+            guard !exportedIdentifiers.isEmpty else {
+                try database.jobRepository.markFailed(job, error: "No items were exported.")
+                refreshArchiveCandidateCount()
+                throw NSError(domain: "com.librarian.app.archive", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "Export failed for \(failedIdentifiers.count) item(s). Nothing was deleted."
+                ])
+            }
+            for group in exportResult.exportedGroups where !group.localIdentifiers.isEmpty {
+                try database.assetRepository.markArchiveCandidatesExported(identifiers: group.localIdentifiers, archivePath: group.destinationPath)
+            }
+            suppressChangeSync(for: 20, reason: "archiveDelete")
+            let deletedIdentifiers = try await photosService.deleteAssets(localIdentifiers: exportedIdentifiers)
+            let deletedSet = Set(deletedIdentifiers)
+            let expectedSet = Set(exportedIdentifiers)
+            let notDeleted = Array(expectedSet.subtracting(deletedSet))
+
+            if !deletedIdentifiers.isEmpty {
+                try database.assetRepository.markDeleted(identifiers: deletedIdentifiers, at: Date())
+                try database.assetRepository.markArchiveCandidatesDeleted(identifiers: deletedIdentifiers)
+            }
+
+            if !notDeleted.isEmpty {
+                let errorText = "Delete step did not remove \(notDeleted.count) item(s) from Photos. Returned to archive queue."
+                try database.assetRepository.markArchiveCandidatesFailed(identifiers: notDeleted, error: errorText)
+                try database.jobRepository.markFailed(job, error: errorText)
+                AppLog.shared.error("Archive send partially failed. Exported \(exportedIdentifiers.count), deleted \(deletedIdentifiers.count), not deleted \(notDeleted.count).")
+                indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
+                assetDataVersion &+= 1
+                refreshArchiveCandidateCount()
+                notifyIndexingStateChanged()
+                throw NSError(domain: "com.librarian.app.archive", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "Exported \(exportedIdentifiers.count) item(s), but \(notDeleted.count) could not be removed from Photos. Those items were returned to Set Aside."
+                ])
+            }
+
+            if !failedIdentifiers.isEmpty {
+                let message = "Exported \(exportedIdentifiers.count) item(s). \(failedIdentifiers.count) failed and remain in Set Aside."
+                try database.jobRepository.markFailed(job, error: message)
+                indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
+                assetDataVersion &+= 1
+                refreshArchiveCandidateCount()
+                notifyIndexingStateChanged()
+                throw NSError(domain: "com.librarian.app.archive", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: message
+                ])
+            }
+
+            try database.jobRepository.markCompleted(job)
+            AppLog.shared.info("Archive send completed. Exported \(exportedIdentifiers.count) and deleted \(deletedIdentifiers.count) from Photos.")
+            indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
+            assetDataVersion &+= 1
+            refreshArchiveCandidateCount()
+            notifyIndexingStateChanged()
+        } catch {
+            let exportingIdentifiers = (try? database.assetRepository.fetchArchiveCandidateIdentifiers(statuses: [.exporting])) ?? []
+            let stillExporting = Array(Set(exportingIdentifiers).intersection(Set(identifiers)))
+            if !stillExporting.isEmpty {
+                try? database.assetRepository.markArchiveCandidatesFailed(identifiers: stillExporting, error: error.localizedDescription)
+            }
+            try? database.jobRepository.markFailed(job, error: error.localizedDescription)
+            refreshArchiveCandidateCount()
+            AppLog.shared.error("Archive send failed: \(error.localizedDescription)")
+            throw error
+        }
     }
 
     var galleryColumnCount: Int {
@@ -215,14 +404,15 @@ final class AppModel: ObservableObject {
     }
 
     deinit {
-        pendingChangeSyncTask?.cancel()
+        pendingDeltaApplyTask?.cancel()
+        pendingUnknownReconcileTask?.cancel()
     }
 
     private func registerChangeTracking() {
         guard changeTracker == nil else { return }
-        let tracker = PhotosChangeTracker { [weak self] in
+        let tracker = PhotosChangeTracker { [weak self] changeEvent in
             Task { @MainActor in
-                self?.scheduleChangeSync()
+                self?.handlePhotoLibraryChangeEvent(changeEvent)
             }
         }
         tracker.register()
@@ -231,19 +421,439 @@ final class AppModel: ObservableObject {
     }
 
     private func unregisterChangeTracking() {
-        pendingChangeSyncTask?.cancel()
-        pendingChangeSyncTask = nil
+        pendingDeltaApplyTask?.cancel()
+        pendingDeltaApplyTask = nil
+        pendingUnknownReconcileTask?.cancel()
+        pendingUnknownReconcileTask = nil
+        pendingUpsertsByIdentifier.removeAll()
+        pendingDeletedIdentifiers.removeAll()
         changeTracker?.unregister()
         changeTracker = nil
     }
 
-    private func scheduleChangeSync() {
-        pendingChangeSyncTask?.cancel()
-        pendingChangeSyncTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.startBackgroundSync(reason: "photoLibraryDidChange")
+    private func handlePhotoLibraryChangeEvent(_ event: PhotosLibraryChangeEvent) {
+        if Date() < suppressChangeSyncUntil {
+            let reason = suppressChangeSyncReason ?? "unspecified"
+            AppLog.shared.info("Ignoring photoLibraryDidChange (suppressed: \(reason))")
+            return
         }
+
+        switch event {
+        case .unknown:
+            AppLog.shared.info("Photo library changed (unknown delta); scheduling deleted-asset reconcile")
+            scheduleUnknownReconcile()
+        case .delta(let delta):
+            accumulate(delta: delta)
+            scheduleDeltaApply()
+        }
+    }
+
+    private func accumulate(delta: PhotosLibraryDelta) {
+        for identifier in delta.deletedLocalIdentifiers {
+            pendingDeletedIdentifiers.insert(identifier)
+            pendingUpsertsByIdentifier.removeValue(forKey: identifier)
+        }
+        for asset in delta.upsertedAssets {
+            guard !pendingDeletedIdentifiers.contains(asset.localIdentifier) else { continue }
+            pendingUpsertsByIdentifier[asset.localIdentifier] = asset
+        }
+    }
+
+    private func scheduleDeltaApply() {
+        pendingDeltaApplyTask?.cancel()
+        pendingDeltaApplyTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.applyPendingPhotoLibraryDelta()
+        }
+    }
+
+    private func scheduleUnknownReconcile() {
+        pendingUnknownReconcileTask?.cancel()
+        pendingUnknownReconcileTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.reconcileRestoredDeletedAssets()
+        }
+    }
+
+    private func suppressChangeSync(for seconds: TimeInterval, reason: String) {
+        let until = Date().addingTimeInterval(seconds)
+        if until > suppressChangeSyncUntil {
+            suppressChangeSyncUntil = until
+            suppressChangeSyncReason = reason
+        }
+    }
+
+    private func applyPendingPhotoLibraryDelta() async {
+        let upserts = Array(pendingUpsertsByIdentifier.values)
+        let deleted = Array(pendingDeletedIdentifiers)
+        pendingUpsertsByIdentifier.removeAll()
+        pendingDeletedIdentifiers.removeAll()
+
+        guard !upserts.isEmpty || !deleted.isEmpty else { return }
+
+        do {
+            if !upserts.isEmpty {
+                try database.assetRepository.upsert(upserts)
+            }
+            if !deleted.isEmpty {
+                try database.assetRepository.markDeleted(identifiers: deleted, at: Date())
+            }
+            indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
+            assetDataVersion &+= 1
+            AppLog.shared.info("Applied photo delta: upserts=\(upserts.count), deleted=\(deleted.count)")
+            notifyIndexingStateChanged()
+        } catch {
+            AppLog.shared.error("Failed applying photo delta: \(error.localizedDescription)")
+        }
+    }
+
+    private func reconcileRestoredDeletedAssets() async {
+        do {
+            let deletedIdentifiers = try database.assetRepository.fetchDeletedAssetIdentifiers()
+            guard !deletedIdentifiers.isEmpty else { return }
+
+            let restoredAssets = photosService.fetchAssets(localIdentifiers: deletedIdentifiers)
+            guard !restoredAssets.isEmpty else { return }
+
+            let now = Date()
+            let upserts = restoredAssets.map { IndexedAsset(from: $0, lastSeenAt: now) }
+            try database.assetRepository.upsert(upserts)
+            indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
+            assetDataVersion &+= 1
+            AppLog.shared.info("Reconciled restored assets from Photos: \(upserts.count)")
+            notifyIndexingStateChanged()
+        } catch {
+            AppLog.shared.error("Failed to reconcile restored deleted assets: \(error.localizedDescription)")
+        }
+    }
+
+    private func refreshArchiveCandidateCount() {
+        pendingArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.pending, .exporting, .failed])) ?? 0
+        failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
+        NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+    }
+}
+
+private struct ArchiveExportFailure {
+    let identifier: String
+    let message: String
+}
+
+private struct OsxPhotosReportRow: Decodable {
+    let uuid: String
+    let exported: Bool?
+    let new: Bool?
+    let updated: Bool?
+    let skipped: Bool?
+    let missing: Bool?
+    let error: String?
+    let userError: String?
+    let exiftoolError: String?
+    let sidecarUserError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case uuid
+        case exported
+        case new
+        case updated
+        case skipped
+        case missing
+        case error
+        case userError = "user_error"
+        case exiftoolError = "exiftool_error"
+        case sidecarUserError = "sidecar_user_error"
+    }
+}
+
+private struct ArchiveExportTarget {
+    let destination: URL
+    let localIdentifiers: [String]
+}
+
+private struct ArchiveExportGroupResult {
+    let destinationPath: String
+    let localIdentifiers: [String]
+}
+
+private struct ArchiveExportBatchResult {
+    let exportedGroups: [ArchiveExportGroupResult]
+    let failures: [ArchiveExportFailure]
+}
+
+nonisolated private func runOsxPhotosExportBatch(targets: [ArchiveExportTarget]) throws -> ArchiveExportBatchResult {
+    var exportedGroups: [ArchiveExportGroupResult] = []
+    var failures: [ArchiveExportFailure] = []
+
+    for target in targets {
+        let destination = target.destination
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        let identifierByUUID = Dictionary(grouping: target.localIdentifiers, by: { identifier in
+            identifier.split(separator: "/").first.map(String.init) ?? identifier
+        })
+        let uuidList = Array(identifierByUUID.keys).sorted()
+        guard !uuidList.isEmpty else { continue }
+
+        let runToken = UUID().uuidString
+        let tempDir = fileManager.temporaryDirectory.appendingPathComponent("librarian-export-\(runToken)", isDirectory: true)
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let uuidFileURL = tempDir.appendingPathComponent("uuids.txt", isDirectory: false)
+        let reportURL = tempDir.appendingPathComponent("report.json", isDirectory: false)
+        let exportDBURL = destination.appendingPathComponent(".librarian_osxphotos_export.db", isDirectory: false)
+        let uuidFileContents = uuidList.joined(separator: "\n")
+        try uuidFileContents.write(to: uuidFileURL, atomically: true, encoding: .utf8)
+
+        var args: [String] = [
+            "export",
+            destination.path,
+            "--uuid-from-file", uuidFileURL.path,
+            "--report", reportURL.path,
+            "--exportdb", exportDBURL.path,
+            "--export-by-date",
+            "--skip-original-if-edited",
+            "--jpeg-ext", "jpg",
+            "--skip-live",
+            "--no-progress",
+            "--update-errors",
+            "--retry", "2",
+            "--exiftool",
+            "--update"
+        ]
+        logInfoAsync("osxphotos command: \(renderShellCommand(arguments: args))")
+
+        var result = runOsxPhotos(arguments: args)
+        logInfoAsync("osxphotos exit code: \(result.exitCode)")
+        if !result.outputText.isEmpty {
+            logInfoMultilineAsync(prefix: "osxphotos output", text: result.outputText)
+        }
+        if result.exitCode != 0, shouldRetryWithoutExifTool(outputText: result.outputText) {
+            args = args.filter { $0 != "--exiftool" }
+            logInfoAsync("Retrying osxphotos export without --exiftool")
+            result = runOsxPhotos(arguments: args)
+            logInfoAsync("osxphotos retry exit code: \(result.exitCode)")
+            if !result.outputText.isEmpty {
+                logInfoMultilineAsync(prefix: "osxphotos retry output", text: result.outputText)
+            }
+        }
+        if result.exitCode != 0 {
+            let message = result.outputText.isEmpty ? "osxphotos export failed (exit \(result.exitCode))" : result.outputText
+            failures.append(contentsOf: target.localIdentifiers.map { ArchiveExportFailure(identifier: $0, message: message) })
+            try? fileManager.removeItem(at: tempDir)
+            continue
+        }
+
+        let reportRows: [OsxPhotosReportRow]
+        let reportData: Data
+        do {
+            reportData = try Data(contentsOf: reportURL)
+            reportRows = try JSONDecoder().decode([OsxPhotosReportRow].self, from: reportData)
+        } catch {
+            let message = "osxphotos report parsing failed: \(error.localizedDescription)"
+            failures.append(contentsOf: target.localIdentifiers.map { ArchiveExportFailure(identifier: $0, message: message) })
+            try? fileManager.removeItem(at: tempDir)
+            continue
+        }
+        if let persistedReportURL = persistExportReportJSON(reportData: reportData, runToken: runToken) {
+            logInfoAsync("osxphotos report saved: \(persistedReportURL.path)")
+        }
+        if let reportJSONString = String(data: reportData, encoding: .utf8), !reportJSONString.isEmpty {
+            logInfoMultilineAsync(prefix: "osxphotos report json", text: reportJSONString)
+        }
+
+        let rowsByUUID = Dictionary(grouping: reportRows, by: \.uuid)
+        var succeededIdentifiers: [String] = []
+
+        for uuid in uuidList {
+            let localIdentifiers = identifierByUUID[uuid] ?? []
+            guard !localIdentifiers.isEmpty else { continue }
+            guard let uuidRows = rowsByUUID[uuid], !uuidRows.isEmpty else {
+                failures.append(contentsOf: localIdentifiers.map {
+                    ArchiveExportFailure(identifier: $0, message: "osxphotos report did not include this UUID")
+                })
+                continue
+            }
+
+            let errorMessages = uuidRows.compactMap { row -> String? in
+                let candidates = [row.error, row.userError, row.exiftoolError, row.sidecarUserError]
+                return candidates.first { value in
+                    if let value { return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    return false
+                } ?? nil
+            }
+
+            if !errorMessages.isEmpty {
+                let summary = Array(Set(errorMessages)).joined(separator: " | ")
+                failures.append(contentsOf: localIdentifiers.map { ArchiveExportFailure(identifier: $0, message: summary) })
+                continue
+            }
+
+            let missingOnly = uuidRows.allSatisfy { $0.missing == true }
+            if missingOnly {
+                failures.append(contentsOf: localIdentifiers.map {
+                    ArchiveExportFailure(identifier: $0, message: "osxphotos reported item as missing")
+                })
+                continue
+            }
+
+            let hasOutcome = uuidRows.contains { row in
+                row.exported == true || row.new == true || row.updated == true || row.skipped == true
+            }
+            if !hasOutcome {
+                failures.append(contentsOf: localIdentifiers.map {
+                    ArchiveExportFailure(identifier: $0, message: "osxphotos completed but no export outcome was reported")
+                })
+                continue
+            }
+
+            succeededIdentifiers.append(contentsOf: localIdentifiers)
+        }
+
+        try? fileManager.removeItem(at: tempDir)
+
+        if succeededIdentifiers.isEmpty {
+            continue
+        }
+
+        exportedGroups.append(
+            ArchiveExportGroupResult(destinationPath: destination.path, localIdentifiers: Array(Set(succeededIdentifiers)))
+        )
+    }
+
+    return ArchiveExportBatchResult(exportedGroups: exportedGroups, failures: failures)
+}
+
+nonisolated private func shouldRetryWithoutExifTool(outputText: String) -> Bool {
+    let lower = outputText.lowercased()
+    guard lower.contains("exiftool") else { return false }
+    return lower.contains("not found")
+        || lower.contains("no such file")
+        || lower.contains("could not find")
+}
+
+nonisolated private func runOsxPhotos(arguments: [String]) -> (exitCode: Int32, outputText: String) {
+    let process = Process()
+    do {
+        process.executableURL = try resolveBundledOsxPhotosExecutable()
+    } catch {
+        return (1, error.localizedDescription)
+    }
+    process.arguments = arguments
+    let fileManager = FileManager.default
+    let logURL = fileManager.temporaryDirectory
+        .appendingPathComponent("librarian-osxphotos-\(UUID().uuidString).log", isDirectory: false)
+    fileManager.createFile(atPath: logURL.path, contents: nil)
+    let outputHandle: FileHandle
+    do {
+        outputHandle = try FileHandle(forWritingTo: logURL)
+    } catch {
+        return (1, "Failed to create osxphotos output capture file.")
+    }
+    process.standardError = outputHandle
+    process.standardOutput = outputHandle
+
+    do {
+        try process.run()
+    } catch {
+        try? outputHandle.close()
+        try? fileManager.removeItem(at: logURL)
+        return (1, "Failed to launch bundled osxphotos executable.")
+    }
+    process.waitUntilExit()
+    try? outputHandle.close()
+    let outputData = (try? Data(contentsOf: logURL)) ?? Data()
+    try? fileManager.removeItem(at: logURL)
+    let outputText = String(data: outputData, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return (process.terminationStatus, outputText)
+}
+
+nonisolated private func resolveBundledOsxPhotosExecutable() throws -> URL {
+    let fm = FileManager.default
+    let bundle = Bundle.main
+
+    var candidates: [URL] = []
+    if let auxiliary = bundle.url(forAuxiliaryExecutable: "osxphotos") {
+        candidates.append(auxiliary)
+    }
+    if let resourceRoot = bundle.resourceURL {
+        candidates.append(resourceRoot.appendingPathComponent("Tools/osxphotos", isDirectory: false))
+        candidates.append(resourceRoot.appendingPathComponent("osxphotos", isDirectory: false))
+    }
+
+    for url in candidates {
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            continue
+        }
+        if fm.isExecutableFile(atPath: url.path) {
+            return url
+        }
+    }
+
+    throw NSError(domain: "com.librarian.app.archive", code: 5, userInfo: [
+        NSLocalizedDescriptionKey: "Bundled osxphotos executable not found in app resources."
+    ])
+}
+
+nonisolated private func archiveRootForExport(_ rootURL: URL) -> URL {
+    rootURL.appendingPathComponent("Archive", isDirectory: true)
+}
+
+nonisolated private func persistExportReportJSON(reportData: Data, runToken: String) -> URL? {
+    let fileManager = FileManager.default
+    let dir = appSupportDirectory().appendingPathComponent("export_reports", isDirectory: true)
+    do {
+        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let url = dir.appendingPathComponent("osxphotos-report-\(timestamp)-\(runToken).json", isDirectory: false)
+        try reportData.write(to: url, options: .atomic)
+        return url
+    } catch {
+        logErrorAsync("Failed to persist osxphotos report: \(error.localizedDescription)")
+        return nil
+    }
+}
+
+nonisolated private func appSupportDirectory() -> URL {
+    let appSupport = try? FileManager.default.url(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask,
+        appropriateFor: nil,
+        create: true
+    )
+    return (appSupport ?? URL(fileURLWithPath: NSTemporaryDirectory()))
+        .appendingPathComponent("com.librarian.app", isDirectory: true)
+}
+
+nonisolated private func renderShellCommand(arguments: [String]) -> String {
+    let escaped = arguments.map { arg -> String in
+        if arg.contains(where: { $0 == " " || $0 == "\"" || $0 == "'" }) {
+            return "\"\(arg.replacingOccurrences(of: "\"", with: "\\\""))\""
+        }
+        return arg
+    }
+    return "osxphotos \(escaped.joined(separator: " "))"
+}
+
+nonisolated private func logInfoAsync(_ message: String) {
+    Task { @MainActor in
+        AppLog.shared.info(message)
+    }
+}
+
+nonisolated private func logErrorAsync(_ message: String) {
+    Task { @MainActor in
+        AppLog.shared.error(message)
+    }
+}
+
+nonisolated private func logInfoMultilineAsync(prefix: String, text: String) {
+    Task { @MainActor in
+        AppLog.shared.infoMultiline(prefix: prefix, text: text)
     }
 }
 
@@ -309,6 +919,17 @@ final class AppLog {
 
     func error(_ message: String) {
         append(level: "ERROR", message: message)
+    }
+
+    func infoMultiline(prefix: String, text: String) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        if lines.isEmpty {
+            info("\(prefix):")
+            return
+        }
+        for line in lines {
+            info("\(prefix): \(line)")
+        }
     }
 
     func readRecentLines(maxLines: Int) -> String {
