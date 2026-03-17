@@ -50,6 +50,7 @@ final class ContentController: NSViewController {
         collectionView.allowsMultipleSelection = true
         collectionView.dataSource = self
         collectionView.delegate = self
+        collectionView.prefetchDataSource = self
         collectionView.register(AssetGridItem.self, forItemWithIdentifier: .assetGridItem)
 
         scrollView = NSScrollView()
@@ -117,6 +118,10 @@ final class ContentController: NSViewController {
         observeModel()
     }
 
+    deinit {
+        model.photosService.stopAllThumbnailCaching()
+    }
+
     private func observeModel() {
         NotificationCenter.default.addObserver(
             self,
@@ -169,6 +174,7 @@ final class ContentController: NSViewController {
 
         if sidebarKind == .indexing || sidebarKind == .log {
             displayAssets = []
+            model.photosService.stopAllThumbnailCaching()
             lastLoadedSidebarKind = sidebarKind
             collectionView.reloadData()
             updateScreenshotActionBarState()
@@ -205,6 +211,7 @@ final class ContentController: NSViewController {
                 self.lastLoadedIndexedCount = self.model.indexedAssetCount
                 self.lastLoadedSidebarKind = sidebarKind
                 self.isLoadingAssets = false
+                self.model.photosService.stopAllThumbnailCaching()
                 self.collectionView.reloadData()
                 self.syncModelSelectionFromCollection()
                 self.updateOverlay()
@@ -591,6 +598,26 @@ extension ContentController: NSCollectionViewDataSource {
 // MARK: - NSCollectionViewDelegate
 
 extension ContentController: NSCollectionViewDelegate {}
+extension ContentController: NSCollectionViewPrefetching {
+    func collectionView(_ collectionView: NSCollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        let assets = indexPaths.compactMap { indexPath -> PHAsset? in
+            guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
+            let localIdentifier = displayAssets[indexPath.item].localIdentifier
+            return model.photosService.fetchAsset(localIdentifier: localIdentifier)
+        }
+        model.photosService.startCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
+        let assets = indexPaths.compactMap { indexPath -> PHAsset? in
+            guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
+            let localIdentifier = displayAssets[indexPath.item].localIdentifier
+            return model.photosService.fetchAsset(localIdentifier: localIdentifier)
+        }
+        model.photosService.stopCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
+    }
+}
+
 extension ContentController {
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
         syncModelSelectionFromCollection()

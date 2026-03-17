@@ -6,6 +6,7 @@ import os.log
 /// All mutations to Photos in v1 are deletion-only and live behind a separate controller (Phase 4).
 final class PhotosLibraryService {
     private let logger = Logger(subsystem: "com.librarian.app", category: "photos")
+    private let imageManager = PHCachingImageManager()
 
     // MARK: - Authorization
 
@@ -41,13 +42,8 @@ final class PhotosLibraryService {
         deliveryMode: PHImageRequestOptionsDeliveryMode = .opportunistic,
         completion: @escaping (NSImage?) -> Void
     ) -> PHImageRequestID {
-        let options = PHImageRequestOptions()
-        options.deliveryMode = deliveryMode
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = false // Never trigger iCloud download from grid
-        options.isSynchronous = false
-
-        return PHImageManager.default().requestImage(
+        let options = makeThumbnailOptions(deliveryMode: deliveryMode)
+        return imageManager.requestImage(
             for: asset,
             targetSize: targetSize,
             contentMode: .aspectFill,
@@ -55,6 +51,30 @@ final class PhotosLibraryService {
         ) { image, _ in
             completion(image)
         }
+    }
+
+    func startCachingThumbnails(for assets: [PHAsset], targetSize: CGSize) {
+        guard !assets.isEmpty else { return }
+        imageManager.startCachingImages(
+            for: assets,
+            targetSize: targetSize,
+            contentMode: .aspectFill,
+            options: makeThumbnailOptions(deliveryMode: .opportunistic)
+        )
+    }
+
+    func stopCachingThumbnails(for assets: [PHAsset], targetSize: CGSize) {
+        guard !assets.isEmpty else { return }
+        imageManager.stopCachingImages(
+            for: assets,
+            targetSize: targetSize,
+            contentMode: .aspectFill,
+            options: makeThumbnailOptions(deliveryMode: .opportunistic)
+        )
+    }
+
+    func stopAllThumbnailCaching() {
+        imageManager.stopCachingImagesForAllAssets()
     }
 
     // MARK: - Open in Photos
@@ -85,5 +105,14 @@ final class PhotosLibraryService {
             logger.error("Failed to reveal asset in Photos: \(String(describing: error), privacy: .public)")
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/System/Applications/Photos.app"), configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
         }
+    }
+
+    private func makeThumbnailOptions(deliveryMode: PHImageRequestOptionsDeliveryMode) -> PHImageRequestOptions {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = deliveryMode
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = false
+        options.isSynchronous = false
+        return options
     }
 }

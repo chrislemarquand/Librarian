@@ -5,6 +5,8 @@ import Cocoa
 enum SidebarSection: String, CaseIterable {
     case library = "Library"
     case tasks   = "Tasks"
+
+    var title: String { rawValue }
 }
 
 struct SidebarItem: Equatable {
@@ -49,13 +51,6 @@ extension SidebarItem.Kind {
     }
 }
 
-// MARK: - Outline row wrappers
-
-private enum OutlineRow {
-    case section(SidebarSection)
-    case item(SidebarItem)
-}
-
 // MARK: - SidebarController
 
 final class SidebarController: NSViewController {
@@ -80,13 +75,12 @@ final class SidebarController: NSViewController {
     override func loadView() {
         outlineView = NSOutlineView()
         outlineView.style = .sourceList
-        outlineView.selectionHighlightStyle = .sourceList
         outlineView.headerView = nil
         outlineView.floatsGroupRows = false
         outlineView.allowsEmptySelection = false
         outlineView.allowsMultipleSelection = false
         outlineView.indentationPerLevel = 0
-        outlineView.rowHeight = 26
+        outlineView.rowSizeStyle = preferredRowSizeStyle()
         outlineView.focusRingType = .none
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
@@ -113,13 +107,24 @@ final class SidebarController: NSViewController {
 
         // Expand all sections
         for section in sections {
-            outlineView.expandItem(section.rawValue)
+            outlineView.expandItem(section)
         }
 
         // Select All Photos by default
         selectItem(kind: .allPhotos)
 
         observeModel()
+    }
+
+    private func preferredRowSizeStyle() -> NSTableView.RowSizeStyle {
+        // Track macOS list-size preference used by many AppKit sidebars.
+        let value = UserDefaults.standard.integer(forKey: "NSTableViewDefaultSizeMode")
+        switch value {
+        case 1: return .small
+        case 2: return .medium
+        case 3: return .large
+        default: return .default
+        }
     }
 
     // MARK: - Selection
@@ -148,7 +153,7 @@ final class SidebarController: NSViewController {
         let selectedKind = model.selectedSidebarItem?.kind ?? .allPhotos
         outlineView.reloadData()
         for section in sections {
-            outlineView.expandItem(section.rawValue)
+            outlineView.expandItem(section)
         }
         selectItem(kind: selectedKind)
     }
@@ -162,7 +167,7 @@ extension SidebarController: NSOutlineViewDataSource {
         if item == nil {
             return sections.count
         }
-        if let sectionKey = item as? String, let section = SidebarSection(rawValue: sectionKey) {
+        if let section = item as? SidebarSection {
             return SidebarItem.items(in: section).count
         }
         return 0
@@ -170,16 +175,16 @@ extension SidebarController: NSOutlineViewDataSource {
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
         if item == nil {
-            return sections[index].rawValue
+            return sections[index]
         }
-        if let sectionKey = item as? String, let section = SidebarSection(rawValue: sectionKey) {
+        if let section = item as? SidebarSection {
             return SidebarItem.items(in: section)[index]
         }
-        return ""
+        return sections[0]
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        item is String // section keys are expandable
+        item is SidebarSection
     }
 }
 
@@ -188,8 +193,8 @@ extension SidebarController: NSOutlineViewDataSource {
 extension SidebarController: NSOutlineViewDelegate {
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-        if let sectionKey = item as? String {
-            return makeSectionHeaderView(title: sectionKey)
+        if let section = item as? SidebarSection {
+            return makeSectionHeaderView(title: section.title)
         }
         if let sidebarItem = item as? SidebarItem {
             return makeItemView(sidebarItem)
@@ -198,7 +203,7 @@ extension SidebarController: NSOutlineViewDelegate {
     }
 
     func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
-        item is String
+        item is SidebarSection
     }
 
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
@@ -211,22 +216,19 @@ extension SidebarController: NSOutlineViewDelegate {
         model.setSelectedSidebarItem(sidebarItem)
     }
 
-    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        item is String ? 22 : 26
-    }
-
     // MARK: - Cell views
 
     private func makeSectionHeaderView(title: String) -> NSView {
-        let id = NSUserInterfaceItemIdentifier("SectionHeader")
+        let id = NSUserInterfaceItemIdentifier("SidebarSectionCell")
         if let cell = outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView {
-            cell.textField?.stringValue = title.uppercased()
+            cell.textField?.stringValue = title
             return cell
         }
+
         let cell = NSTableCellView()
         cell.identifier = id
-        let label = NSTextField(labelWithString: title.uppercased())
-        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let label = NSTextField(labelWithString: title)
+        label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         label.textColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(label)
@@ -239,83 +241,67 @@ extension SidebarController: NSOutlineViewDelegate {
     }
 
     private func makeItemView(_ sidebarItem: SidebarItem) -> NSView {
-        let id = NSUserInterfaceItemIdentifier("SidebarCell")
-        let cell: SidebarCellView
-        if let reused = outlineView.makeView(withIdentifier: id, owner: nil) as? SidebarCellView {
+        let id = NSUserInterfaceItemIdentifier("SidebarItemCell")
+        let cell: NSTableCellView
+        if let reused = outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView {
             cell = reused
         } else {
-            cell = SidebarCellView(identifier: id)
+            cell = NSTableCellView()
+            cell.identifier = id
+
+            let icon = NSImageView()
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.identifier = NSUserInterfaceItemIdentifier("icon")
+
+            let title = NSTextField(labelWithString: "")
+            title.translatesAutoresizingMaskIntoConstraints = false
+            title.lineBreakMode = .byTruncatingTail
+            title.identifier = NSUserInterfaceItemIdentifier("title")
+
+            let badge = NSTextField(labelWithString: "")
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            badge.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            badge.textColor = .secondaryLabelColor
+            badge.alignment = .right
+            badge.identifier = NSUserInterfaceItemIdentifier("badge")
+
+            cell.addSubview(icon)
+            cell.addSubview(title)
+            cell.addSubview(badge)
+            cell.imageView = icon
+            cell.textField = title
+
+            NSLayoutConstraint.activate([
+                icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+                icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                icon.widthAnchor.constraint(equalToConstant: 16),
+                icon.heightAnchor.constraint(equalToConstant: 16),
+
+                title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
+                title.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                title.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -6),
+
+                badge.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+                badge.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
+            ])
         }
-        cell.configure(with: sidebarItem, model: model)
+
+        cell.textField?.stringValue = sidebarItem.title
+        cell.imageView?.image = NSImage(systemSymbolName: sidebarItem.symbolName, accessibilityDescription: sidebarItem.title)
+        if let badgeLabel = cell.subviews.first(where: { $0.identifier == NSUserInterfaceItemIdentifier("badge") }) as? NSTextField {
+            if let badge = sidebarItem.badge {
+                badgeLabel.stringValue = badge
+                badgeLabel.isHidden = false
+            } else if sidebarItem.kind == .allPhotos, model.indexedAssetCount > 0 {
+                badgeLabel.stringValue = model.indexedAssetCount.formatted()
+                badgeLabel.isHidden = false
+            } else {
+                badgeLabel.isHidden = true
+            }
+        }
+
         return cell
-    }
-}
-
-// MARK: - SidebarCellView
-
-private final class SidebarCellView: NSTableCellView {
-
-    private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
-    private let badgeLabel = NSTextField(labelWithString: "")
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        buildLayout()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func buildLayout() {
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-        icon.contentTintColor = .secondaryLabelColor
-
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = NSFont.systemFont(ofSize: 13)
-        label.lineBreakMode = .byTruncatingTail
-
-        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
-        badgeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        badgeLabel.textColor = .secondaryLabelColor
-        badgeLabel.alignment = .right
-        badgeLabel.isHidden = true
-
-        [icon, label, badgeLabel].forEach { addSubview($0) }
-        imageView = icon
-        textField = label
-
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            icon.heightAnchor.constraint(equalToConstant: 16),
-
-            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: badgeLabel.leadingAnchor, constant: -4),
-
-            badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            badgeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
-        ])
-    }
-
-    func configure(with item: SidebarItem, model: AppModel) {
-        label.stringValue = item.title
-        icon.image = NSImage(systemSymbolName: item.symbolName, accessibilityDescription: item.title)
-
-        if let badge = item.badge {
-            badgeLabel.stringValue = badge
-            badgeLabel.isHidden = false
-        } else if item.kind == .allPhotos, model.indexedAssetCount > 0 {
-            badgeLabel.stringValue = model.indexedAssetCount.formatted()
-            badgeLabel.isHidden = false
-        } else {
-            badgeLabel.isHidden = true
-        }
     }
 }
 
