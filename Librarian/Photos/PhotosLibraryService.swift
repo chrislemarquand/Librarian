@@ -1,9 +1,11 @@
 import Cocoa
 import Photos
+import os.log
 
 /// Wraps PhotoKit authorization and library access.
 /// All mutations to Photos in v1 are deletion-only and live behind a separate controller (Phase 4).
 final class PhotosLibraryService {
+    private let logger = Logger(subsystem: "com.librarian.app", category: "photos")
 
     // MARK: - Authorization
 
@@ -52,6 +54,36 @@ final class PhotosLibraryService {
             options: options
         ) { image, _ in
             completion(image)
+        }
+    }
+
+    // MARK: - Open in Photos
+
+    func openInPhotos(localIdentifier: String) {
+        let shortIdentifier = localIdentifier.split(separator: "/").first.map(String.init) ?? localIdentifier
+        let escapedIdentifier = localIdentifier
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedShortIdentifier = shortIdentifier
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+
+        let script = """
+        tell application "Photos"
+            activate
+            try
+                spotlight (first media item whose id is "\(escapedIdentifier)")
+            on error
+                spotlight (first media item whose id is "\(escapedShortIdentifier)")
+            end try
+        end tell
+        """
+
+        var error: NSDictionary?
+        NSAppleScript(source: script)?.executeAndReturnError(&error)
+        if let error {
+            logger.error("Failed to reveal asset in Photos: \(String(describing: error), privacy: .public)")
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/System/Applications/Photos.app"), configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
         }
     }
 }

@@ -12,6 +12,7 @@ struct SidebarItem: Equatable {
         case allPhotos
         case recents
         case favourites
+        case screenshots
         case indexing
         case log
     }
@@ -26,12 +27,25 @@ struct SidebarItem: Equatable {
         SidebarItem(section: .library, kind: .allPhotos,   title: "All Photos",  symbolName: "photo.on.rectangle.angled"),
         SidebarItem(section: .library, kind: .recents,     title: "Recents",     symbolName: "clock"),
         SidebarItem(section: .library, kind: .favourites,  title: "Favourites",  symbolName: "heart"),
-        SidebarItem(section: .tasks,   kind: .indexing,    title: "Indexing",    symbolName: "arrow.clockwise.icloud"),
+        SidebarItem(section: .library, kind: .screenshots, title: "Screenshots", symbolName: "camera.viewfinder"),
         SidebarItem(section: .tasks,   kind: .log,         title: "Log",         symbolName: "list.bullet.rectangle"),
     ]
 
     static func items(in section: SidebarSection) -> [SidebarItem] {
         allItems.filter { $0.section == section }
+    }
+}
+
+extension SidebarItem.Kind {
+    var debugName: String {
+        switch self {
+        case .allPhotos: return "allPhotos"
+        case .recents: return "recents"
+        case .favourites: return "favourites"
+        case .screenshots: return "screenshots"
+        case .indexing: return "indexing"
+        case .log: return "log"
+        }
     }
 }
 
@@ -131,7 +145,12 @@ final class SidebarController: NSViewController {
     }
 
     @objc private func indexingStateChanged() {
+        let selectedKind = model.selectedSidebarItem?.kind ?? .allPhotos
         outlineView.reloadData()
+        for section in sections {
+            outlineView.expandItem(section.rawValue)
+        }
+        selectItem(kind: selectedKind)
     }
 }
 
@@ -306,4 +325,5 @@ extension Notification.Name {
     static let librarianIndexingStateChanged = Notification.Name("com.librarian.app.indexingStateChanged")
     static let librarianSidebarSelectionChanged = Notification.Name("com.librarian.app.sidebarSelectionChanged")
     static let librarianSelectionChanged = Notification.Name("com.librarian.app.selectionChanged")
+    static let librarianLogUpdated = Notification.Name("com.librarian.app.logUpdated")
 }

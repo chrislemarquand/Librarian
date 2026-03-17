@@ -46,6 +46,7 @@ final class MainSplitViewController: NSSplitViewController {
     override func viewDidAppear() {
         super.viewDidAppear()
         applyInitialInnerSplitIfNeeded()
+        refreshWindowTitle()
     }
 
     deinit {
@@ -135,10 +136,20 @@ final class MainSplitViewController: NSSplitViewController {
             name: .librarianIndexingStateChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sidebarSelectionChanged),
+            name: .librarianSidebarSelectionChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
         toolbarDelegate.refresh(model: model)
+    }
+
+    @objc private func sidebarSelectionChanged() {
+        refreshWindowTitle()
     }
 
     @objc private func innerSplitDidResize(_ notification: Notification) {
@@ -176,5 +187,14 @@ final class MainSplitViewController: NSSplitViewController {
             return nil
         }
         return event
+    }
+
+    private func refreshWindowTitle() {
+        let itemTitle = model.selectedSidebarItem?.title ?? "Librarian"
+        view.window?.title = itemTitle
+    }
+
+    @objc func openSelectionInPhotos(_ sender: Any?) {
+        contentController.openSelectionInPhotos()
     }
 }

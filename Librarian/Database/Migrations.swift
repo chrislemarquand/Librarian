@@ -43,5 +43,15 @@ enum LibrarianMigrations {
 
             try db.create(index: "job_type_state", on: "job", columns: ["type", "state"])
         }
+
+        migrator.registerMigration("v2_add_screenshot_review_state") { db in
+            try db.create(table: "screenshot_review") { t in
+                t.column("assetLocalIdentifier", .text).notNull().primaryKey()
+                t.column("decision", .text).notNull()
+                t.column("decidedAt", .datetime).notNull()
+                t.foreignKey(["assetLocalIdentifier"], references: "asset", onDelete: .cascade)
+            }
+            try db.create(index: "screenshot_review_decision", on: "screenshot_review", columns: ["decision"])
+        }
     }
 }

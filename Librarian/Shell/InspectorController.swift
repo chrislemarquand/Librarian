@@ -1,4 +1,5 @@
 import Cocoa
+import Photos
 
 final class InspectorController: NSViewController {
 
@@ -8,6 +9,8 @@ final class InspectorController: NSViewController {
     private var documentView: NSView!
     private var stackView: NSStackView!
     private var emptyLabel: NSTextField!
+    private var previewImageView: NSImageView!
+    private var representedPreviewIdentifier: String?
 
     init(model: AppModel) {
         self.model = model
@@ -34,6 +37,16 @@ final class InspectorController: NSViewController {
         stackView.spacing = 12
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.isHidden = true
+
+        previewImageView = NSImageView()
+        previewImageView.imageScaling = .scaleProportionallyUpOrDown
+        previewImageView.wantsLayer = true
+        previewImageView.layer?.cornerRadius = 8
+        previewImageView.layer?.masksToBounds = true
+        previewImageView.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.15).cgColor
+        previewImageView.translatesAutoresizingMaskIntoConstraints = false
+        previewImageView.heightAnchor.constraint(equalToConstant: 180).isActive = true
+        previewImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
 
         documentView = NSView()
         documentView.translatesAutoresizingMaskIntoConstraints = false
@@ -78,6 +91,8 @@ final class InspectorController: NSViewController {
         emptyLabel.isHidden = false
         scrollView.isHidden = true
         stackView.isHidden = true
+        representedPreviewIdentifier = nil
+        previewImageView.image = nil
     }
 
     // Phase 2 will populate the stack with preview + metadata rows
@@ -86,6 +101,10 @@ final class InspectorController: NSViewController {
         scrollView.isHidden = false
         stackView.isHidden = false
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        stackView.addArrangedSubview(previewImageView)
+        previewImageView.image = nil
+        representedPreviewIdentifier = asset.localIdentifier
+        requestPreviewImage(for: asset.localIdentifier)
         stackView.addArrangedSubview(makeTitleLabel("Asset Details"))
         stackView.addArrangedSubview(makeRow(title: "Local Identifier", value: asset.localIdentifier))
         stackView.addArrangedSubview(makeRow(title: "Type", value: mediaTypeLabel(for: asset.mediaType)))
@@ -171,6 +190,18 @@ final class InspectorController: NSViewController {
         case 2: return "Video"
         case 3: return "Audio"
         default: return "Unknown (\(value))"
+        }
+    }
+
+    private func requestPreviewImage(for localIdentifier: String) {
+        guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else { return }
+        _ = model.photosService.requestThumbnail(
+            for: asset,
+            targetSize: CGSize(width: 520, height: 520),
+            deliveryMode: .highQualityFormat
+        ) { [weak self] image in
+            guard let self, self.representedPreviewIdentifier == localIdentifier else { return }
+            self.previewImageView.image = image
         }
     }
 }
