@@ -31,7 +31,7 @@ struct SidebarItem: Equatable {
         SidebarItem(section: .library, kind: .recents,     title: "Recents",     symbolName: "clock"),
         SidebarItem(section: .library, kind: .favourites,  title: "Favourites",  symbolName: "heart"),
         SidebarItem(section: .library, kind: .screenshots, title: "Screenshots", symbolName: "camera.viewfinder"),
-        SidebarItem(section: .archive, kind: .setAsideForArchive, title: "Set Aside for Archive", symbolName: "tray.full"),
+        SidebarItem(section: .archive, kind: .setAsideForArchive, title: "Set Aside", symbolName: "tray.full"),
         SidebarItem(section: .tasks,   kind: .log,         title: "Log",         symbolName: "list.bullet.rectangle"),
     ]
 

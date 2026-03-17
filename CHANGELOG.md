@@ -21,6 +21,7 @@ All notable changes to Librarian are tracked here.
 
 ### Changed
 - Gallery implementation moved to AppKit + PhotoKit-backed collection approach (instead of custom thumbnail pipeline).
+- Gallery data loading now uses paged fetch + scroll-driven incremental loading, replacing the previous hard 3000-item grid cap.
 - Sidebar implementation simplified toward native AppKit behavior and styling.
 - Toolbar behavior improved:
   - Inspector toggle enabled and reliable.
@@ -50,4 +51,3 @@ All notable changes to Librarian are tracked here.
   - report JSON content.
 - Export reports are persisted under:
   - `~/Library/Application Support/com.librarian.app/export_reports/`
-
