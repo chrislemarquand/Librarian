@@ -189,7 +189,7 @@ extension SidebarController: NSOutlineViewDelegate {
     func outlineViewSelectionDidChange(_ notification: Notification) {
         let row = outlineView.selectedRow
         guard row >= 0, let sidebarItem = outlineView.item(atRow: row) as? SidebarItem else { return }
-        model.selectedSidebarItem = sidebarItem
+        model.setSelectedSidebarItem(sidebarItem)
     }
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
@@ -304,4 +304,6 @@ private final class SidebarCellView: NSTableCellView {
 
 extension Notification.Name {
     static let librarianIndexingStateChanged = Notification.Name("com.librarian.app.indexingStateChanged")
+    static let librarianSidebarSelectionChanged = Notification.Name("com.librarian.app.sidebarSelectionChanged")
+    static let librarianSelectionChanged = Notification.Name("com.librarian.app.selectionChanged")
 }

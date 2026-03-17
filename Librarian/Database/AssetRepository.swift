@@ -50,6 +50,39 @@ final class AssetRepository {
         }
     }
 
+    func fetchForGrid(limit: Int) throws -> [IndexedAsset] {
+        try db.read { db in
+            try IndexedAsset
+                .filter(Column("isDeletedFromPhotos") == false)
+                .order(Column("creationDate").desc, Column("localIdentifier").desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    func fetchFavouritesForGrid(limit: Int) throws -> [IndexedAsset] {
+        try db.read { db in
+            try IndexedAsset
+                .filter(Column("isDeletedFromPhotos") == false)
+                .filter(Column("isFavorite") == true)
+                .order(Column("creationDate").desc, Column("localIdentifier").desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    func fetchRecentsForGrid(since date: Date, limit: Int) throws -> [IndexedAsset] {
+        try db.read { db in
+            try IndexedAsset
+                .filter(Column("isDeletedFromPhotos") == false)
+                .filter(Column("creationDate") != nil)
+                .filter(Column("creationDate") >= date)
+                .order(Column("creationDate").desc, Column("localIdentifier").desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
     // MARK: - Write
 
     /// Upsert a batch of assets. Called from background during indexing.

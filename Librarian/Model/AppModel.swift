@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     @Published var isInspectorCollapsed = false
     @Published var isIndexing = false
     @Published var indexedAssetCount = 0
+    @Published var selectedAsset: IndexedAsset?
     @Published var indexingProgress: IndexingProgress = .idle
 
     // MARK: - Init
@@ -95,6 +96,22 @@ final class AppModel: ObservableObject {
 
     private func notifyIndexingStateChanged() {
         NotificationCenter.default.post(name: .librarianIndexingStateChanged, object: nil)
+    }
+
+    func setSelectedSidebarItem(_ item: SidebarItem) {
+        if selectedSidebarItem?.kind == item.kind {
+            return
+        }
+        selectedSidebarItem = item
+        NotificationCenter.default.post(name: .librarianSidebarSelectionChanged, object: nil)
+    }
+
+    func setSelectedAsset(_ asset: IndexedAsset?) {
+        if selectedAsset?.localIdentifier == asset?.localIdentifier {
+            return
+        }
+        selectedAsset = asset
+        NotificationCenter.default.post(name: .librarianSelectionChanged, object: nil)
     }
 }
 
