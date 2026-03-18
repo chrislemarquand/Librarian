@@ -48,6 +48,7 @@ final class MainSplitViewController: NSSplitViewController {
         super.viewDidAppear()
         applyInitialInnerSplitIfNeeded()
         refreshWindowTitle()
+        refreshWindowSubtitle()
     }
 
     deinit {
@@ -164,10 +165,12 @@ final class MainSplitViewController: NSSplitViewController {
 
     @objc private func modelStateChanged() {
         toolbarDelegate.refresh(model: model)
+        refreshWindowSubtitle()
     }
 
     @objc private func sidebarSelectionChanged() {
         refreshWindowTitle()
+        refreshWindowSubtitle()
         toolbarDelegate.refresh(model: model)
     }
 
@@ -211,6 +214,38 @@ final class MainSplitViewController: NSSplitViewController {
     private func refreshWindowTitle() {
         let itemTitle = model.selectedSidebarItem?.title ?? "Librarian"
         view.window?.title = itemTitle
+    }
+
+    private var lastSubtitleText = ""
+
+    private func refreshWindowSubtitle() {
+        guard let kind = model.selectedSidebarItem?.kind else {
+            setSubtitle("")
+            return
+        }
+        guard model.database.assetRepository != nil else { return }
+        let database = model.database
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let count = (try? database.assetRepository.countForSidebarKind(kind)) ?? 0
+            let text: String
+            switch kind {
+            case .log, .indexing:
+                text = ""
+            case .setAsideForArchive, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots:
+                text = count == 1 ? "1 item" : "\(count.formatted()) items"
+            case .allPhotos, .recents, .favourites:
+                text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.setSubtitle(text)
+            }
+        }
+    }
+
+    private func setSubtitle(_ text: String) {
+        guard text != lastSubtitleText else { return }
+        lastSubtitleText = text
+        view.window?.subtitle = text
     }
 
     @objc func openSelectionInPhotos(_ sender: Any?) {

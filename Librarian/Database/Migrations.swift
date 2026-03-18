@@ -137,5 +137,24 @@ enum LibrarianMigrations {
                 WHERE decision = 'keep'
             """)
         }
+
+        migrator.registerMigration("v8_photos_only_active_view") { db in
+            // Librarian focuses on photos only — videos are excluded from all views.
+            // mediaType 1 = PHAssetMediaType.image
+            try db.execute(sql: "DROP VIEW IF EXISTS asset_active")
+            try db.execute(sql: """
+                CREATE VIEW asset_active AS
+                SELECT a.*
+                FROM asset a
+                WHERE a.isDeletedFromPhotos = 0
+                  AND a.mediaType = 1
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM archive_candidate ac
+                    WHERE ac.assetLocalIdentifier = a.localIdentifier
+                      AND ac.status IN ('pending', 'exporting', 'failed', 'exported')
+                  )
+            """)
+        }
     }
 }

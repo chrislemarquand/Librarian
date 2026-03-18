@@ -672,10 +672,6 @@ final class ContentController: NSViewController {
         stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = NSTextField(labelWithString: "Indexing")
-        title.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
-        title.textColor = .labelColor
-
         indexingStatusLabel = NSTextField(labelWithString: "")
         indexingStatusLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         indexingStatusLabel.textColor = .labelColor
@@ -695,7 +691,7 @@ final class ContentController: NSViewController {
         indexingProgressBar.translatesAutoresizingMaskIntoConstraints = false
         indexingProgressBar.widthAnchor.constraint(equalToConstant: 320).isActive = true
 
-        [title, indexingStatusLabel, indexingProgressBar, indexingDetailLabel].forEach { stack.addArrangedSubview($0) }
+        [indexingStatusLabel, indexingProgressBar, indexingDetailLabel].forEach { stack.addArrangedSubview($0) }
         pane.addSubview(stack)
 
         NSLayoutConstraint.activate([
@@ -708,11 +704,6 @@ final class ContentController: NSViewController {
 
     private func buildLogPane() -> NSView {
         let pane = NSView()
-
-        let reloadButton = NSButton(title: "Reload", target: self, action: #selector(reloadLogTapped))
-        reloadButton.bezelStyle = .rounded
-        reloadButton.translatesAutoresizingMaskIntoConstraints = false
-        pane.addSubview(reloadButton)
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -742,16 +733,13 @@ final class ContentController: NSViewController {
         pane.addSubview(logEmptyLabel)
 
         NSLayoutConstraint.activate([
-            reloadButton.topAnchor.constraint(equalTo: pane.topAnchor, constant: 14),
-            reloadButton.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -20),
+            scroll.topAnchor.constraint(equalTo: pane.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: pane.bottomAnchor),
 
-            scroll.topAnchor.constraint(equalTo: reloadButton.bottomAnchor, constant: 10),
-            scroll.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 16),
-            scroll.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -16),
-            scroll.bottomAnchor.constraint(equalTo: pane.bottomAnchor, constant: -16),
-
-            logEmptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            logEmptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            logEmptyLabel.centerXAnchor.constraint(equalTo: pane.centerXAnchor),
+            logEmptyLabel.centerYAnchor.constraint(equalTo: pane.centerYAnchor),
         ])
 
         return pane
@@ -779,10 +767,6 @@ final class ContentController: NSViewController {
         logTextView.string = text
         logTextView.sizeToFit()
         logEmptyLabel.isHidden = !text.isEmpty
-    }
-
-    @objc private func reloadLogTapped() {
-        refreshLogPane()
     }
 
     private func shouldShowIndexingPane(for sidebarKind: SidebarItem.Kind) -> Bool {

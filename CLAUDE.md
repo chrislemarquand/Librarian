@@ -43,7 +43,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 | Limited Photos access | Refuse — require full access |
 | Archive folder structure | Two top-level folders: `Photos/` and `Other/`. Duplicates → `Photos/YYYY/MM`. Screenshots, Likely Bad, Review Later → `Other/{Category}/YYYY/MM`. |
 | Sandboxing | Sandboxed with entitlements |
-| Media types in v1 | All five: stills, video, Live Photos, RAW+JPEG, bursts |
+| Media types in v1 | Photos only (PHAssetMediaType.image). Videos excluded from all views and indexing. |
 | Review marking behaviour | Single-press commits to archive queue, no confirmation dialog |
 | Inspector preview | Thumbnail immediately; full-res auto-loads if asset is local; cloud-only assets do not auto-load |
 | Explanation snippets | Foundation Models where available, heuristic fallback |
@@ -90,7 +90,7 @@ Do not treat them as design choices — they are bugs to fix.
 | Topic | Spec decision | Current behaviour | Where |
 |---|---|---|---|
 | Edited photo export | Both original and edited versions | `--skip-original-if-edited` passed to osxphotos — exports edited only | `AppModel.swift` → `runOsxPhotosExportBatch` |
-| Live Photos | All five media types including Live Photos | `--skip-live` passed to osxphotos — drops the video component | `AppModel.swift` → `runOsxPhotosExportBatch` |
+| Live Photos export | Live Photos should export both image and video component | `--skip-live` passed to osxphotos — drops the video component | `AppModel.swift` → `runOsxPhotosExportBatch` |
 | osxphotos invocation | Runs in XPC service | Direct `Process()` subprocess in main app — works in development but will fail sandbox entitlement checks at distribution | `AppModel.swift` → `runOsxPhotos` |
 | Stale export state | Partial failures visible and recoverable | `exporting` rows survive an app crash and are never retried | `AppModel.swift` → `setup()` (no reset on launch) |
 

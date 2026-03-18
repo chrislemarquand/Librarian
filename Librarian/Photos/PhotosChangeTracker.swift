@@ -39,16 +39,18 @@ final class PhotosChangeTracker: NSObject, PHPhotoLibraryChangeObserver {
     // MARK: - PHPhotoLibraryChangeObserver
 
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
+        DispatchQueue.main.async { [weak self] in
+            self?.handlePhotoLibraryChange(changeInstance)
+        }
+    }
+
+    private func handlePhotoLibraryChange(_ changeInstance: PHChange) {
         guard let currentResult = trackedFetchResult else {
-            DispatchQueue.main.async { [weak self] in
-                self?.onChangesDetected(.unknown)
-            }
+            onChangesDetected(.unknown)
             return
         }
         guard let details = changeInstance.changeDetails(for: currentResult) else {
-            DispatchQueue.main.async { [weak self] in
-                self?.onChangesDetected(.unknown)
-            }
+            onChangesDetected(.unknown)
             return
         }
 
@@ -66,14 +68,12 @@ final class PhotosChangeTracker: NSObject, PHPhotoLibraryChangeObserver {
             upsertedAssets: Array(upsertMap.values),
             deletedLocalIdentifiers: deletedIdentifiers
         )
-
-        DispatchQueue.main.async { [weak self] in
-            self?.onChangesDetected(.delta(delta))
-        }
+        onChangesDetected(.delta(delta))
     }
 
     private static func fetchOptions() -> PHFetchOptions {
         let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
         options.includeHiddenAssets = true
         options.includeAllBurstAssets = false

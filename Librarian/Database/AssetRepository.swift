@@ -232,8 +232,8 @@ final class AssetRepository: @unchecked Sendable {
     // MARK: - Write
 
     /// Upsert a batch of assets. Called from background during indexing.
-    func upsert(_ assets: [IndexedAsset]) throws {
-        try db.write { db in
+    func upsert(_ assets: [IndexedAsset]) async throws {
+        try await db.write { db in
             for asset in assets {
                 try asset.upsert(db)
             }
@@ -471,6 +471,65 @@ final class AssetRepository: @unchecked Sendable {
                 arguments: [limit, offset]
             )
             return try request.fetchAll(db)
+        }
+    }
+
+    func countForSidebarKind(_ kind: SidebarItem.Kind) throws -> Int {
+        let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
+        return try db.read { db in
+            switch kind {
+            case .allPhotos:
+                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active") ?? 0
+            case .recents:
+                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active WHERE creationDate IS NOT NULL AND creationDate >= ?", arguments: [recentCutoff]) ?? 0
+            case .favourites:
+                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active WHERE isFavorite = 1") ?? 0
+            case .screenshots:
+                return try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'screenshots'
+                    WHERE a.isScreenshot = 1 AND qk.assetLocalIdentifier IS NULL
+                """) ?? 0
+            case .duplicates:
+                return try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'duplicates'
+                    WHERE a.fingerprint IS NOT NULL
+                      AND a.fingerprint IN (
+                        SELECT fingerprint FROM asset WHERE isDeletedFromPhotos = 0 AND fingerprint IS NOT NULL
+                        GROUP BY fingerprint HAVING COUNT(*) > 1
+                      )
+                      AND qk.assetLocalIdentifier IS NULL
+                """) ?? 0
+            case .lowQuality:
+                return try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'lowQuality'
+                    WHERE a.overallScore IS NOT NULL AND a.overallScore < 0.3 AND a.isFavorite = 0
+                      AND qk.assetLocalIdentifier IS NULL
+                """) ?? 0
+            case .receiptsAndDocuments:
+                return try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'receiptsAndDocuments'
+                    WHERE a.labelsJSON IS NOT NULL
+                      AND (a.labelsJSON LIKE '%"receipt"%' OR a.labelsJSON LIKE '%"document"%'
+                           OR a.labelsJSON LIKE '%"text"%' OR a.labelsJSON LIKE '%"menu"%'
+                           OR a.labelsJSON LIKE '%"whiteboard"%')
+                      AND qk.assetLocalIdentifier IS NULL
+                """) ?? 0
+            case .setAsideForArchive:
+                return try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM archive_candidate
+                    WHERE status IN ('pending', 'exporting', 'failed')
+                """) ?? 0
+            case .indexing, .log:
+                return 0
+            }
         }
     }
 

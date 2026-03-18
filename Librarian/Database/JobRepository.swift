@@ -51,7 +51,7 @@ final class JobRepository: @unchecked Sendable {
 
     // MARK: - Create
 
-    func create(type: Job.JobType) throws -> Job {
+    func create(type: Job.JobType) async throws -> Job {
         let job = Job(
             id: UUID().uuidString,
             type: type.rawValue,
@@ -63,17 +63,17 @@ final class JobRepository: @unchecked Sendable {
             payloadJSON: nil,
             errorText: nil
         )
-        try db.write { db in try job.insert(db) }
+        try await db.write { db in try job.insert(db) }
         return job
     }
 
     // MARK: - Update
 
-    func markRunning(_ job: Job) throws {
+    func markRunning(_ job: Job) async throws {
         var updated = job
         updated.state = Job.JobState.running.rawValue
         updated.startedAt = Date()
-        try db.write { db in try updated.update(db) }
+        try await db.write { db in try updated.update(db) }
     }
 
     func updateProgress(_ job: Job, progress: Double) throws {
@@ -82,12 +82,12 @@ final class JobRepository: @unchecked Sendable {
         try db.write { db in try updated.update(db) }
     }
 
-    func markCompleted(_ job: Job) throws {
+    func markCompleted(_ job: Job) async throws {
         var updated = job
         updated.state = Job.JobState.completed.rawValue
         updated.progress = 1.0
         updated.finishedAt = Date()
-        try db.write { db in try updated.update(db) }
+        try await db.write { db in try updated.update(db) }
     }
 
     func markFailed(_ job: Job, error: String) throws {

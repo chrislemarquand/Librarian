@@ -310,8 +310,8 @@ final class AppModel: ObservableObject {
         isSendingArchive = true
         defer { isSendingArchive = false }
 
-        let job = try database.jobRepository.create(type: .archiveExport)
-        try database.jobRepository.markRunning(job)
+        let job = try await database.jobRepository.create(type: .archiveExport)
+        try await database.jobRepository.markRunning(job)
 
         do {
             try database.assetRepository.markArchiveCandidatesExporting(identifiers: identifiers)
@@ -339,7 +339,7 @@ final class AppModel: ObservableObject {
             }
 
             guard !exportedIdentifiers.isEmpty else {
-                try database.jobRepository.markFailed(job, error: "No items were exported.")
+                try await database.jobRepository.markFailed(job, error: "No items were exported.")
                 refreshArchiveCandidateCount()
                 throw NSError(domain: "com.librarian.app.archive", code: 2, userInfo: [
                     NSLocalizedDescriptionKey: "Export failed for \(failedIdentifiers.count) item(s). Nothing was deleted."
@@ -362,7 +362,7 @@ final class AppModel: ObservableObject {
             if !notDeleted.isEmpty {
                 let errorText = "Delete step did not remove \(notDeleted.count) item(s) from Photos. Returned to archive queue."
                 try database.assetRepository.markArchiveCandidatesFailed(identifiers: notDeleted, error: errorText)
-                try database.jobRepository.markFailed(job, error: errorText)
+                try await database.jobRepository.markFailed(job, error: errorText)
                 AppLog.shared.error("Archive send partially failed. Exported \(exportedIdentifiers.count), deleted \(deletedIdentifiers.count), not deleted \(notDeleted.count).")
                 indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
                 assetDataVersion &+= 1
@@ -375,7 +375,7 @@ final class AppModel: ObservableObject {
 
             if !failedIdentifiers.isEmpty {
                 let message = "Exported \(exportedIdentifiers.count) item(s). \(failedIdentifiers.count) failed and remain in Set Aside."
-                try database.jobRepository.markFailed(job, error: message)
+                try await database.jobRepository.markFailed(job, error: message)
                 indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
                 assetDataVersion &+= 1
                 refreshArchiveCandidateCount()
@@ -385,7 +385,7 @@ final class AppModel: ObservableObject {
                 ])
             }
 
-            try database.jobRepository.markCompleted(job)
+            try await database.jobRepository.markCompleted(job)
             AppLog.shared.info("Archive send completed. Exported \(exportedIdentifiers.count) and deleted \(deletedIdentifiers.count) from Photos.")
             indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
             assetDataVersion &+= 1
@@ -397,7 +397,7 @@ final class AppModel: ObservableObject {
             if !stillExporting.isEmpty {
                 try? database.assetRepository.markArchiveCandidatesFailed(identifiers: stillExporting, error: error.localizedDescription)
             }
-            try? database.jobRepository.markFailed(job, error: error.localizedDescription)
+            try? await database.jobRepository.markFailed(job, error: error.localizedDescription)
             refreshArchiveCandidateCount()
             AppLog.shared.error("Archive send failed: \(error.localizedDescription)")
             throw error
@@ -524,7 +524,7 @@ final class AppModel: ObservableObject {
 
         do {
             if !upserts.isEmpty {
-                try database.assetRepository.upsert(upserts)
+                try await database.assetRepository.upsert(upserts)
             }
             if !deleted.isEmpty {
                 try database.assetRepository.markDeleted(identifiers: deleted, at: Date())
@@ -548,7 +548,7 @@ final class AppModel: ObservableObject {
 
             let now = Date()
             let upserts = restoredAssets.map { IndexedAsset(from: $0, lastSeenAt: now) }
-            try database.assetRepository.upsert(upserts)
+            try await database.assetRepository.upsert(upserts)
             indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
             assetDataVersion &+= 1
             AppLog.shared.info("Reconciled restored assets from Photos: \(upserts.count)")

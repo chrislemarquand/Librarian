@@ -30,32 +30,28 @@ struct AssetIndexer {
                     }
 
                     // Create a job record
-                    let job = try self.database.jobRepository.create(type: .initialIndex)
-                    try self.database.jobRepository.markRunning(job)
+                    let job = try await self.database.jobRepository.create(type: .initialIndex)
+                    try await self.database.jobRepository.markRunning(job)
 
-                    var batch: [IndexedAsset] = []
-                    batch.reserveCapacity(self.batchSize)
-                    var completed = 0
+                    // Collect all assets synchronously first, then upsert in async batches.
                     let now = Date()
-
+                    var allAssets: [IndexedAsset] = []
+                    allAssets.reserveCapacity(total)
                     result.enumerateObjects { asset, _, _ in
-                        batch.append(IndexedAsset(from: asset, lastSeenAt: now))
-                        if batch.count >= self.batchSize {
-                            try? self.database.assetRepository.upsert(batch)
-                            completed += batch.count
-                            batch.removeAll(keepingCapacity: true)
-                            continuation.yield(IndexingProgressUpdate(completed: completed, total: total))
-                        }
+                        allAssets.append(IndexedAsset(from: asset, lastSeenAt: now))
                     }
 
-                    // Final partial batch
-                    if !batch.isEmpty {
-                        try self.database.assetRepository.upsert(batch)
+                    var completed = 0
+                    var offset = 0
+                    while offset < allAssets.count {
+                        let batch = Array(allAssets[offset ..< min(offset + self.batchSize, allAssets.count)])
+                        try await self.database.assetRepository.upsert(batch)
                         completed += batch.count
+                        offset += self.batchSize
                         continuation.yield(IndexingProgressUpdate(completed: completed, total: total))
                     }
 
-                    try self.database.jobRepository.markCompleted(job)
+                    try await self.database.jobRepository.markCompleted(job)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -66,6 +62,7 @@ struct AssetIndexer {
 
     private nonisolated static func fetchOptions() -> PHFetchOptions {
         let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
         options.includeHiddenAssets = true
         options.includeAllBurstAssets = false
