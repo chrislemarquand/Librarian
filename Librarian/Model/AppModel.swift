@@ -66,6 +66,8 @@ final class AppModel: ObservableObject {
     @Published var isInspectorCollapsed = false
     @Published var isIndexing = false
     @Published var isSendingArchive = false
+    @Published var isAnalysing = false
+    @Published var analysisStatusText: String = ""
     @Published var indexedAssetCount = 0
     @Published var pendingArchiveCandidateCount = 0
     @Published var failedArchiveCandidateCount = 0
@@ -265,6 +267,33 @@ final class AppModel: ObservableObject {
         refreshArchiveCandidateCount()
         assetDataVersion &+= 1
         return failed.count
+    }
+
+    func runLibraryAnalysis() async {
+        guard !isAnalysing else { return }
+        isAnalysing = true
+        analysisStatusText = "Starting…"
+        notifyAnalysisStateChanged()
+
+        let analyser = LibraryAnalyser(database: database)
+        do {
+            for try await progress in analyser.run() {
+                analysisStatusText = progress.statusText
+                notifyAnalysisStateChanged()
+            }
+            analysisStatusText = ""
+            assetDataVersion &+= 1
+        } catch {
+            analysisStatusText = "Failed: \(error.localizedDescription)"
+            AppLog.shared.error("Library analysis failed: \(error.localizedDescription)")
+        }
+
+        isAnalysing = false
+        notifyAnalysisStateChanged()
+    }
+
+    private func notifyAnalysisStateChanged() {
+        NotificationCenter.default.post(name: .librarianAnalysisStateChanged, object: nil)
     }
 
     func archiveCandidateInfo(for localIdentifier: String) -> ArchiveCandidateInfo? {
@@ -901,7 +930,7 @@ struct IndexingProgress: Equatable {
     }
 }
 
-final class AppLog {
+final class AppLog: @unchecked Sendable {
     static let shared = AppLog()
 
     private let queue = DispatchQueue(label: "com.librarian.app.log")

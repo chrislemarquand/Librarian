@@ -25,7 +25,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 
 ## Architecture rules
 
-1. PhotoKit is the live runtime interface. osxphotos is export-only. Never blur this boundary.
+1. PhotoKit is the live runtime interface. osxphotos is invoked only for explicit user-initiated actions — never passively, never as a live data source. Never blur this boundary. Currently approved actions: archive export, library analysis pass (see Key decisions).
 2. All schema changes are GRDB migrations — named, sequential, append-only, applied at startup before any database access.
 3. The app is sandboxed. The archive root is accessed via a security-scoped bookmark. The osxphotos helper runs in an XPC service. Design entitlements explicitly.
 4. Nothing is deleted from Photos until: iCloud download complete → export succeeded → verification passed → ArchiveRecord written.
@@ -49,6 +49,12 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 | Explanation snippets | Foundation Models where available, heuristic fallback |
 | Logging | Structured log file in Application Support + os_log, viewable in Tasks/Log pane |
 | Schema migrations | GRDB built-in migration system |
+| osxphotos scope | User-initiated actions only: archive export and library analysis pass. Never passive or automatic. |
+| Library analysis — trigger | Offered (non-modal prompt) after initial index completes; re-runnable from Settings. Never a blocking setup step — app must be fully usable without it. |
+| Library analysis — data imported | Quality scores (overall + components), file size in bytes, named-person presence + count, ML content labels, perceptual fingerprint. Specific columns in `asset` table — no full JSON blob storage. |
+| Library analysis — UUID join | osxphotos returns bare UUIDs; `localIdentifier` in GRDB is `UUID/L0/001` format. Strip suffix before joining (same logic as export batch). |
+| Library analysis — staleness | Display "last analysed" date in Settings (and near any score-dependent queue). Offer refresh if asset count has grown significantly but do not nag. |
+| Low Quality queue | Hidden (not greyed out) until analysis has been run at least once. Show one-line explanation and direct link to run analysis if user navigates to where it will appear. |
 
 ## Build order
 
@@ -75,6 +81,18 @@ Reuse: window shell, split-view, toolbar philosophy, inspector pattern, command/
 - Photos album creation
 - Restore UI
 - Extensive custom UI
+
+## Known divergences from spec (must be resolved)
+
+These are places where the current implementation contradicts a locked decision above.
+Do not treat them as design choices — they are bugs to fix.
+
+| Topic | Spec decision | Current behaviour | Where |
+|---|---|---|---|
+| Edited photo export | Both original and edited versions | `--skip-original-if-edited` passed to osxphotos — exports edited only | `AppModel.swift` → `runOsxPhotosExportBatch` |
+| Live Photos | All five media types including Live Photos | `--skip-live` passed to osxphotos — drops the video component | `AppModel.swift` → `runOsxPhotosExportBatch` |
+| osxphotos invocation | Runs in XPC service | Direct `Process()` subprocess in main app — works in development but will fail sandbox entitlement checks at distribution | `AppModel.swift` → `runOsxPhotos` |
+| Stale export state | Partial failures visible and recoverable | `exporting` rows survive an app crash and are never retried | `AppModel.swift` → `setup()` (no reset on launch) |
 
 ## The one thing that must not go wrong
 

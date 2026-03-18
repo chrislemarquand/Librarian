@@ -54,8 +54,10 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             .librarianIndexingProgress,
             .librarianZoomOut,
             .librarianZoomIn,
+            .space,
             .librarianSetAside,
             .librarianPutBack,
+            .space,
             .librarianSendToArchive,
             .flexibleSpace,
             .librarianInspectorSeparator,
@@ -216,7 +218,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
 
     private func updateProgressSpinner(model: AppModel) {
         guard let spinner = progressSpinner else { return }
-        if model.isIndexing || model.isSendingArchive {
+        if model.isIndexing || model.isSendingArchive || model.isAnalysing {
             spinner.startAnimation(nil)
         } else {
             spinner.stopAnimation(nil)
@@ -232,7 +234,8 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
     private func updateZoomItems(model: AppModel) {
         let isGalleryContext: Bool
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
-        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive:
+        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive,
+             .duplicates, .lowQuality, .receiptsAndDocuments:
             isGalleryContext = true
         case .indexing, .log:
             isGalleryContext = false
@@ -253,6 +256,8 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
         } else {
             putBackItem?.toolTip = "Remove selected photos from set-aside archive queue"
         }
-        sendToArchiveItem?.isEnabled = model.pendingArchiveCandidateCount > 0 && !model.isSendingArchive
+        let hasQueuedItems = model.pendingArchiveCandidateCount > 0
+        sendToArchiveItem?.isEnabled = hasQueuedItems && !model.isSendingArchive
+        sendToArchiveItem?.style = hasQueuedItems ? .prominent : .plain
     }
 }

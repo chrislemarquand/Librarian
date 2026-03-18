@@ -4,6 +4,7 @@ import Cocoa
 
 enum SidebarSection: String, CaseIterable {
     case library = "Library"
+    case queues  = "Queues"
     case archive = "Archive"
     case tasks   = "Tasks"
 
@@ -17,6 +18,9 @@ struct SidebarItem: Equatable {
         case favourites
         case screenshots
         case setAsideForArchive
+        case duplicates
+        case lowQuality
+        case receiptsAndDocuments
         case indexing
         case log
     }
@@ -27,12 +31,15 @@ struct SidebarItem: Equatable {
     var symbolName: String
 
     static let allItems: [SidebarItem] = [
-        SidebarItem(section: .library, kind: .allPhotos,   title: "All Photos",  symbolName: "photo.on.rectangle.angled"),
-        SidebarItem(section: .library, kind: .recents,     title: "Recents",     symbolName: "clock"),
-        SidebarItem(section: .library, kind: .favourites,  title: "Favourites",  symbolName: "heart"),
-        SidebarItem(section: .library, kind: .screenshots, title: "Screenshots", symbolName: "camera.viewfinder"),
-        SidebarItem(section: .archive, kind: .setAsideForArchive, title: "Set Aside", symbolName: "tray.full"),
-        SidebarItem(section: .tasks,   kind: .log,         title: "Log",         symbolName: "list.bullet.rectangle"),
+        SidebarItem(section: .library, kind: .allPhotos,         title: "All Photos",  symbolName: "photo.on.rectangle.angled"),
+        SidebarItem(section: .library, kind: .recents,           title: "Recents",     symbolName: "clock"),
+        SidebarItem(section: .library, kind: .favourites,        title: "Favourites",  symbolName: "heart"),
+        SidebarItem(section: .queues,  kind: .screenshots,          title: "Screenshots",          symbolName: "camera.viewfinder"),
+        SidebarItem(section: .queues,  kind: .duplicates,           title: "Duplicates",           symbolName: "doc.on.doc"),
+        SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality",          symbolName: "wand.and.stars.inverse"),
+        SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Receipts & Documents", symbolName: "doc.text"),
+        SidebarItem(section: .archive, kind: .setAsideForArchive,   title: "Set Aside",            symbolName: "tray.full"),
+        SidebarItem(section: .tasks,   kind: .log,               title: "Log",         symbolName: "list.bullet.rectangle"),
     ]
 
     static func items(in section: SidebarSection) -> [SidebarItem] {
@@ -48,6 +55,9 @@ extension SidebarItem.Kind {
         case .favourites: return "favourites"
         case .screenshots: return "screenshots"
         case .setAsideForArchive: return "setAsideForArchive"
+        case .duplicates: return "duplicates"
+        case .lowQuality: return "lowQuality"
+        case .receiptsAndDocuments: return "receiptsAndDocuments"
         case .indexing: return "indexing"
         case .log: return "log"
         }
@@ -82,7 +92,7 @@ final class SidebarController: NSViewController {
         outlineView.floatsGroupRows = false
         outlineView.allowsEmptySelection = false
         outlineView.allowsMultipleSelection = false
-        outlineView.indentationPerLevel = 0
+        outlineView.indentationPerLevel = 13
         outlineView.rowSizeStyle = preferredRowSizeStyle()
         outlineView.focusRingType = .none
 
@@ -263,35 +273,27 @@ extension SidebarController: NSOutlineViewDelegate {
             cell = NSTableCellView()
             cell.identifier = id
 
-            let iconContainer = NSView()
-            iconContainer.translatesAutoresizingMaskIntoConstraints = false
-            iconContainer.identifier = NSUserInterfaceItemIdentifier("iconContainer")
-
             let icon = NSImageView()
             icon.translatesAutoresizingMaskIntoConstraints = false
-            icon.identifier = NSUserInterfaceItemIdentifier("icon")
+            icon.imageScaling = .scaleNone
+            icon.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
 
             let title = NSTextField(labelWithString: "")
             title.translatesAutoresizingMaskIntoConstraints = false
             title.lineBreakMode = .byTruncatingTail
-            title.identifier = NSUserInterfaceItemIdentifier("title")
 
-            iconContainer.addSubview(icon)
-            cell.addSubview(iconContainer)
+            cell.addSubview(icon)
             cell.addSubview(title)
             cell.imageView = icon
             cell.textField = title
 
             NSLayoutConstraint.activate([
-                iconContainer.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
-                iconContainer.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                iconContainer.widthAnchor.constraint(equalToConstant: 20),
-                iconContainer.heightAnchor.constraint(equalToConstant: 16),
-
-                icon.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+                icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
                 icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                icon.widthAnchor.constraint(equalToConstant: 22),
+                icon.heightAnchor.constraint(equalToConstant: 22),
 
-                title.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 6),
+                title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 4),
                 title.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 title.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -8),
             ])
@@ -305,13 +307,25 @@ extension SidebarController: NSOutlineViewDelegate {
 }
 
 private final class SidebarSelectionRowView: NSTableRowView {
+    override var isEmphasized: Bool {
+        didSet {
+            needsDisplay = true
+            guard !isSelected else { return }
+            for subview in subviews {
+                guard let cell = subview as? NSTableCellView else { continue }
+                cell.textField?.textColor = isEmphasized ? .labelColor : .secondaryLabelColor
+                cell.imageView?.contentTintColor = isEmphasized ? .labelColor : .secondaryLabelColor
+            }
+        }
+    }
+
     override var interiorBackgroundStyle: NSView.BackgroundStyle {
         isSelected ? .emphasized : .normal
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none, isSelected else { return }
-        let fillColor = AppTheme.accentNSColor.withAlphaComponent(isEmphasized ? 1.0 : 0.55)
+        let fillColor = AppTheme.accentNSColor.withAlphaComponent(isEmphasized ? 1.0 : 0.3)
         fillColor.setFill()
         let selectionRect = bounds.insetBy(dx: 6, dy: 2)
         let path = NSBezierPath(roundedRect: selectionRect, xRadius: 8, yRadius: 8)
@@ -328,4 +342,5 @@ extension Notification.Name {
     static let librarianLogUpdated = Notification.Name("com.librarian.app.logUpdated")
     static let librarianGalleryZoomChanged = Notification.Name("com.librarian.app.galleryZoomChanged")
     static let librarianArchiveQueueChanged = Notification.Name("com.librarian.app.archiveQueueChanged")
+    static let librarianAnalysisStateChanged = Notification.Name("com.librarian.app.analysisStateChanged")
 }

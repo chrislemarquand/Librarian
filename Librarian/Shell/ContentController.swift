@@ -177,6 +177,19 @@ final class ContentController: NSViewController {
             name: .librarianArchiveQueueChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(analysisStateChanged),
+            name: .librarianAnalysisStateChanged,
+            object: nil
+        )
+    }
+
+    @objc private func analysisStateChanged() {
+        if !model.isAnalysing {
+            loadAssetsIfNeeded(force: true)
+            updateOverlay()
+        }
     }
 
     @objc private func modelStateChanged() {
@@ -275,13 +288,25 @@ final class ContentController: NSViewController {
                 assets = (try? database.assetRepository.fetchScreenshotsForReview(limit: pageSize, offset: offset)) ?? []
             case .setAsideForArchive:
                 assets = (try? database.assetRepository.fetchArchiveCandidatesForGrid(limit: pageSize, offset: offset)) ?? []
+            case .duplicates:
+                assets = (try? database.assetRepository.fetchDuplicatesForGrid(limit: pageSize, offset: offset)) ?? []
+            case .lowQuality:
+                assets = (try? database.assetRepository.fetchLowQualityForGrid(limit: pageSize, offset: offset)) ?? []
+            case .receiptsAndDocuments:
+                assets = (try? database.assetRepository.fetchReceiptsAndDocumentsForGrid(limit: pageSize, offset: offset)) ?? []
             case .indexing, .log:
                 assets = []
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                guard generation == self.loadGeneration else { return }
-                guard sidebarKind == self.selectedSidebarKind() else { return }
+                guard generation == self.loadGeneration else {
+                    self.isLoadingAssets = false
+                    return
+                }
+                guard sidebarKind == self.selectedSidebarKind() else {
+                    self.isLoadingAssets = false
+                    return
+                }
 
                 if replaceExisting {
                     self.displayAssets = assets
@@ -293,6 +318,15 @@ final class ContentController: NSViewController {
                     }
                 } else if !assets.isEmpty {
                     let start = self.displayAssets.count
+                    // Guard against a race where the collection view got ahead of displayAssets
+                    // (e.g. a force reload fired but reloadData hasn't run yet). Fall back to
+                    // a full reload rather than crashing on a bad batch insert.
+                    guard self.collectionView.numberOfItems(inSection: 0) == start else {
+                        self.displayAssets.append(contentsOf: assets)
+                        self.collectionView.reloadData()
+                        self.isLoadingAssets = false
+                        return
+                    }
                     self.displayAssets.append(contentsOf: assets)
                     let indexPaths = Set((start ..< self.displayAssets.count).map { IndexPath(item: $0, section: 0) })
                     self.collectionView.performBatchUpdates({
@@ -549,6 +583,9 @@ final class ContentController: NSViewController {
         case .favourites: return "Loading favourites…"
         case .screenshots: return "Loading screenshots queue…"
         case .setAsideForArchive: return "Loading archive set-aside queue…"
+        case .duplicates: return "Loading duplicates…"
+        case .lowQuality: return "Loading low quality photos…"
+        case .receiptsAndDocuments: return "Loading receipts and documents…"
         case .indexing: return "Indexing your library…"
         case .log: return "Loading log…"
         }
@@ -566,6 +603,12 @@ final class ContentController: NSViewController {
             return "No screenshots pending review."
         case .setAsideForArchive:
             return "No photos set aside for archive."
+        case .duplicates:
+            return "No duplicates found."
+        case .lowQuality:
+            return "No low quality photos found."
+        case .receiptsAndDocuments:
+            return "No receipts or documents found."
         case .indexing:
             return "Indexing is idle."
         case .log:
@@ -590,8 +633,9 @@ final class ContentController: NSViewController {
         screenshotSelectionLabel.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(screenshotSelectionLabel)
 
-        screenshotArchiveButton = NSButton(title: "Archive Candidate", target: self, action: #selector(markScreenshotsArchiveCandidate))
+        screenshotArchiveButton = NSButton(title: "Set Aside", target: self, action: #selector(markScreenshotsArchiveCandidate))
         screenshotArchiveButton.bezelStyle = .rounded
+        screenshotArchiveButton.bezelColor = AppTheme.accentNSColor
         screenshotArchiveButton.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(screenshotArchiveButton)
 

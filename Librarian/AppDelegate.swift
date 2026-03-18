@@ -182,9 +182,9 @@ final class AppSettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: settingsController)
         window.title = "Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 620, height: 240))
-        window.minSize = NSSize(width: 620, height: 240)
-        window.maxSize = NSSize(width: 620, height: 400)
+        window.setContentSize(NSSize(width: 620, height: 300))
+        window.minSize = NSSize(width: 620, height: 300)
+        window.maxSize = NSSize(width: 620, height: 460)
         window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         super.init(window: window)
@@ -235,12 +235,31 @@ final class AppSettingsViewController: NSViewController {
         return label
     }()
 
+    private lazy var analyseButton: NSButton = {
+        makeActionButton(title: "Analyse Library", action: #selector(analyseLibrary))
+    }()
+
+    private lazy var analyseStatusLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "Imports quality scores, file sizes, labels, and duplicate fingerprints.")
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(indexingStateChanged),
             name: .librarianIndexingStateChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(analysisStateChanged),
+            name: .librarianAnalysisStateChanged,
             object: nil
         )
     }
@@ -251,9 +270,12 @@ final class AppSettingsViewController: NSViewController {
         let chooseButton = makeActionButton(title: "Choose…", action: #selector(chooseArchivePath))
         let rebuildLabel = makeCategoryLabel(title: "Index:")
 
+        let analyseLabel = makeCategoryLabel(title: "Library analysis:")
+
         let grid = NSGridView(views: [
             [destinationLabel, archivePathField, chooseButton],
             [rebuildLabel, rebuildStatusLabel, rebuildButton],
+            [analyseLabel, analyseStatusLabel, analyseButton],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.rowSpacing = 12
@@ -278,6 +300,7 @@ final class AppSettingsViewController: NSViewController {
         super.viewDidAppear()
         refreshArchivePath()
         refreshRebuildButtonState()
+        refreshAnalyseButtonState()
     }
 
     deinit {
@@ -326,6 +349,31 @@ final class AppSettingsViewController: NSViewController {
 
     @objc private func indexingStateChanged() {
         refreshRebuildButtonState()
+    }
+
+    @objc private func analysisStateChanged() {
+        refreshAnalyseButtonState()
+    }
+
+    @objc private func analyseLibrary() {
+        refreshAnalyseButtonState()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.model.runLibraryAnalysis()
+            self.refreshAnalyseButtonState()
+        }
+    }
+
+    private func refreshAnalyseButtonState() {
+        analyseButton.isEnabled = !model.isAnalysing
+        analyseButton.title = model.isAnalysing ? "Analysing…" : "Analyse Library"
+        if model.isAnalysing {
+            analyseStatusLabel.stringValue = model.analysisStatusText.isEmpty
+                ? "Running…"
+                : model.analysisStatusText
+        } else {
+            analyseStatusLabel.stringValue = "Imports quality scores, file sizes, labels, and duplicate fingerprints."
+        }
     }
 
     private func refreshArchivePath() {

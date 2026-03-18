@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-final class DatabaseManager {
+final class DatabaseManager: @unchecked Sendable {
 
     private(set) var db: DatabaseQueue!
     private(set) var assetRepository: AssetRepository!

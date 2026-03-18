@@ -102,5 +102,21 @@ enum LibrarianMigrations {
                 """
             )
         }
+
+        migrator.registerMigration("v6_add_analysis_fields") { db in
+            try db.alter(table: "asset") { t in
+                t.add(column: "overallScore", .double)
+                t.add(column: "fileSizeBytes", .integer)
+                t.add(column: "hasNamedPerson", .boolean)
+                t.add(column: "namedPersonCount", .integer)
+                t.add(column: "detectedPersonCount", .integer)
+                t.add(column: "labelsJSON", .text)
+                t.add(column: "fingerprint", .text)
+                t.add(column: "aiCaption", .text)
+                t.add(column: "analysedAt", .datetime)
+            }
+            try db.create(index: "asset_fingerprint", on: "asset", columns: ["fingerprint"])
+            try db.create(index: "asset_overallScore", on: "asset", columns: ["overallScore"])
+        }
     }
 }

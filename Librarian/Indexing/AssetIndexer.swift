@@ -64,7 +64,7 @@ struct AssetIndexer {
         }
     }
 
-    private static func fetchOptions() -> PHFetchOptions {
+    private nonisolated static func fetchOptions() -> PHFetchOptions {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
         options.includeHiddenAssets = true

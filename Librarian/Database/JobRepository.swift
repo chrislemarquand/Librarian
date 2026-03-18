@@ -41,7 +41,7 @@ struct Job: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - JobRepository
 
-final class JobRepository {
+final class JobRepository: @unchecked Sendable {
 
     private let db: DatabaseQueue
 

@@ -49,9 +49,21 @@ struct ArchiveCandidateInfo {
     let archivePath: String?
 }
 
+struct AssetAnalysisResult {
+    let uuid: String
+    let overallScore: Double?
+    let fileSizeBytes: Int?
+    let hasNamedPerson: Bool
+    let namedPersonCount: Int
+    let detectedPersonCount: Int
+    let labelsJSON: String?
+    let fingerprint: String?
+    let aiCaption: String?
+}
+
 // MARK: - AssetRepository
 
-final class AssetRepository {
+final class AssetRepository: @unchecked Sendable {
 
     private let db: DatabaseQueue
 
@@ -387,6 +399,110 @@ final class AssetRepository {
                 """,
                 arguments: arguments
             )
+        }
+    }
+
+    func fetchDuplicatesForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try db.read { db in
+            let request = SQLRequest<IndexedAsset>(
+                sql: """
+                    SELECT a.*
+                    FROM asset_active a
+                    WHERE a.fingerprint IS NOT NULL
+                      AND a.fingerprint IN (
+                        SELECT fingerprint FROM asset
+                        WHERE isDeletedFromPhotos = 0
+                          AND fingerprint IS NOT NULL
+                        GROUP BY fingerprint
+                        HAVING COUNT(*) > 1
+                      )
+                    ORDER BY a.fingerprint, a.creationDate ASC
+                    LIMIT ? OFFSET ?
+                """,
+                arguments: [limit, offset]
+            )
+            return try request.fetchAll(db)
+        }
+    }
+
+    func fetchLowQualityForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try db.read { db in
+            let request = SQLRequest<IndexedAsset>(
+                sql: """
+                    SELECT a.*
+                    FROM asset_active a
+                    WHERE a.overallScore IS NOT NULL
+                      AND a.overallScore < 0.3
+                      AND a.isFavorite = 0
+                    ORDER BY a.overallScore ASC, a.creationDate DESC
+                    LIMIT ? OFFSET ?
+                """,
+                arguments: [limit, offset]
+            )
+            return try request.fetchAll(db)
+        }
+    }
+
+    func fetchReceiptsAndDocumentsForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try db.read { db in
+            let request = SQLRequest<IndexedAsset>(
+                sql: """
+                    SELECT a.*
+                    FROM asset_active a
+                    WHERE a.labelsJSON IS NOT NULL
+                      AND (
+                        a.labelsJSON LIKE '%"receipt"%'
+                        OR a.labelsJSON LIKE '%"document"%'
+                        OR a.labelsJSON LIKE '%"text"%'
+                        OR a.labelsJSON LIKE '%"menu"%'
+                        OR a.labelsJSON LIKE '%"whiteboard"%'
+                      )
+                    ORDER BY a.creationDate DESC
+                    LIMIT ? OFFSET ?
+                """,
+                arguments: [limit, offset]
+            )
+            return try request.fetchAll(db)
+        }
+    }
+
+    func upsertAnalysisData(_ results: [AssetAnalysisResult], analysedAt: Date) async throws {
+        let batchSize = 500
+        var offset = 0
+        while offset < results.count {
+            let batch = Array(results[offset ..< min(offset + batchSize, results.count)])
+            try await db.write { db in
+                for result in batch {
+                    try db.execute(
+                        sql: """
+                            UPDATE asset
+                            SET overallScore = ?,
+                                fileSizeBytes = ?,
+                                hasNamedPerson = ?,
+                                namedPersonCount = ?,
+                                detectedPersonCount = ?,
+                                labelsJSON = ?,
+                                fingerprint = ?,
+                                aiCaption = ?,
+                                analysedAt = ?
+                            WHERE localIdentifier LIKE ? || '/%'
+                        """,
+                        arguments: [
+                            result.overallScore,
+                            result.fileSizeBytes,
+                            result.hasNamedPerson,
+                            result.namedPersonCount,
+                            result.detectedPersonCount,
+                            result.labelsJSON,
+                            result.fingerprint,
+                            result.aiCaption,
+                            analysedAt,
+                            result.uuid
+                        ]
+                    )
+                }
+            }
+            offset += batchSize
         }
     }
 

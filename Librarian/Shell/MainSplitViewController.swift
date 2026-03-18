@@ -286,7 +286,8 @@ final class MainSplitViewController: NSSplitViewController {
 
     private var isGallerySidebarSelection: Bool {
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
-        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive:
+        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive,
+             .duplicates, .lowQuality, .receiptsAndDocuments:
             return true
         case .indexing, .log:
             return false

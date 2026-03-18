@@ -38,7 +38,7 @@ final class PhotosChangeTracker: NSObject, PHPhotoLibraryChangeObserver {
 
     // MARK: - PHPhotoLibraryChangeObserver
 
-    func photoLibraryDidChange(_ changeInstance: PHChange) {
+    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         guard let currentResult = trackedFetchResult else {
             DispatchQueue.main.async { [weak self] in
                 self?.onChangesDetected(.unknown)
