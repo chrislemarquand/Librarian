@@ -43,13 +43,18 @@ Backed by the existing job record in the database.
 
 ## Near Term
 
-### 4) Screenshots Queue Completion
+### 4) Queue Keep Decisions — Reset UX
 
-The filter query (`fetchScreenshotsForReview`) and action bar UI exist in `ContentController`
-but the end-to-end review flow needs verification:
-- Keep / Archive buttons wire to `setScreenshotDecision` correctly.
-- Decided items drain from the queue and don't reappear on next launch.
-- Set Aside action from Screenshots view queues via `queueForArchive`, not a separate path.
+Queue keep decisions (items dismissed from a queue via Keep) are currently reset per-queue via
+buttons in the Settings window. The intended final UX is:
+
+- When a queue is **empty** (all items either kept or set aside), show a contextual message in
+  the empty state: "All items reviewed. Reset keep decisions to review again." with a direct
+  action button.
+- Remove the per-queue reset buttons from Settings once the empty-state UX is in place.
+
+The Settings buttons remain as the mechanism while queues are actively being developed and
+debugged.
 
 ### 5) Archive UX Hardening
 

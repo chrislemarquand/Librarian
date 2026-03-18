@@ -257,8 +257,10 @@ extension SidebarController: NSOutlineViewDelegate {
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(label)
         cell.textField = label
+        // Align with the left edge of the selection pill (SidebarSelectionRowView draws
+        // the pill with dx: 6, so the pill left edge sits at x=6 from the row bounds).
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: SidebarSelectionRowView.pillInsetX),
             label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         return cell
@@ -307,6 +309,7 @@ extension SidebarController: NSOutlineViewDelegate {
 }
 
 private final class SidebarSelectionRowView: NSTableRowView {
+    static let pillInsetX: CGFloat = 6
     override var isEmphasized: Bool {
         didSet {
             needsDisplay = true
@@ -327,7 +330,7 @@ private final class SidebarSelectionRowView: NSTableRowView {
         guard selectionHighlightStyle != .none, isSelected else { return }
         let fillColor = AppTheme.accentNSColor.withAlphaComponent(isEmphasized ? 1.0 : 0.3)
         fillColor.setFill()
-        let selectionRect = bounds.insetBy(dx: 6, dy: 2)
+        let selectionRect = bounds.insetBy(dx: Self.pillInsetX, dy: 2)
         let path = NSBezierPath(roundedRect: selectionRect, xRadius: 8, yRadius: 8)
         path.fill()
     }

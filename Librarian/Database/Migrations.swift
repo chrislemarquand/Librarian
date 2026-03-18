@@ -118,5 +118,24 @@ enum LibrarianMigrations {
             try db.create(index: "asset_fingerprint", on: "asset", columns: ["fingerprint"])
             try db.create(index: "asset_overallScore", on: "asset", columns: ["overallScore"])
         }
+
+        migrator.registerMigration("v7_add_queue_keep_decisions") { db in
+            try db.create(table: "queue_keep_decision") { t in
+                t.column("assetLocalIdentifier", .text).notNull()
+                t.column("queueKind", .text).notNull()
+                t.column("decidedAt", .datetime).notNull()
+                t.primaryKey(["assetLocalIdentifier", "queueKind"])
+                t.foreignKey(["assetLocalIdentifier"], references: "asset", onDelete: .cascade)
+            }
+            try db.create(index: "queue_keep_decision_kind", on: "queue_keep_decision", columns: ["queueKind"])
+
+            // Migrate existing screenshot keep decisions from screenshot_review.
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO queue_keep_decision (assetLocalIdentifier, queueKind, decidedAt)
+                SELECT assetLocalIdentifier, 'screenshots', decidedAt
+                FROM screenshot_review
+                WHERE decision = 'keep'
+            """)
+        }
     }
 }

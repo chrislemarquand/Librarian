@@ -182,9 +182,9 @@ final class AppSettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: settingsController)
         window.title = "Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 620, height: 300))
-        window.minSize = NSSize(width: 620, height: 300)
-        window.maxSize = NSSize(width: 620, height: 460)
+        window.setContentSize(NSSize(width: 620, height: 500))
+        window.minSize = NSSize(width: 620, height: 500)
+        window.maxSize = NSSize(width: 620, height: 500)
         window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         super.init(window: window)
@@ -269,14 +269,38 @@ final class AppSettingsViewController: NSViewController {
         let destinationLabel = makeCategoryLabel(title: "Archive destination:")
         let chooseButton = makeActionButton(title: "Choose…", action: #selector(chooseArchivePath))
         let rebuildLabel = makeCategoryLabel(title: "Index:")
-
         let analyseLabel = makeCategoryLabel(title: "Library analysis:")
+
+        let keepsLabel = makeCategoryLabel(title: "Queue keep decisions:")
+        let keepsNote = NSTextField(labelWithString: "Reset which items have been marked Keep in each queue.")
+        keepsNote.textColor = .secondaryLabelColor
+        keepsNote.translatesAutoresizingMaskIntoConstraints = false
+
+        let queues: [(title: String, kind: String)] = [
+            ("Screenshots", "screenshots"),
+            ("Low Quality", "lowQuality"),
+            ("Receipts & Documents", "receiptsAndDocuments"),
+            ("Duplicates", "duplicates"),
+        ]
+        var resetRows: [[NSView]] = [[keepsLabel, keepsNote, NSView()]]
+        for queue in queues {
+            let label = makeCategoryLabel(title: "\(queue.title):")
+            let countLabel = NSTextField(labelWithString: "")
+            countLabel.textColor = .secondaryLabelColor
+            countLabel.translatesAutoresizingMaskIntoConstraints = false
+            let count = (try? model.database.assetRepository.countKeepDecisions(for: queue.kind)) ?? 0
+            countLabel.stringValue = count == 0 ? "No items kept" : "\(count) kept"
+            let button = makeActionButton(title: "Reset", action: #selector(resetKeepDecisions(_:)))
+            button.tag = queues.firstIndex(where: { $0.kind == queue.kind }) ?? 0
+            button.isEnabled = count > 0
+            resetRows.append([label, countLabel, button])
+        }
 
         let grid = NSGridView(views: [
             [destinationLabel, archivePathField, chooseButton],
             [rebuildLabel, rebuildStatusLabel, rebuildButton],
             [analyseLabel, analyseStatusLabel, analyseButton],
-        ])
+        ] + resetRows)
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.rowSpacing = 12
         grid.columnSpacing = 12
@@ -361,6 +385,21 @@ final class AppSettingsViewController: NSViewController {
             guard let self else { return }
             await self.model.runLibraryAnalysis()
             self.refreshAnalyseButtonState()
+        }
+    }
+
+    @objc private func resetKeepDecisions(_ sender: NSButton) {
+        let kinds = ["screenshots", "lowQuality", "receiptsAndDocuments", "duplicates"]
+        guard sender.tag < kinds.count else { return }
+        let kind = kinds[sender.tag]
+        do {
+            try model.database.assetRepository.clearKeepDecisions(for: kind)
+            NotificationCenter.default.post(name: .librarianIndexingStateChanged, object: nil)
+            // Rebuild the view to refresh counts
+            loadView()
+            viewDidAppear()
+        } catch {
+            AppLog.shared.error("Failed to reset keep decisions for \(kind): \(error.localizedDescription)")
         }
     }
 

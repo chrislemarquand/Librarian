@@ -807,11 +807,27 @@ final class ContentController: NSViewController {
     }
 
     @objc private func markScreenshotsKeep() {
-        applyScreenshotDecision(.keep)
+        let kind = selectedSidebarKind()
+        let identifiers = selectedAssetIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.database.assetRepository.keepAssetsInQueue(identifiers, queueKind: kind.debugName)
+            AppLog.shared.info("Kept \(identifiers.count) item(s) in queue '\(kind.debugName)'")
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+        } catch {
+            AppLog.shared.error("Failed to keep assets in queue: \(error.localizedDescription)")
+        }
+        updateScreenshotActionBarState()
     }
 
     @objc private func markScreenshotsArchiveCandidate() {
-        applyScreenshotDecision(.archiveCandidate)
+        if selectedSidebarKind() == .screenshots {
+            applyScreenshotDecision(.archiveCandidate)
+        } else {
+            queueSelectedAssetsForArchive()
+        }
     }
 
     private func applyScreenshotDecision(_ decision: ScreenshotReviewDecision) {
@@ -883,17 +899,16 @@ final class ContentController: NSViewController {
     }
 
     private func updateScreenshotActionBarState() {
-        let isScreenshots = selectedSidebarKind() == .screenshots
-        let hasGridVisible = !collectionView.isHidden
-        let shouldShow = isScreenshots && hasGridVisible && !displayAssets.isEmpty
+        let kind = selectedSidebarKind()
+        let isQueueView = kind == .screenshots || kind == .duplicates || kind == .lowQuality || kind == .receiptsAndDocuments
+        let shouldShow = isQueueView && !collectionView.isHidden && !displayAssets.isEmpty
         screenshotActionBar.isHidden = !shouldShow
         screenshotActionBarHeightConstraint.constant = shouldShow ? 44 : 0
 
         guard shouldShow else { return }
         let selectionCount = selectedAssetIdentifiers().count
-        screenshotSelectionLabel.stringValue = selectionCount > 0
-            ? "\(selectionCount) selected"
-            : "Select screenshots to review"
+        let emptyLabel = kind == .screenshots ? "Select screenshots to review" : "Select photos to review"
+        screenshotSelectionLabel.stringValue = selectionCount > 0 ? "\(selectionCount) selected" : emptyLabel
         screenshotKeepButton.isEnabled = selectionCount > 0
         screenshotArchiveButton.isEnabled = selectionCount > 0
     }

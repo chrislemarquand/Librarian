@@ -122,15 +122,14 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
-                    LEFT JOIN screenshot_review sr
-                    ON sr.assetLocalIdentifier = a.localIdentifier
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'screenshots'
                     WHERE a.isScreenshot = 1
-                      AND (sr.decision IS NULL OR sr.decision = ?)
+                      AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
-                    LIMIT ?
-                    OFFSET ?
+                    LIMIT ? OFFSET ?
                 """,
-                arguments: [ScreenshotReviewDecision.none.rawValue, limit, offset]
+                arguments: [limit, offset]
             )
             return try request.fetchAll(db)
         }
@@ -408,6 +407,8 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'duplicates'
                     WHERE a.fingerprint IS NOT NULL
                       AND a.fingerprint IN (
                         SELECT fingerprint FROM asset
@@ -416,7 +417,8 @@ final class AssetRepository: @unchecked Sendable {
                         GROUP BY fingerprint
                         HAVING COUNT(*) > 1
                       )
-                    ORDER BY a.fingerprint, a.creationDate ASC
+                      AND qk.assetLocalIdentifier IS NULL
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
                 arguments: [limit, offset]
@@ -431,10 +433,13 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'lowQuality'
                     WHERE a.overallScore IS NOT NULL
                       AND a.overallScore < 0.3
                       AND a.isFavorite = 0
-                    ORDER BY a.overallScore ASC, a.creationDate DESC
+                      AND qk.assetLocalIdentifier IS NULL
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
                 arguments: [limit, offset]
@@ -449,6 +454,8 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'receiptsAndDocuments'
                     WHERE a.labelsJSON IS NOT NULL
                       AND (
                         a.labelsJSON LIKE '%"receipt"%'
@@ -457,12 +464,48 @@ final class AssetRepository: @unchecked Sendable {
                         OR a.labelsJSON LIKE '%"menu"%'
                         OR a.labelsJSON LIKE '%"whiteboard"%'
                       )
-                    ORDER BY a.creationDate DESC
+                      AND qk.assetLocalIdentifier IS NULL
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
                 arguments: [limit, offset]
             )
             return try request.fetchAll(db)
+        }
+    }
+
+    func keepAssetsInQueue(_ identifiers: [String], queueKind: String, at date: Date = Date()) throws {
+        guard !identifiers.isEmpty else { return }
+        try db.write { db in
+            for identifier in identifiers {
+                try db.execute(
+                    sql: """
+                        INSERT INTO queue_keep_decision (assetLocalIdentifier, queueKind, decidedAt)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(assetLocalIdentifier, queueKind) DO UPDATE SET decidedAt = excluded.decidedAt
+                    """,
+                    arguments: [identifier, queueKind, date]
+                )
+            }
+        }
+    }
+
+    func clearKeepDecisions(for queueKind: String) throws {
+        try db.write { db in
+            try db.execute(
+                sql: "DELETE FROM queue_keep_decision WHERE queueKind = ?",
+                arguments: [queueKind]
+            )
+        }
+    }
+
+    func countKeepDecisions(for queueKind: String) throws -> Int {
+        try db.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM queue_keep_decision WHERE queueKind = ?",
+                arguments: [queueKind]
+            ) ?? 0
         }
     }
 
