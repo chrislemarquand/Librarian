@@ -56,6 +56,10 @@ final class InspectorController: NSViewController {
         viewModel.showEmpty()
     }
 
+    func showMultiple(count: Int) {
+        viewModel.showMultiple(count: count)
+    }
+
     func showAsset(_ asset: IndexedAsset) {
         viewModel.showAsset(asset)
     }
@@ -82,7 +86,9 @@ final class InspectorController: NSViewController {
     }
 
     private func refreshForSelection() {
-        if let asset = model.selectedAsset {
+        if model.selectedAssetCount > 1 {
+            showMultiple(count: model.selectedAssetCount)
+        } else if let asset = model.selectedAsset {
             showAsset(asset)
         } else {
             showEmpty()
@@ -115,8 +121,20 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         self.collapsedSections = Set(stored)
     }
 
+    @Published private(set) var multipleSelectionCount: Int = 0
+
     func showEmpty() {
         selectedAsset = nil
+        multipleSelectionCount = 0
+        archiveCandidateInfo = nil
+        previewImage = nil
+        isPreviewLoading = false
+        representedPreviewIdentifier = nil
+    }
+
+    func showMultiple(count: Int) {
+        selectedAsset = nil
+        multipleSelectionCount = count
         archiveCandidateInfo = nil
         previewImage = nil
         isPreviewLoading = false
@@ -369,6 +387,14 @@ private struct InspectorReadOnlyView: View {
                     }
                 }
                 .padding(.vertical, 12)
+            } else if viewModel.multipleSelectionCount > 1 {
+                ContentUnavailableView(
+                    "\(viewModel.multipleSelectionCount) Photos Selected",
+                    systemImage: "photo.stack",
+                    description: Text("Select a single photo to view its metadata.")
+                )
+                .frame(maxWidth: .infinity)
+                .containerRelativeFrame(.vertical, alignment: .center)
             } else {
                 ContentUnavailableView(
                     "No Selection",

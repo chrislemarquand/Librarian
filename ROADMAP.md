@@ -134,11 +134,58 @@ Priority targets for the archive pipeline (the trust boundary):
 - Deletion reconciliation (exported but not deleted case).
 - Photo library change deltas and delta accumulation.
 
+### 13) Ledger UI Parity — Keyboard & Selection
+
+Patterns present in Ledger that would make the apps feel consistent:
+
+- **Cmd+A** — select all currently visible assets in the gallery.
+- **Cmd+D** — deselect all (or map to Escape, which already clears selection).
+- **Keyboard shortcut for Put Back** — the Set Aside view has no keyboard shortcut to
+  put back selected items; batch review currently requires mouse.
+- **Tab key cycling** — Tab to move focus between sidebar → gallery → inspector, matching
+  Ledger's pane-cycling behaviour.
+- **Multi-selection feedback in inspector** — when 2+ photos are selected, inspector should
+  show "X photos selected" rather than the empty "No Selection" state.
+
+### 14) Ledger UI Parity — Quick Look
+
+Space bar should open Quick Look (`QLPreviewPanel`) for the currently selected photo(s).
+Standard macOS behaviour for any image-browsing app; essential for evaluating whether a
+photo is worth keeping before deciding to archive it. One of the highest-value missing
+interactions relative to the workflow.
+
+### 15) Ledger UI Parity — Gallery Context Menus
+
+Right-click on a gallery item should show a context menu. Minimum useful set:
+- **Set Aside** (primary action, all library/queue views)
+- **Keep** (queue views only — dismisses from that queue)
+- **Put Back** (Set Aside view only)
+- Separator
+- **Open in Photos**
+
+Right-clicking an unselected item should auto-select it first (Ledger pattern).
+Disabled items for inapplicable actions should be shown but inactive, not hidden.
+
+### 16) Ledger UI Parity — Sidebar Badges
+
+Show item counts as badges next to each sidebar item, giving at-a-glance visibility
+across all views simultaneously. Particularly useful for queue views (how many screenshots,
+duplicates, low-quality items remain). Uses `countForSidebarKind()` already in
+`AssetRepository`. SwiftUI `.badge()` modifier in the sidebar cell view.
+
+### 17) Ledger UI Parity — Subtitle Feedback for Archive Results
+
+Ledger uses the window subtitle for non-critical operation feedback rather than modal
+alerts. A clean full-success archive send currently shows an NSAlert; the subtitle pattern
+is less disruptive. NSAlert remains appropriate for partial failures (items that couldn't
+be exported or deleted), but clean success should use subtitle feedback:
+e.g. "Archived 47 photos."
+
 ---
 
 ## Later
 
-### 13) Archive Pipeline Extensions
+### 18) Archive Pipeline Extensions
 
 - Optional export profiles/presets.
 - Better post-export auditing and reporting UI.

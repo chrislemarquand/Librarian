@@ -3,7 +3,7 @@ import GRDB
 
 // MARK: - IndexedAsset (GRDB record)
 
-struct IndexedAsset: Codable, FetchableRecord, PersistableRecord {
+struct IndexedAsset: Codable, FetchableRecord, @preconcurrency PersistableRecord {
     static let databaseTableName = "asset"
 
     var localIdentifier: String

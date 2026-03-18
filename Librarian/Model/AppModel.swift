@@ -73,6 +73,7 @@ final class AppModel: ObservableObject {
     @Published var failedArchiveCandidateCount = 0
     @Published var assetDataVersion: Int = 0
     @Published var selectedAsset: IndexedAsset?
+    @Published var selectedAssetCount: Int = 0
     @Published var indexingProgress: IndexingProgress = .idle
     @Published var galleryGridLevel: Int = 4 {
         didSet {
@@ -235,11 +236,13 @@ final class AppModel: ObservableObject {
         NotificationCenter.default.post(name: .librarianSidebarSelectionChanged, object: nil)
     }
 
-    func setSelectedAsset(_ asset: IndexedAsset?) {
-        if selectedAsset?.localIdentifier == asset?.localIdentifier {
+    func setSelectedAsset(_ asset: IndexedAsset?, count: Int = 1) {
+        let newCount = asset == nil ? 0 : count
+        if selectedAsset?.localIdentifier == asset?.localIdentifier, selectedAssetCount == newCount {
             return
         }
         selectedAsset = asset
+        selectedAssetCount = newCount
         NotificationCenter.default.post(name: .librarianSelectionChanged, object: nil)
     }
 

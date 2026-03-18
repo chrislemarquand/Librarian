@@ -1,5 +1,6 @@
 import Cocoa
 import Photos
+import SwiftUI
 
 final class ContentController: NSViewController {
 
@@ -10,7 +11,8 @@ final class ContentController: NSViewController {
     private var collectionView: AppKitGalleryCollectionView!
     private let galleryLayout = AppKitGalleryLayout()
     private var scrollView: NSScrollView!
-    private var overlayLabel: NSTextField!
+    private let placeholderViewModel = GalleryPlaceholderViewModel()
+    private var placeholderHostingView: NSView?
     private var screenshotActionBar: NSView!
     private var screenshotSelectionLabel: NSTextField!
     private var screenshotKeepButton: NSButton!
@@ -22,7 +24,8 @@ final class ContentController: NSViewController {
     private var indexingProgressBar: NSProgressIndicator!
     private var logPane: NSView!
     private var logTextView: NSTextView!
-    private var logEmptyLabel: NSTextField!
+    private let logPlaceholderViewModel = GalleryPlaceholderViewModel()
+    private var logPlaceholderHostingView: NSView?
     private var displayAssets: [IndexedAsset] = []
     private var isLoadingAssets = false
     private var canLoadMoreAssets = true
@@ -82,12 +85,14 @@ final class ContentController: NSViewController {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
 
-        overlayLabel = NSTextField(labelWithString: "")
-        overlayLabel.font = NSFont.systemFont(ofSize: 14)
-        overlayLabel.textColor = .secondaryLabelColor
-        overlayLabel.alignment = .center
-        overlayLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(overlayLabel)
+        let placeholderHost = NSHostingController(rootView: GalleryPlaceholderView(viewModel: placeholderViewModel))
+        placeholderHost.sizingOptions = []
+        addChild(placeholderHost)
+        let phView = placeholderHost.view
+        phView.translatesAutoresizingMaskIntoConstraints = false
+        phView.isHidden = true
+        container.addSubview(phView)
+        placeholderHostingView = phView
 
         screenshotActionBar = buildScreenshotActionBar()
         screenshotActionBar.translatesAutoresizingMaskIntoConstraints = false
@@ -110,8 +115,10 @@ final class ContentController: NSViewController {
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: screenshotActionBar.topAnchor),
 
-            overlayLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            overlayLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            phView.topAnchor.constraint(equalTo: container.topAnchor),
+            phView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            phView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            phView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
             screenshotActionBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             screenshotActionBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -389,67 +396,117 @@ final class ContentController: NSViewController {
         let sidebarKind = selectedSidebarKind()
         switch model.photosAuthState {
         case .notDetermined:
-            overlayLabel.stringValue = "Requesting access to Photos…"
-            overlayLabel.isHidden = false
+            showPlaceholder(.loading(title: "Requesting Access", symbolName: "key.fill"))
             collectionView.isHidden = true
             indexingPane.isHidden = true
             logPane.isHidden = true
         case .denied, .restricted:
-            overlayLabel.stringValue = "Photos access required. Open System Settings to grant access."
-            overlayLabel.isHidden = false
+            showPlaceholder(.unavailable(
+                title: "Access Required",
+                symbolName: "lock.fill",
+                description: "Open System Settings to grant Librarian access to your photo library."))
             collectionView.isHidden = true
             indexingPane.isHidden = true
             logPane.isHidden = true
         case .limited:
-            overlayLabel.stringValue = "Full Photos access is required. Please update your privacy settings."
-            overlayLabel.isHidden = false
+            showPlaceholder(.unavailable(
+                title: "Full Access Required",
+                symbolName: "lock.trianglebadge.exclamationmark.fill",
+                description: "Librarian requires full access to your photo library. Please update your privacy settings."))
             collectionView.isHidden = true
             indexingPane.isHidden = true
             logPane.isHidden = true
         case .authorized:
             if shouldShowIndexingPane(for: sidebarKind) {
-                overlayLabel.isHidden = true
+                hidePlaceholder()
                 collectionView.isHidden = true
                 indexingPane.isHidden = false
                 logPane.isHidden = true
                 refreshIndexingPane()
             } else if sidebarKind == .log {
-                overlayLabel.isHidden = true
+                hidePlaceholder()
                 collectionView.isHidden = true
                 indexingPane.isHidden = true
                 logPane.isHidden = false
                 refreshLogPane()
             } else if model.isIndexing, displayAssets.isEmpty {
-                overlayLabel.stringValue = "Indexing your library…"
-                overlayLabel.isHidden = false
+                showPlaceholder(.loading(title: "Indexing Library", symbolName: "arrow.triangle.2.circlepath"))
                 collectionView.isHidden = true
                 indexingPane.isHidden = true
                 logPane.isHidden = true
             } else if isLoadingAssets, displayAssets.isEmpty {
-                overlayLabel.stringValue = loadingMessage(for: sidebarKind)
-                overlayLabel.isHidden = false
+                showPlaceholder(.loading(title: "Loading", symbolName: symbolName(for: sidebarKind)))
                 collectionView.isHidden = true
                 indexingPane.isHidden = true
                 logPane.isHidden = true
             } else if !displayAssets.isEmpty {
-                overlayLabel.isHidden = true
+                hidePlaceholder()
                 collectionView.isHidden = false
                 indexingPane.isHidden = true
                 logPane.isHidden = true
             } else {
-                overlayLabel.stringValue = emptyMessage(for: sidebarKind)
-                overlayLabel.isHidden = false
+                showPlaceholder(emptyContent(for: sidebarKind))
                 collectionView.isHidden = true
                 indexingPane.isHidden = true
                 logPane.isHidden = true
             }
             updateScreenshotActionBarState()
         @unknown default:
-            overlayLabel.stringValue = ""
-            overlayLabel.isHidden = true
+            hidePlaceholder()
             indexingPane.isHidden = true
             logPane.isHidden = true
             updateScreenshotActionBarState()
+        }
+    }
+
+    private func showPlaceholder(_ content: GalleryPlaceholderContent) {
+        placeholderViewModel.content = content
+        placeholderHostingView?.isHidden = false
+    }
+
+    private func hidePlaceholder() {
+        placeholderViewModel.content = nil
+        placeholderHostingView?.isHidden = true
+    }
+
+    private func symbolName(for kind: SidebarItem.Kind) -> String {
+        switch kind {
+        case .allPhotos: return "photo.on.rectangle.angled"
+        case .recents: return "clock"
+        case .favourites: return "heart"
+        case .screenshots: return "camera.viewfinder"
+        case .setAsideForArchive: return "tray.full"
+        case .duplicates: return "doc.on.doc"
+        case .lowQuality: return "wand.and.stars.inverse"
+        case .receiptsAndDocuments: return "doc.text"
+        case .log: return "list.bullet.rectangle"
+        case .indexing: return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    private func emptyContent(for kind: SidebarItem.Kind) -> GalleryPlaceholderContent {
+        switch kind {
+        case .allPhotos:
+            let description = model.indexedAssetCount > 0
+                ? "No photos match the current filters."
+                : "Your photo library appears to be empty."
+            return .unavailable(title: "No Photos", symbolName: "photo.on.rectangle.angled", description: description)
+        case .recents:
+            return .unavailable(title: "No Recent Photos", symbolName: "clock", description: "No photos from the past 30 days.")
+        case .favourites:
+            return .unavailable(title: "No Favourites", symbolName: "heart", description: "Mark photos as favourites in Photos to see them here.")
+        case .screenshots:
+            return .unavailable(title: "No Screenshots", symbolName: "camera.viewfinder", description: "All screenshots have been reviewed.")
+        case .setAsideForArchive:
+            return .unavailable(title: "Nothing Set Aside", symbolName: "tray.full", description: "Photos you set aside for archiving will appear here.")
+        case .duplicates:
+            return .unavailable(title: "No Duplicates", symbolName: "doc.on.doc", description: "No exact duplicate photos found.")
+        case .lowQuality:
+            return .unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "No photos with a low quality score found.")
+        case .receiptsAndDocuments:
+            return .unavailable(title: "No Receipts or Documents", symbolName: "doc.text", description: "No photos labelled as receipts or documents found.")
+        case .log, .indexing:
+            return .unavailable(title: "No Log Entries", symbolName: "list.bullet.rectangle", description: "Activity will appear here.")
         }
     }
 
@@ -576,45 +633,6 @@ final class ContentController: NSViewController {
         model.selectedSidebarItem?.kind ?? .allPhotos
     }
 
-    private func loadingMessage(for sidebarKind: SidebarItem.Kind) -> String {
-        switch sidebarKind {
-        case .allPhotos: return "Loading indexed assets…"
-        case .recents: return "Loading photos from the past 30 days…"
-        case .favourites: return "Loading favourites…"
-        case .screenshots: return "Loading screenshots queue…"
-        case .setAsideForArchive: return "Loading archive set-aside queue…"
-        case .duplicates: return "Loading duplicates…"
-        case .lowQuality: return "Loading low quality photos…"
-        case .receiptsAndDocuments: return "Loading receipts and documents…"
-        case .indexing: return "Indexing your library…"
-        case .log: return "Loading log…"
-        }
-    }
-
-    private func emptyMessage(for sidebarKind: SidebarItem.Kind) -> String {
-        switch sidebarKind {
-        case .allPhotos:
-            return model.indexedAssetCount > 0 ? "No assets available to display." : "No indexed assets yet."
-        case .recents:
-            return "No photos from the past 30 days."
-        case .favourites:
-            return "No favourites found."
-        case .screenshots:
-            return "No screenshots pending review."
-        case .setAsideForArchive:
-            return "No photos set aside for archive."
-        case .duplicates:
-            return "No duplicates found."
-        case .lowQuality:
-            return "No low quality photos found."
-        case .receiptsAndDocuments:
-            return "No receipts or documents found."
-        case .indexing:
-            return "Indexing is idle."
-        case .log:
-            return "No log entries yet."
-        }
-    }
 
     private func buildScreenshotActionBar() -> NSView {
         let bar = NSView()
@@ -724,13 +742,14 @@ final class ContentController: NSViewController {
         scroll.documentView = logTextView
         pane.addSubview(scroll)
 
-        logEmptyLabel = NSTextField(labelWithString: "No log entries yet.")
-        logEmptyLabel.font = NSFont.systemFont(ofSize: 13)
-        logEmptyLabel.textColor = .secondaryLabelColor
-        logEmptyLabel.alignment = .center
-        logEmptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        logEmptyLabel.isHidden = true
-        pane.addSubview(logEmptyLabel)
+        let logPlaceholderHost = NSHostingController(rootView: GalleryPlaceholderView(viewModel: logPlaceholderViewModel))
+        logPlaceholderHost.sizingOptions = []
+        addChild(logPlaceholderHost)
+        let lpView = logPlaceholderHost.view
+        lpView.translatesAutoresizingMaskIntoConstraints = false
+        lpView.isHidden = true
+        pane.addSubview(lpView)
+        logPlaceholderHostingView = lpView
 
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: pane.topAnchor),
@@ -738,8 +757,10 @@ final class ContentController: NSViewController {
             scroll.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: pane.bottomAnchor),
 
-            logEmptyLabel.centerXAnchor.constraint(equalTo: pane.centerXAnchor),
-            logEmptyLabel.centerYAnchor.constraint(equalTo: pane.centerYAnchor),
+            lpView.topAnchor.constraint(equalTo: pane.topAnchor),
+            lpView.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
+            lpView.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
+            lpView.bottomAnchor.constraint(equalTo: pane.bottomAnchor),
         ])
 
         return pane
@@ -766,7 +787,13 @@ final class ContentController: NSViewController {
         let text = AppLog.shared.readRecentLines(maxLines: 800)
         logTextView.string = text
         logTextView.sizeToFit()
-        logEmptyLabel.isHidden = !text.isEmpty
+        let isEmpty = text.isEmpty
+        logTextView.enclosingScrollView?.isHidden = isEmpty
+        logPlaceholderHostingView?.isHidden = !isEmpty
+        logPlaceholderViewModel.content = isEmpty ? .unavailable(
+            title: "No Log Entries",
+            symbolName: "list.bullet.rectangle",
+            description: "Activity will appear here.") : nil
     }
 
     private func shouldShowIndexingPane(for sidebarKind: SidebarItem.Kind) -> Bool {
@@ -975,13 +1002,14 @@ extension ContentController {
     }
 
     private func syncModelSelectionFromCollection() {
+        let count = collectionView.selectionIndexPaths.count
         guard let selectedIndex = collectionView.selectionIndexPaths.first?.item,
               selectedIndex >= 0,
               selectedIndex < displayAssets.count else {
-            model.setSelectedAsset(nil)
+            model.setSelectedAsset(nil, count: 0)
             return
         }
-        model.setSelectedAsset(displayAssets[selectedIndex])
+        model.setSelectedAsset(displayAssets[selectedIndex], count: count)
     }
 
     private func handleModifiedItemClick(indexPath: IndexPath, modifiers: NSEvent.ModifierFlags) {

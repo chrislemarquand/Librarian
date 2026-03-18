@@ -3,7 +3,7 @@ import GRDB
 
 // MARK: - Job (GRDB record)
 
-struct Job: Codable, FetchableRecord, PersistableRecord {
+struct Job: Codable, FetchableRecord, @preconcurrency PersistableRecord {
     static let databaseTableName = "job"
 
     enum JobType: String, Codable {
@@ -70,9 +70,10 @@ final class JobRepository: @unchecked Sendable {
     // MARK: - Update
 
     func markRunning(_ job: Job) async throws {
-        var updated = job
-        updated.state = Job.JobState.running.rawValue
-        updated.startedAt = Date()
+        var copy = job
+        copy.state = Job.JobState.running.rawValue
+        copy.startedAt = Date()
+        let updated = copy
         try await db.write { db in try updated.update(db) }
     }
 
@@ -83,19 +84,21 @@ final class JobRepository: @unchecked Sendable {
     }
 
     func markCompleted(_ job: Job) async throws {
-        var updated = job
-        updated.state = Job.JobState.completed.rawValue
-        updated.progress = 1.0
-        updated.finishedAt = Date()
+        var copy = job
+        copy.state = Job.JobState.completed.rawValue
+        copy.progress = 1.0
+        copy.finishedAt = Date()
+        let updated = copy
         try await db.write { db in try updated.update(db) }
     }
 
-    func markFailed(_ job: Job, error: String) throws {
-        var updated = job
-        updated.state = Job.JobState.failed.rawValue
-        updated.finishedAt = Date()
-        updated.errorText = error
-        try db.write { db in try updated.update(db) }
+    func markFailed(_ job: Job, error: String) async throws {
+        var copy = job
+        copy.state = Job.JobState.failed.rawValue
+        copy.finishedAt = Date()
+        copy.errorText = error
+        let updated = copy
+        try await db.write { db in try updated.update(db) }
     }
 
     // MARK: - Query
