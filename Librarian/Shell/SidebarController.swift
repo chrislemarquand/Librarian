@@ -313,29 +313,47 @@ extension SidebarController: NSOutlineViewDelegate {
 
 private final class SidebarSelectionRowView: NSTableRowView {
     static let pillInsetX: CGFloat = 6
-    override var isEmphasized: Bool {
-        didSet {
-            needsDisplay = true
-            guard !isSelected else { return }
-            for subview in subviews {
-                guard let cell = subview as? NSTableCellView else { continue }
-                cell.textField?.textColor = isEmphasized ? .labelColor : .secondaryLabelColor
-                cell.imageView?.contentTintColor = isEmphasized ? .labelColor : .secondaryLabelColor
-            }
-        }
+
+    override var isSelected: Bool {
+        didSet { needsDisplay = true; updateSubviewColors() }
     }
 
+    override var isEmphasized: Bool {
+        didSet { needsDisplay = true; updateSubviewColors() }
+    }
+
+    // Only tell cell views to use white text when the row is selected AND focused.
+    // Unfocused-selected → .normal so text stays at labelColor over the grey pill.
     override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        isSelected ? .emphasized : .normal
+        isSelected && isEmphasized ? .emphasized : .normal
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none, isSelected else { return }
-        let fillColor = AppTheme.accentNSColor.withAlphaComponent(isEmphasized ? 1.0 : 0.3)
+        let fillColor = isEmphasized
+            ? AppTheme.accentNSColor
+            : NSColor.unemphasizedSelectedContentBackgroundColor
         fillColor.setFill()
-        let selectionRect = bounds.insetBy(dx: Self.pillInsetX, dy: 2)
-        let path = NSBezierPath(roundedRect: selectionRect, xRadius: 8, yRadius: 8)
-        path.fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: Self.pillInsetX, dy: 2), xRadius: 8, yRadius: 8).fill()
+    }
+
+    // Called when a cell view is added to the row (e.g. after reuse/creation).
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        updateSubviewColors()
+    }
+
+    private func updateSubviewColors() {
+        for subview in subviews {
+            guard let cell = subview as? NSTableCellView else { continue }
+            if isSelected && isEmphasized {
+                cell.textField?.textColor = .white
+                cell.imageView?.contentTintColor = .white
+            } else {
+                cell.textField?.textColor = .labelColor
+                cell.imageView?.contentTintColor = nil
+            }
+        }
     }
 }
 
