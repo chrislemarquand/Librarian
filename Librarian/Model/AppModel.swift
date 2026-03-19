@@ -49,6 +49,15 @@ enum ArchiveSettings {
         AppLog.shared.info("Archive root set to: \(url.path)")
         return true
     }
+
+    static func archiveTreeRootURL(from rootURL: URL) -> URL {
+        rootURL.appendingPathComponent("Archive", isDirectory: true)
+    }
+
+    static func currentArchiveTreeRootURL() -> URL? {
+        guard let root = restoreArchiveRootURL() else { return nil }
+        return archiveTreeRootURL(from: root)
+    }
 }
 
 @MainActor
@@ -270,6 +279,14 @@ final class AppModel: ObservableObject {
         refreshArchiveCandidateCount()
         assetDataVersion &+= 1
         return failed.count
+    }
+
+    @discardableResult
+    func updateArchiveRoot(_ url: URL) -> Bool {
+        guard ArchiveSettings.persistArchiveRootURL(url) else { return false }
+        NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
+        NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+        return true
     }
 
     func runLibraryAnalysis() async {

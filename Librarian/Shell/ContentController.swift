@@ -1,6 +1,51 @@
 import Cocoa
 import Photos
 import SwiftUI
+import ImageIO
+import UniformTypeIdentifiers
+import CryptoKit
+
+private enum DisplayAsset {
+    case photos(IndexedAsset)
+    case archived(ArchivedItem)
+
+    var id: String {
+        switch self {
+        case .photos(let asset):
+            return asset.localIdentifier
+        case .archived(let item):
+            return "archived:\(item.relativePath)"
+        }
+    }
+
+    var pixelWidth: Int {
+        switch self {
+        case .photos(let asset): return asset.pixelWidth
+        case .archived(let item): return item.pixelWidth
+        }
+    }
+
+    var pixelHeight: Int {
+        switch self {
+        case .photos(let asset): return asset.pixelHeight
+        case .archived(let item): return item.pixelHeight
+        }
+    }
+
+    var photoIdentifier: String? {
+        if case .photos(let asset) = self {
+            return asset.localIdentifier
+        }
+        return nil
+    }
+
+    var photoAsset: IndexedAsset? {
+        if case .photos(let asset) = self {
+            return asset
+        }
+        return nil
+    }
+}
 
 final class ContentController: NSViewController {
 
@@ -18,6 +63,11 @@ final class ContentController: NSViewController {
     private var screenshotKeepButton: NSButton!
     private var screenshotArchiveButton: NSButton!
     private var screenshotActionBarHeightConstraint: NSLayoutConstraint!
+    private var archivedNoticeBar: NSView!
+    private var archivedNoticeLabel: NSTextField!
+    private var archivedNoticeActionButton: NSButton!
+    private var archivedNoticeDismissButton: NSButton!
+    private var archivedNoticeBarHeightConstraint: NSLayoutConstraint!
     private var indexingPane: NSView!
     private var indexingStatusLabel: NSTextField!
     private var indexingDetailLabel: NSTextField!
@@ -26,7 +76,7 @@ final class ContentController: NSViewController {
     private var logTextView: NSTextView!
     private let logPlaceholderViewModel = GalleryPlaceholderViewModel()
     private var logPlaceholderHostingView: NSView?
-    private var displayAssets: [IndexedAsset] = []
+    private var displayAssets: [DisplayAsset] = []
     private var isLoadingAssets = false
     private var canLoadMoreAssets = true
     private var loadGeneration = 0
@@ -38,9 +88,16 @@ final class ContentController: NSViewController {
     private var lastMagnification: CGFloat = 0
     private let pinchThreshold: CGFloat = 0.14
     private var selectionAnchorIndex: Int?
+    private let archivedIndexer: ArchiveIndexer
+    private let archiveOrganizer = ArchiveOrganizer()
+    private let archivedThumbnailService = ArchivedThumbnailService()
+    private var archivedUnorganizedCount = 0
+    private var archivedBannerDismissedForLaunch = false
+    private var isOrganizingArchivedFiles = false
 
     init(model: AppModel) {
         self.model = model
+        self.archivedIndexer = ArchiveIndexer(database: model.database)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -99,6 +156,11 @@ final class ContentController: NSViewController {
         screenshotActionBar.isHidden = true
         container.addSubview(screenshotActionBar)
 
+        archivedNoticeBar = buildArchivedNoticeBar()
+        archivedNoticeBar.translatesAutoresizingMaskIntoConstraints = false
+        archivedNoticeBar.isHidden = true
+        container.addSubview(archivedNoticeBar)
+
         indexingPane = buildIndexingPane()
         indexingPane.translatesAutoresizingMaskIntoConstraints = false
         indexingPane.isHidden = true
@@ -110,10 +172,14 @@ final class ContentController: NSViewController {
         container.addSubview(logPane)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.topAnchor.constraint(equalTo: archivedNoticeBar.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: screenshotActionBar.topAnchor),
+
+            archivedNoticeBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            archivedNoticeBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            archivedNoticeBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
 
             phView.topAnchor.constraint(equalTo: container.topAnchor),
             phView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -136,6 +202,8 @@ final class ContentController: NSViewController {
         ])
         screenshotActionBarHeightConstraint = screenshotActionBar.heightAnchor.constraint(equalToConstant: 0)
         screenshotActionBarHeightConstraint.isActive = true
+        archivedNoticeBarHeightConstraint = archivedNoticeBar.heightAnchor.constraint(equalToConstant: 0)
+        archivedNoticeBarHeightConstraint.isActive = true
 
         view = container
     }
@@ -186,6 +254,12 @@ final class ContentController: NSViewController {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(archiveRootChanged),
+            name: .librarianArchiveRootChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(analysisStateChanged),
             name: .librarianAnalysisStateChanged,
             object: nil
@@ -228,9 +302,18 @@ final class ContentController: NSViewController {
     }
 
     @objc private func archiveQueueChanged() {
-        if selectedSidebarKind() == .setAsideForArchive {
+        if selectedSidebarKind() == .setAsideForArchive || selectedSidebarKind() == .archived {
             loadAssetsIfNeeded(force: true)
         }
+    }
+
+    @objc private func archiveRootChanged() {
+        archivedBannerDismissedForLaunch = false
+        archivedUnorganizedCount = 0
+        if selectedSidebarKind() == .archived {
+            loadAssetsIfNeeded(force: true)
+        }
+        updateArchivedNoticeBarState()
     }
 
     private func loadAssetsIfNeeded(force: Bool) {
@@ -281,26 +364,42 @@ final class ContentController: NSViewController {
         let database = model.database
         let pageSize = self.galleryPageSize
         let generation = loadGeneration
+        let archivedIndexer = self.archivedIndexer
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
-            let assets: [IndexedAsset]
+            let assets: [DisplayAsset]
+            var archivedRefreshSummary: ArchiveIndexRefreshSummary?
             switch sidebarKind {
             case .allPhotos:
-                assets = (try? database.assetRepository.fetchForGrid(limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .recents:
-                assets = (try? database.assetRepository.fetchRecentsForGrid(since: recentCutoff, limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchRecentsForGrid(since: recentCutoff, limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .favourites:
-                assets = (try? database.assetRepository.fetchFavouritesForGrid(limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchFavouritesForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .screenshots:
-                assets = (try? database.assetRepository.fetchScreenshotsForReview(limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchScreenshotsForReview(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .setAsideForArchive:
-                assets = (try? database.assetRepository.fetchArchiveCandidatesForGrid(limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchArchiveCandidatesForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
+            case .archived:
+                if replaceExisting, offset == 0 {
+                    archivedRefreshSummary = try? archivedIndexer.refreshIndex()
+                }
+                let rows = (try? database.assetRepository.fetchArchivedForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .archived($0) }
             case .duplicates:
-                assets = (try? database.assetRepository.fetchDuplicatesForGrid(limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchDuplicatesForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .lowQuality:
-                assets = (try? database.assetRepository.fetchLowQualityForGrid(limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchLowQualityForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .receiptsAndDocuments:
-                assets = (try? database.assetRepository.fetchReceiptsAndDocumentsForGrid(limit: pageSize, offset: offset)) ?? []
+                let rows = (try? database.assetRepository.fetchReceiptsAndDocumentsForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .indexing, .log:
                 assets = []
             }
@@ -317,6 +416,9 @@ final class ContentController: NSViewController {
 
                 if replaceExisting {
                     self.displayAssets = assets
+                    if let archivedRefreshSummary {
+                        self.archivedUnorganizedCount = archivedRefreshSummary.unorganizedCount
+                    }
                     self.model.photosService.stopAllThumbnailCaching()
                     self.collectionView.reloadData()
                     self.syncModelSelectionFromCollection()
@@ -348,6 +450,7 @@ final class ContentController: NSViewController {
                 self.isLoadingAssets = false
                 self.updateOverlay()
                 self.updateScreenshotActionBarState()
+                self.updateArchivedNoticeBarState()
                 if !replaceExisting, !assets.isEmpty {
                     self.syncModelSelectionFromCollection()
                 }
@@ -457,6 +560,7 @@ final class ContentController: NSViewController {
             logPane.isHidden = true
             updateScreenshotActionBarState()
         }
+        updateArchivedNoticeBarState()
     }
 
     private func showPlaceholder(_ content: GalleryPlaceholderContent) {
@@ -476,6 +580,7 @@ final class ContentController: NSViewController {
         case .favourites: return "heart"
         case .screenshots: return "camera.viewfinder"
         case .setAsideForArchive: return "tray.full"
+        case .archived: return "archivebox"
         case .duplicates: return "doc.on.doc"
         case .lowQuality: return "wand.and.stars.inverse"
         case .receiptsAndDocuments: return "doc.text"
@@ -499,6 +604,8 @@ final class ContentController: NSViewController {
             return .unavailable(title: "No Screenshots", symbolName: "camera.viewfinder", description: "All screenshots have been reviewed.")
         case .setAsideForArchive:
             return .unavailable(title: "Nothing Set Aside", symbolName: "tray.full", description: "Photos you set aside for archiving will appear here.")
+        case .archived:
+            return .unavailable(title: "No Archived Photos", symbolName: "archivebox", description: "Archived photos will appear here after export.")
         case .duplicates:
             return .unavailable(title: "No Duplicates", symbolName: "doc.on.doc", description: "No duplicate or near-duplicate photos found.")
         case .lowQuality:
@@ -562,7 +669,7 @@ final class ContentController: NSViewController {
 
     private func captureZoomTransitionAnchor() -> ZoomTransitionAnchor? {
         if let selectedIdentifier = model.selectedAsset?.localIdentifier,
-           let index = displayAssets.firstIndex(where: { $0.localIdentifier == selectedIdentifier }) {
+           let index = displayAssets.firstIndex(where: { $0.photoIdentifier == selectedIdentifier }) {
             return ZoomTransitionAnchor(itemIndex: index)
         }
 
@@ -679,6 +786,95 @@ final class ContentController: NSViewController {
         ])
 
         return bar
+    }
+
+    private func buildArchivedNoticeBar() -> NSView {
+        let bar = NSView()
+        bar.wantsLayer = true
+        bar.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+
+        let divider = NSView()
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(divider)
+
+        archivedNoticeLabel = NSTextField(labelWithString: "")
+        archivedNoticeLabel.font = NSFont.systemFont(ofSize: 12)
+        archivedNoticeLabel.textColor = .secondaryLabelColor
+        archivedNoticeLabel.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(archivedNoticeLabel)
+
+        archivedNoticeActionButton = NSButton(title: "Organize Now", target: self, action: #selector(organizeArchivedFilesNow))
+        archivedNoticeActionButton.bezelStyle = .rounded
+        archivedNoticeActionButton.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(archivedNoticeActionButton)
+
+        archivedNoticeDismissButton = NSButton(title: "Not Now", target: self, action: #selector(dismissArchivedNoticeForLaunch))
+        archivedNoticeDismissButton.bezelStyle = .rounded
+        archivedNoticeDismissButton.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(archivedNoticeDismissButton)
+
+        NSLayoutConstraint.activate([
+            divider.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
+            divider.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            divider.heightAnchor.constraint(equalToConstant: 1),
+
+            archivedNoticeLabel.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
+            archivedNoticeLabel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+
+            archivedNoticeDismissButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12),
+            archivedNoticeDismissButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+
+            archivedNoticeActionButton.trailingAnchor.constraint(equalTo: archivedNoticeDismissButton.leadingAnchor, constant: -8),
+            archivedNoticeActionButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+        ])
+
+        return bar
+    }
+
+    @objc
+    private func organizeArchivedFilesNow() {
+        guard !isOrganizingArchivedFiles else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
+            self.isOrganizingArchivedFiles = true
+            self.updateArchivedNoticeBarState()
+            do {
+                let summary = try await Task.detached(priority: .utility) {
+                    try self.archiveOrganizer.organizeArchiveTree(in: archiveTreeRoot)
+                }.value
+                AppLog.shared.info("Archived view organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
+                self.archivedBannerDismissedForLaunch = false
+                NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+            } catch {
+                AppLog.shared.error("Archived view organization failed: \(error.localizedDescription)")
+            }
+            self.isOrganizingArchivedFiles = false
+            self.updateArchivedNoticeBarState()
+        }
+    }
+
+    @objc
+    private func dismissArchivedNoticeForLaunch() {
+        archivedBannerDismissedForLaunch = true
+        updateArchivedNoticeBarState()
+    }
+
+    private func updateArchivedNoticeBarState() {
+        let shouldShow = selectedSidebarKind() == .archived
+            && archivedUnorganizedCount > 0
+            && !archivedBannerDismissedForLaunch
+        archivedNoticeBar.isHidden = !shouldShow
+        archivedNoticeBarHeightConstraint.constant = shouldShow ? 40 : 0
+
+        guard shouldShow else { return }
+        archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) file(s) are outside YYYY/MM/DD. Organize archive now?"
+        archivedNoticeActionButton.isEnabled = !isOrganizingArchivedFiles
+        archivedNoticeActionButton.title = isOrganizingArchivedFiles ? "Organizing…" : "Organize Now"
+        archivedNoticeDismissButton.isEnabled = !isOrganizingArchivedFiles
     }
 
     private func buildIndexingPane() -> NSView {
@@ -813,8 +1009,8 @@ final class ContentController: NSViewController {
         guard let selectedIndex = collectionView.selectionIndexPaths.first?.item,
               selectedIndex >= 0,
               selectedIndex < displayAssets.count else { return }
-        let asset = displayAssets[selectedIndex]
-        model.photosService.openInPhotos(localIdentifier: asset.localIdentifier)
+        guard let localIdentifier = displayAssets[selectedIndex].photoIdentifier else { return }
+        model.photosService.openInPhotos(localIdentifier: localIdentifier)
     }
 
     @objc private func markScreenshotsKeep() {
@@ -865,7 +1061,7 @@ final class ContentController: NSViewController {
             .map(\.item)
             .filter { $0 >= 0 && $0 < displayAssets.count }
             .sorted()
-            .map { displayAssets[$0].localIdentifier }
+            .compactMap { displayAssets[$0].photoIdentifier }
     }
 
     var hasSelectedAssets: Bool {
@@ -947,20 +1143,29 @@ extension ContentController: NSCollectionViewDataSource {
             return CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
         }()
         item.prepare(
-            localIdentifier: asset.localIdentifier,
+            localIdentifier: asset.id,
             preferredAspectRatio: preferredAspectRatio,
             tileSide: thumbnailTileSide()
         )
 
-        guard let phAsset = model.photosService.fetchAsset(localIdentifier: asset.localIdentifier) else {
-            item.applyImage(nil, forLocalIdentifier: asset.localIdentifier)
-            return item
-        }
+        switch asset {
+        case .photos(let photoAsset):
+            guard let phAsset = model.photosService.fetchAsset(localIdentifier: photoAsset.localIdentifier) else {
+                item.applyImage(nil, forLocalIdentifier: asset.id)
+                return item
+            }
 
-        let targetSize = thumbnailTargetSize()
-        _ = model.photosService.requestThumbnail(for: phAsset, targetSize: targetSize) { [weak item] image in
-            guard let item else { return }
-            item.applyImage(image, forLocalIdentifier: asset.localIdentifier)
+            let targetSize = thumbnailTargetSize()
+            _ = model.photosService.requestThumbnail(for: phAsset, targetSize: targetSize) { [weak item] image in
+                guard let item else { return }
+                item.applyImage(image, forLocalIdentifier: asset.id)
+            }
+        case .archived(let archivedItem):
+            let targetSize = thumbnailTargetSize()
+            archivedThumbnailService.requestThumbnail(for: archivedItem, targetSize: targetSize) { [weak item] image in
+                guard let item else { return }
+                item.applyImage(image, forLocalIdentifier: asset.id)
+            }
         }
 
         return item
@@ -974,7 +1179,7 @@ extension ContentController: NSCollectionViewPrefetching {
     func collectionView(_ collectionView: NSCollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         let assets = indexPaths.compactMap { indexPath -> PHAsset? in
             guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
-            let localIdentifier = displayAssets[indexPath.item].localIdentifier
+            guard let localIdentifier = displayAssets[indexPath.item].photoIdentifier else { return nil }
             return model.photosService.fetchAsset(localIdentifier: localIdentifier)
         }
         model.photosService.startCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
@@ -983,7 +1188,7 @@ extension ContentController: NSCollectionViewPrefetching {
     func collectionView(_ collectionView: NSCollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
         let assets = indexPaths.compactMap { indexPath -> PHAsset? in
             guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
-            let localIdentifier = displayAssets[indexPath.item].localIdentifier
+            guard let localIdentifier = displayAssets[indexPath.item].photoIdentifier else { return nil }
             return model.photosService.fetchAsset(localIdentifier: localIdentifier)
         }
         model.photosService.stopCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
@@ -1009,7 +1214,11 @@ extension ContentController {
             model.setSelectedAsset(nil, count: 0)
             return
         }
-        model.setSelectedAsset(displayAssets[selectedIndex], count: count)
+        if let selectedAsset = displayAssets[selectedIndex].photoAsset {
+            model.setSelectedAsset(selectedAsset, count: count)
+        } else {
+            model.setSelectedAsset(nil, count: 0)
+        }
     }
 
     private func handleModifiedItemClick(indexPath: IndexPath, modifiers: NSEvent.ModifierFlags) {
@@ -1356,5 +1565,499 @@ private final class AssetGridItem: NSCollectionViewItem {
             return CGSize(width: cgImage.width, height: cgImage.height)
         }
         return nil
+    }
+}
+
+struct ArchiveIndexRefreshSummary {
+    let unorganizedCount: Int
+
+    static let empty = ArchiveIndexRefreshSummary(unorganizedCount: 0)
+}
+
+struct ArchiveOrganizationResult {
+    let scannedCount: Int
+    let movedCount: Int
+    let alreadyOrganizedCount: Int
+    let collisionCount: Int
+}
+
+enum ArchiveOrganizationLayout: String {
+    case rootDateBuckets
+}
+
+final class ArchiveOrganizer: @unchecked Sendable {
+    private let fileManager = FileManager.default
+    private let imageExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
+    private let layout: ArchiveOrganizationLayout
+
+    init(layout: ArchiveOrganizationLayout = .rootDateBuckets) {
+        self.layout = layout
+    }
+
+    func scanUnorganizedCount(in archiveTreeRoot: URL) throws -> Int {
+        try withArchiveAccess(root: archiveTreeRoot) { root in
+            guard try archiveTreeExists(root) else { return 0 }
+            var count = 0
+            try enumerateRegularFiles(in: root) { fileURL, relativeComponents, _ in
+                let parentComponents = Array(relativeComponents.dropLast())
+                if !isOrganizedPath(parentComponents) {
+                    count += 1
+                }
+            }
+            return count
+        }
+    }
+
+    func organizeArchiveTree(in archiveTreeRoot: URL) throws -> ArchiveOrganizationResult {
+        try withArchiveAccess(root: archiveTreeRoot) { root in
+            guard try archiveTreeExists(root) else {
+                return ArchiveOrganizationResult(scannedCount: 0, movedCount: 0, alreadyOrganizedCount: 0, collisionCount: 0)
+            }
+
+            var scannedCount = 0
+            var candidates: [(url: URL, fallbackDate: Date)] = []
+            try enumerateRegularFiles(in: root) { fileURL, relativeComponents, resourceValues in
+                scannedCount += 1
+                let parentComponents = Array(relativeComponents.dropLast())
+                guard !isOrganizedPath(parentComponents) else { return }
+                let fallbackDate = resourceValues.contentModificationDate ?? Date()
+                candidates.append((fileURL, fallbackDate))
+            }
+
+            var movedCount = 0
+            var collisionCount = 0
+
+            for candidate in candidates {
+                let sourceURL = candidate.url
+                let targetDate = readCaptureDateIfAvailable(from: sourceURL) ?? candidate.fallbackDate
+                let datePath = datePathComponents(for: targetDate)
+
+                var destinationDirectory = root
+                for component in destinationPathComponents(for: datePath) {
+                    destinationDirectory.appendPathComponent(component, isDirectory: true)
+                }
+                try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+
+                let destinationURL = uniqueDestinationURL(in: destinationDirectory, fileName: sourceURL.lastPathComponent)
+                if destinationURL.lastPathComponent != sourceURL.lastPathComponent {
+                    collisionCount += 1
+                }
+
+                if sourceURL.standardizedFileURL == destinationURL.standardizedFileURL {
+                    continue
+                }
+                try fileManager.moveItem(at: sourceURL, to: destinationURL)
+                movedCount += 1
+            }
+            removeEmptyDirectories(in: root)
+
+            return ArchiveOrganizationResult(
+                scannedCount: scannedCount,
+                movedCount: movedCount,
+                alreadyOrganizedCount: scannedCount - candidates.count,
+                collisionCount: collisionCount
+            )
+        }
+    }
+
+    private func withArchiveAccess<T>(root: URL, operation: (URL) throws -> T) throws -> T {
+        let didAccess = root.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                root.stopAccessingSecurityScopedResource()
+            }
+        }
+        return try operation(root)
+    }
+
+    private func archiveTreeExists(_ root: URL) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func enumerateRegularFiles(
+        in root: URL,
+        visitor: (URL, [String], URLResourceValues) throws -> Void
+    ) throws {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsPackageDescendants, .skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let rootComponents = root.standardizedFileURL.pathComponents
+        for case let fileURL as URL in enumerator {
+            if fileURL.lastPathComponent.hasPrefix(".") {
+                continue
+            }
+            let standardized = fileURL.standardizedFileURL
+            let fileComponents = standardized.pathComponents
+            guard fileComponents.count > rootComponents.count else { continue }
+            guard Array(fileComponents.prefix(rootComponents.count)) == rootComponents else { continue }
+
+            let relativeComponents = Array(fileComponents.dropFirst(rootComponents.count))
+            guard !relativeComponents.isEmpty else { continue }
+            guard relativeComponents.first != ".librarian-thumbnails" else { continue }
+
+            let values = try fileURL.resourceValues(forKeys: keys)
+            guard values.isRegularFile == true else { continue }
+            try visitor(fileURL, relativeComponents, values)
+        }
+    }
+
+    private func isOrganizedDatePath(_ components: [String]) -> Bool {
+        guard components.count >= 3 else { return false }
+        let year = components[components.count - 3]
+        let month = components[components.count - 2]
+        let day = components[components.count - 1]
+        return isYear(year) && isMonth(month) && isDay(day)
+    }
+
+    private func isOrganizedPath(_ components: [String]) -> Bool {
+        switch layout {
+        case .rootDateBuckets:
+            return components.count == 3 && isOrganizedDatePath(components)
+        }
+    }
+
+    private func destinationPathComponents(for datePath: [String]) -> [String] {
+        switch layout {
+        case .rootDateBuckets:
+            return datePath
+        }
+    }
+
+    private func isYear(_ value: String) -> Bool {
+        guard value.count == 4, let intValue = Int(value) else { return false }
+        return intValue >= 1900 && intValue <= 3000
+    }
+
+    private func isMonth(_ value: String) -> Bool {
+        guard value.count == 2, let intValue = Int(value) else { return false }
+        return intValue >= 1 && intValue <= 12
+    }
+
+    private func isDay(_ value: String) -> Bool {
+        guard value.count == 2, let intValue = Int(value) else { return false }
+        return intValue >= 1 && intValue <= 31
+    }
+
+    private func datePathComponents(for date: Date) -> [String] {
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        let year = String(format: "%04d", components.year ?? 1970)
+        let month = String(format: "%02d", components.month ?? 1)
+        let day = String(format: "%02d", components.day ?? 1)
+        return [year, month, day]
+    }
+
+    private func uniqueDestinationURL(in directory: URL, fileName: String) -> URL {
+        var candidate = directory.appendingPathComponent(fileName, isDirectory: false)
+        guard fileManager.fileExists(atPath: candidate.path) else { return candidate }
+
+        let ext = (fileName as NSString).pathExtension
+        let baseName = (fileName as NSString).deletingPathExtension
+        var counter = 2
+        while true {
+            let suffix = "-\(counter)"
+            let nextName = ext.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(ext)"
+            candidate = directory.appendingPathComponent(nextName, isDirectory: false)
+            if !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            counter += 1
+        }
+    }
+
+    private func removeEmptyDirectories(in root: URL) {
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsPackageDescendants, .skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        var directories: [URL] = []
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent != ".librarian-thumbnails" else { continue }
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                directories.append(url)
+            }
+        }
+
+        directories.sort { $0.pathComponents.count > $1.pathComponents.count }
+        for directory in directories {
+            if directory.standardizedFileURL == root.standardizedFileURL {
+                continue
+            }
+            if isDirectoryEmpty(directory) {
+                try? fileManager.removeItem(at: directory)
+            }
+        }
+    }
+
+    private func isDirectoryEmpty(_ url: URL) -> Bool {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+        return contents.isEmpty
+    }
+
+    private func readCaptureDateIfAvailable(from fileURL: URL) -> Date? {
+        let lowerExtension = fileURL.pathExtension.lowercased()
+        guard imageExtensions.contains(lowerExtension) else { return nil }
+        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return nil
+        }
+
+        if let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
+            if let date = parseExifDate(exif[kCGImagePropertyExifDateTimeOriginal] as? String) {
+                return date
+            }
+            if let date = parseExifDate(exif[kCGImagePropertyExifDateTimeDigitized] as? String) {
+                return date
+            }
+        }
+        if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+            return parseExifDate(tiff[kCGImagePropertyTIFFDateTime] as? String)
+        }
+        return nil
+    }
+
+    private func parseExifDate(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        return formatter.date(from: value)
+    }
+}
+
+final class ArchiveIndexer {
+    private let database: DatabaseManager
+    private let fileManager = FileManager.default
+    private let organizer = ArchiveOrganizer()
+    private let supportedExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
+    private let exifDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        return formatter
+    }()
+
+    init(database: DatabaseManager) {
+        self.database = database
+    }
+
+    func refreshIndex() throws -> ArchiveIndexRefreshSummary {
+        guard database.assetRepository != nil else { return .empty }
+
+        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
+            let existing = try database.assetRepository.fetchArchivedSignatures()
+            if !existing.isEmpty {
+                try database.assetRepository.deleteArchivedItems(relativePaths: Array(existing.keys))
+            }
+            return .empty
+        }
+
+        let didAccess = archiveTreeRoot.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                archiveTreeRoot.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: archiveTreeRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            let existing = try database.assetRepository.fetchArchivedSignatures()
+            if !existing.isEmpty {
+                try database.assetRepository.deleteArchivedItems(relativePaths: Array(existing.keys))
+            }
+            return .empty
+        }
+
+        let existing = try database.assetRepository.fetchArchivedSignatures()
+        var seenRelativePaths = Set<String>()
+        var upserts: [ArchivedItem] = []
+        let now = Date()
+
+        let keys: [URLResourceKey] = [
+            .isRegularFileKey,
+            .fileSizeKey,
+            .contentModificationDateKey
+        ]
+        guard let enumerator = fileManager.enumerator(
+            at: archiveTreeRoot,
+            includingPropertiesForKeys: keys,
+            options: [.skipsPackageDescendants, .skipsHiddenFiles]
+        ) else {
+            return .empty
+        }
+
+        for case let fileURL as URL in enumerator {
+            if fileURL.lastPathComponent.hasPrefix(".") {
+                continue
+            }
+            let lowerExtension = fileURL.pathExtension.lowercased()
+            guard supportedExtensions.contains(lowerExtension) else { continue }
+
+            let resourceValues = try? fileURL.resourceValues(forKeys: Set(keys))
+            guard resourceValues?.isRegularFile == true else { continue }
+
+            let relativePath = fileURL.path.replacingOccurrences(of: archiveTreeRoot.path + "/", with: "")
+            guard !relativePath.hasPrefix(".librarian-thumbnails/") else { continue }
+            seenRelativePaths.insert(relativePath)
+
+            let fileSize = Int64(resourceValues?.fileSize ?? 0)
+            let fileModificationDate = resourceValues?.contentModificationDate ?? now
+            if let signature = existing[relativePath],
+               signature.fileSizeBytes == fileSize,
+               signature.fileModificationDate == fileModificationDate {
+                continue
+            }
+
+            let metadata = readMetadata(from: fileURL)
+            let thumbnailRelativePath = ".librarian-thumbnails/\(sha256Hex(relativePath)).jpg"
+            upserts.append(
+                ArchivedItem(
+                    relativePath: relativePath,
+                    absolutePath: fileURL.path,
+                    filename: fileURL.lastPathComponent,
+                    fileExtension: lowerExtension,
+                    fileSizeBytes: fileSize,
+                    fileModificationDate: fileModificationDate,
+                    captureDate: metadata.captureDate,
+                    sortDate: metadata.captureDate ?? fileModificationDate,
+                    pixelWidth: metadata.pixelWidth,
+                    pixelHeight: metadata.pixelHeight,
+                    thumbnailRelativePath: thumbnailRelativePath,
+                    lastIndexedAt: now
+                )
+            )
+        }
+
+        let deletedRelativePaths = existing.keys.filter { !seenRelativePaths.contains($0) }
+        if !deletedRelativePaths.isEmpty {
+            try database.assetRepository.deleteArchivedItems(relativePaths: deletedRelativePaths)
+        }
+        if !upserts.isEmpty {
+            try database.assetRepository.upsertArchivedItems(upserts)
+        }
+        let unorganizedCount = (try? organizer.scanUnorganizedCount(in: archiveTreeRoot)) ?? 0
+        return ArchiveIndexRefreshSummary(unorganizedCount: unorganizedCount)
+    }
+
+    private func readMetadata(from fileURL: URL) -> (captureDate: Date?, pixelWidth: Int, pixelHeight: Int) {
+        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return (nil, 0, 0)
+        }
+
+        let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
+
+        if let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
+            if let date = parseDate(exif[kCGImagePropertyExifDateTimeOriginal] as? String) {
+                return (date, pixelWidth, pixelHeight)
+            }
+            if let date = parseDate(exif[kCGImagePropertyExifDateTimeDigitized] as? String) {
+                return (date, pixelWidth, pixelHeight)
+            }
+        }
+        if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
+           let date = parseDate(tiff[kCGImagePropertyTIFFDateTime] as? String) {
+            return (date, pixelWidth, pixelHeight)
+        }
+
+        return (nil, pixelWidth, pixelHeight)
+    }
+
+    private func parseDate(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        return exifDateFormatter.date(from: value)
+    }
+
+    private func sha256Hex(_ input: String) -> String {
+        let digest = SHA256.hash(data: Data(input.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+final class ArchivedThumbnailService {
+    private let queue = DispatchQueue(label: "com.librarian.app.archived-thumbnails", qos: .utility)
+    private let cache = NSCache<NSString, NSImage>()
+    private let fileManager = FileManager.default
+
+    func requestThumbnail(for item: ArchivedItem, targetSize: CGSize, completion: @escaping (NSImage?) -> Void) {
+        let cacheKey = "\(item.relativePath)#\(Int(max(targetSize.width, targetSize.height)))" as NSString
+        if let cached = cache.object(forKey: cacheKey) {
+            completion(cached)
+            return
+        }
+
+        queue.async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            let image = self.loadOrGenerateThumbnail(for: item, maxPixelSize: Int(max(targetSize.width, targetSize.height)))
+            if let image {
+                self.cache.setObject(image, forKey: cacheKey)
+            }
+            DispatchQueue.main.async {
+                completion(image)
+            }
+        }
+    }
+
+    private func loadOrGenerateThumbnail(for item: ArchivedItem, maxPixelSize: Int) -> NSImage? {
+        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
+            return nil
+        }
+        let didAccess = archiveTreeRoot.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                archiveTreeRoot.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let sourceURL = URL(fileURLWithPath: item.absolutePath)
+        let thumbnailURL = archiveTreeRoot.appendingPathComponent(item.thumbnailRelativePath, isDirectory: false)
+
+        if fileManager.fileExists(atPath: thumbnailURL.path), let cachedImage = NSImage(contentsOf: thumbnailURL) {
+            return cachedImage
+        }
+
+        guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(maxPixelSize, 64)
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        let directoryURL = thumbnailURL.deletingLastPathComponent()
+        try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        if let destination = CGImageDestinationCreateWithURL(thumbnailURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil) {
+            CGImageDestinationAddImage(destination, cgImage, [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary)
+            _ = CGImageDestinationFinalize(destination)
+        }
+
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }

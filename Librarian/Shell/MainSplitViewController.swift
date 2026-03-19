@@ -231,7 +231,7 @@ final class MainSplitViewController: NSSplitViewController {
             switch kind {
             case .log, .indexing:
                 text = ""
-            case .setAsideForArchive, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots:
+            case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots:
                 text = count == 1 ? "1 item" : "\(count.formatted()) items"
             case .allPhotos, .recents, .favourites:
                 text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
@@ -250,6 +250,10 @@ final class MainSplitViewController: NSSplitViewController {
 
     @objc func openSelectionInPhotos(_ sender: Any?) {
         contentController.openSelectionInPhotos()
+    }
+
+    @objc func refreshCurrentViewAction(_ sender: Any?) {
+        contentController.refreshDisplayedAssets()
     }
 
     @objc func setAsideSelectionAction(_ sender: Any?) {
@@ -321,7 +325,7 @@ final class MainSplitViewController: NSSplitViewController {
 
     private var isGallerySidebarSelection: Bool {
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
-        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive,
+        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
              .duplicates, .lowQuality, .receiptsAndDocuments:
             return true
         case .indexing, .log:

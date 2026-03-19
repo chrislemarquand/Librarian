@@ -107,6 +107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(NSMenuItem(title: "Toggle Inspector", action: #selector(MainSplitViewController.toggleInspector(_:)), keyEquivalent: "i").then {
             $0.keyEquivalentModifierMask = [.command, .control]
         })
+        viewMenu.addItem(.separator())
+        viewMenu.addItem(NSMenuItem(title: "Refresh View", action: #selector(MainSplitViewController.refreshCurrentViewAction(_:)), keyEquivalent: "r"))
 
         // Window menu
         let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
@@ -203,6 +205,8 @@ final class AppSettingsWindowController: NSWindowController {
 
 final class AppSettingsViewController: NSViewController {
     private let model: AppModel
+    private let archiveOrganizer = ArchiveOrganizer()
+    private var isOrganizingArchive = false
 
     init(model: AppModel) {
         self.model = model
@@ -248,6 +252,19 @@ final class AppSettingsViewController: NSViewController {
         return label
     }()
 
+    private lazy var organizeArchiveButton: NSButton = {
+        makeActionButton(title: "Organize Archive", action: #selector(organizeArchiveManually))
+    }()
+
+    private lazy var organizeArchiveStatusLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "Scans the archive and normalizes folders to YYYY/MM/DD.")
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         NotificationCenter.default.addObserver(
@@ -262,14 +279,21 @@ final class AppSettingsViewController: NSViewController {
             name: .librarianAnalysisStateChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(archiveRootChanged),
+            name: .librarianArchiveRootChanged,
+            object: nil
+        )
     }
 
     override func loadView() {
         let container = NSView()
         let destinationLabel = makeCategoryLabel(title: "Archive destination:")
-        let chooseButton = makeActionButton(title: "Choose…", action: #selector(chooseArchivePath))
+        let chooseButton = makeActionButton(title: "Change…", action: #selector(chooseArchivePath))
         let rebuildLabel = makeCategoryLabel(title: "Index:")
         let analyseLabel = makeCategoryLabel(title: "Library analysis:")
+        let organizeLabel = makeCategoryLabel(title: "Archive organization:")
 
         let keepsLabel = makeCategoryLabel(title: "Queue keep decisions:")
         let keepsNote = NSTextField(labelWithString: "Reset which items have been marked Keep in each queue.")
@@ -300,6 +324,7 @@ final class AppSettingsViewController: NSViewController {
             [destinationLabel, archivePathField, chooseButton],
             [rebuildLabel, rebuildStatusLabel, rebuildButton],
             [analyseLabel, analyseStatusLabel, analyseButton],
+            [organizeLabel, organizeArchiveStatusLabel, organizeArchiveButton],
         ] + resetRows)
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.rowSpacing = 12
@@ -325,6 +350,7 @@ final class AppSettingsViewController: NSViewController {
         refreshArchivePath()
         refreshRebuildButtonState()
         refreshAnalyseButtonState()
+        refreshOrganizeArchiveButtonState()
     }
 
     deinit {
@@ -349,7 +375,7 @@ final class AppSettingsViewController: NSViewController {
     @objc private func chooseArchivePath() {
         let panel = NSOpenPanel()
         panel.prompt = "Set Archive Folder"
-        panel.message = "Choose where Librarian should export archived photos."
+        panel.message = "Choose the active archive root used for export and the Archived view."
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
@@ -357,9 +383,11 @@ final class AppSettingsViewController: NSViewController {
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
         let result = panel.runModal()
         guard result == .OK, let url = panel.url else { return }
-        guard ArchiveSettings.persistArchiveRootURL(url) else { return }
-        NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+        guard model.updateArchiveRoot(url) else { return }
         refreshArchivePath()
+        Task { @MainActor [weak self] in
+            await self?.scanArchiveAndPromptToOrganizeIfNeeded()
+        }
     }
 
     @objc private func rebuildIndex() {
@@ -379,12 +407,24 @@ final class AppSettingsViewController: NSViewController {
         refreshAnalyseButtonState()
     }
 
+    @objc private func archiveRootChanged() {
+        refreshArchivePath()
+        refreshOrganizeArchiveButtonState()
+    }
+
     @objc private func analyseLibrary() {
         refreshAnalyseButtonState()
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.model.runLibraryAnalysis()
             self.refreshAnalyseButtonState()
+        }
+    }
+
+    @objc private func organizeArchiveManually() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.organizeArchive()
         }
     }
 
@@ -415,6 +455,19 @@ final class AppSettingsViewController: NSViewController {
         }
     }
 
+    private func refreshOrganizeArchiveButtonState() {
+        organizeArchiveButton.isEnabled = !isOrganizingArchive && ArchiveSettings.restoreArchiveRootURL() != nil
+        organizeArchiveButton.title = isOrganizingArchive ? "Organizing…" : "Organize Archive"
+        if isOrganizingArchive {
+            return
+        }
+        if ArchiveSettings.restoreArchiveRootURL() == nil {
+            organizeArchiveStatusLabel.stringValue = "Choose an archive destination to enable organization."
+        } else {
+            organizeArchiveStatusLabel.stringValue = "Scans the archive and normalizes folders to YYYY/MM/DD."
+        }
+    }
+
     private func refreshArchivePath() {
         if let url = ArchiveSettings.restoreArchiveRootURL() {
             archivePathField.stringValue = url.path
@@ -433,5 +486,78 @@ final class AppSettingsViewController: NSViewController {
         } else {
             rebuildStatusLabel.stringValue = "Runs a full library scan and refreshes the local index."
         }
+    }
+
+    @MainActor
+    private func scanArchiveAndPromptToOrganizeIfNeeded() async {
+        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
+        organizeArchiveStatusLabel.stringValue = "Scanning archive folder…"
+        let count: Int
+        do {
+            count = try await Task.detached(priority: .utility) {
+                try self.archiveOrganizer.scanUnorganizedCount(in: archiveTreeRoot)
+            }.value
+        } catch {
+            organizeArchiveStatusLabel.stringValue = "Scan failed: \(error.localizedDescription)"
+            AppLog.shared.error("Archive organization scan failed: \(error.localizedDescription)")
+            return
+        }
+
+        if count == 0 {
+            organizeArchiveStatusLabel.stringValue = "Archive structure is already organized."
+            return
+        }
+
+        organizeArchiveStatusLabel.stringValue = "\(count.formatted()) unorganized file(s) detected."
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Organize New Archive Location?"
+        alert.informativeText = "Librarian found \(count.formatted()) file(s) outside the YYYY/MM/DD folder pattern. Organize them now?"
+        alert.addButton(withTitle: "Organize Now")
+        alert.addButton(withTitle: "Not Now")
+
+        let response: NSApplication.ModalResponse
+        if let window = view.window {
+            response = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { modalResponse in
+                    continuation.resume(returning: modalResponse)
+                }
+            }
+        } else {
+            response = alert.runModal()
+        }
+
+        guard response == .alertFirstButtonReturn else { return }
+        await organizeArchive()
+    }
+
+    @MainActor
+    private func organizeArchive() async {
+        guard !isOrganizingArchive else { return }
+        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
+            organizeArchiveStatusLabel.stringValue = "Choose an archive destination first."
+            return
+        }
+
+        isOrganizingArchive = true
+        refreshOrganizeArchiveButtonState()
+        let summary: ArchiveOrganizationResult
+        do {
+            summary = try await Task.detached(priority: .utility) {
+                try self.archiveOrganizer.organizeArchiveTree(in: archiveTreeRoot)
+            }.value
+        } catch {
+            isOrganizingArchive = false
+            refreshOrganizeArchiveButtonState()
+            organizeArchiveStatusLabel.stringValue = "Organization failed: \(error.localizedDescription)"
+            AppLog.shared.error("Archive organization failed: \(error.localizedDescription)")
+            return
+        }
+
+        isOrganizingArchive = false
+        refreshOrganizeArchiveButtonState()
+        organizeArchiveStatusLabel.stringValue = "Moved \(summary.movedCount.formatted()) file(s). \(summary.alreadyOrganizedCount.formatted()) already organized."
+        AppLog.shared.info("Archive organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
+        NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
     }
 }

@@ -79,6 +79,29 @@ struct NearDuplicateClusterAssignment {
     let clusterID: String
 }
 
+struct ArchivedItem: Codable, FetchableRecord, @preconcurrency PersistableRecord {
+    static let databaseTableName = "archived_item"
+
+    var relativePath: String
+    var absolutePath: String
+    var filename: String
+    var fileExtension: String
+    var fileSizeBytes: Int64
+    var fileModificationDate: Date
+    var captureDate: Date?
+    var sortDate: Date
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var thumbnailRelativePath: String
+    var lastIndexedAt: Date
+}
+
+struct ArchivedItemSignature {
+    let relativePath: String
+    let fileSizeBytes: Int64
+    let fileModificationDate: Date
+}
+
 // MARK: - AssetRepository
 
 final class AssetRepository: @unchecked Sendable {
@@ -95,6 +118,12 @@ final class AssetRepository: @unchecked Sendable {
     func count() throws -> Int {
         try db.read { db in
             try IndexedAsset.fetchCount(db)
+        }
+    }
+
+    func countArchivedItems() throws -> Int {
+        try db.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM archived_item") ?? 0
         }
     }
 
@@ -120,6 +149,21 @@ final class AssetRepository: @unchecked Sendable {
 
     func fetchForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
         try fetchActiveAssets(whereClause: nil, arguments: StatementArguments(), limit: limit, offset: offset)
+    }
+
+    func fetchArchivedForGrid(limit: Int, offset: Int = 0) throws -> [ArchivedItem] {
+        try db.read { db in
+            let request = SQLRequest<ArchivedItem>(
+                sql: """
+                    SELECT *
+                    FROM archived_item
+                    ORDER BY sortDate DESC, relativePath ASC
+                    LIMIT ? OFFSET ?
+                """,
+                arguments: [limit, offset]
+            )
+            return try request.fetchAll(db)
+        }
     }
 
     func fetchFavouritesForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
@@ -597,9 +641,68 @@ final class AssetRepository: @unchecked Sendable {
                     SELECT COUNT(*) FROM archive_candidate
                     WHERE status IN ('pending', 'exporting', 'failed')
                 """) ?? 0
+            case .archived:
+                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM archived_item") ?? 0
             case .indexing, .log:
                 return 0
             }
+        }
+    }
+
+    func fetchArchivedSignatures() throws -> [String: ArchivedItemSignature] {
+        try db.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT relativePath, fileSizeBytes, fileModificationDate
+                    FROM archived_item
+                """
+            )
+            var signatures: [String: ArchivedItemSignature] = [:]
+            signatures.reserveCapacity(rows.count)
+            for row in rows {
+                guard
+                    let relativePath: String = row["relativePath"],
+                    let fileModificationDate: Date = row["fileModificationDate"]
+                else {
+                    continue
+                }
+                let fileSizeBytes: Int64 = row["fileSizeBytes"] ?? 0
+                signatures[relativePath] = ArchivedItemSignature(
+                    relativePath: relativePath,
+                    fileSizeBytes: fileSizeBytes,
+                    fileModificationDate: fileModificationDate
+                )
+            }
+            return signatures
+        }
+    }
+
+    func upsertArchivedItems(_ items: [ArchivedItem]) throws {
+        guard !items.isEmpty else { return }
+        let batchSize = 500
+        var offset = 0
+        while offset < items.count {
+            let batch = Array(items[offset ..< min(offset + batchSize, items.count)])
+            try db.write { db in
+                for item in batch {
+                    try item.upsert(db)
+                }
+            }
+            offset += batchSize
+        }
+    }
+
+    func deleteArchivedItems(relativePaths: [String]) throws {
+        guard !relativePaths.isEmpty else { return }
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    DELETE FROM archived_item
+                    WHERE relativePath IN (\(relativePaths.map { _ in "?" }.joined(separator: ",")))
+                """,
+                arguments: StatementArguments(relativePaths)
+            )
         }
     }
 

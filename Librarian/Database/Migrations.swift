@@ -156,5 +156,40 @@ enum LibrarianMigrations {
                   )
             """)
         }
+
+        migrator.registerMigration("v9_add_vision_analysis_fields") { db in
+            // Vision-computed fields for the four new queues:
+            // saliency (accidental captures), OCR text (documents), barcode detection,
+            // and near-duplicate cluster membership.
+            try db.alter(table: "asset") { t in
+                t.add(column: "visionSaliencyScore",    .double)   // VNGenerateAttentionBasedSaliencyImageRequest
+                t.add(column: "visionOcrText",          .text)     // VNRecognizeTextRequest — concatenated detected text
+                t.add(column: "visionBarcodeDetected",  .boolean)  // VNDetectBarcodesRequest
+                t.add(column: "nearDuplicateClusterID", .text)     // UUID grouping visually similar photos
+                t.add(column: "visionAnalysedAt",       .datetime) // when Vision analysis was last run on this asset
+            }
+            try db.create(index: "asset_visionSaliencyScore",    on: "asset", columns: ["visionSaliencyScore"])
+            try db.create(index: "asset_visionBarcodeDetected",  on: "asset", columns: ["visionBarcodeDetected"])
+            try db.create(index: "asset_nearDuplicateClusterID", on: "asset", columns: ["nearDuplicateClusterID"])
+        }
+
+        migrator.registerMigration("v10_add_archived_item_index") { db in
+            try db.create(table: "archived_item") { t in
+                t.column("relativePath", .text).primaryKey()
+                t.column("absolutePath", .text).notNull()
+                t.column("filename", .text).notNull()
+                t.column("fileExtension", .text).notNull()
+                t.column("fileSizeBytes", .integer).notNull().defaults(to: 0)
+                t.column("fileModificationDate", .datetime).notNull()
+                t.column("captureDate", .datetime)
+                t.column("sortDate", .datetime).notNull()
+                t.column("pixelWidth", .integer).notNull().defaults(to: 0)
+                t.column("pixelHeight", .integer).notNull().defaults(to: 0)
+                t.column("thumbnailRelativePath", .text).notNull()
+                t.column("lastIndexedAt", .datetime).notNull()
+            }
+            try db.create(index: "archived_item_sortDate", on: "archived_item", columns: ["sortDate"])
+            try db.create(index: "archived_item_fileModificationDate", on: "archived_item", columns: ["fileModificationDate"])
+        }
     }
 }

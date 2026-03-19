@@ -18,6 +18,7 @@ struct SidebarItem: Equatable {
         case favourites
         case screenshots
         case setAsideForArchive
+        case archived
         case duplicates
         case lowQuality
         case receiptsAndDocuments
@@ -39,6 +40,7 @@ struct SidebarItem: Equatable {
         SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality",          symbolName: "wand.and.stars.inverse"),
         SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Documents", symbolName: "doc.text"),
         SidebarItem(section: .archive, kind: .setAsideForArchive,   title: "Set Aside",            symbolName: "tray.full"),
+        SidebarItem(section: .archive, kind: .archived,             title: "Archived",             symbolName: "archivebox"),
         SidebarItem(section: .tasks,   kind: .log,               title: "Log",         symbolName: "list.bullet.rectangle"),
     ]
 
@@ -55,6 +57,7 @@ extension SidebarItem.Kind {
         case .favourites: return "favourites"
         case .screenshots: return "screenshots"
         case .setAsideForArchive: return "setAsideForArchive"
+        case .archived: return "archived"
         case .duplicates: return "duplicates"
         case .lowQuality: return "lowQuality"
         case .receiptsAndDocuments: return "receiptsAndDocuments"
@@ -345,5 +348,6 @@ extension Notification.Name {
     static let librarianLogUpdated = Notification.Name("com.librarian.app.logUpdated")
     static let librarianGalleryZoomChanged = Notification.Name("com.librarian.app.galleryZoomChanged")
     static let librarianArchiveQueueChanged = Notification.Name("com.librarian.app.archiveQueueChanged")
+    static let librarianArchiveRootChanged = Notification.Name("com.librarian.app.archiveRootChanged")
     static let librarianAnalysisStateChanged = Notification.Name("com.librarian.app.analysisStateChanged")
 }
