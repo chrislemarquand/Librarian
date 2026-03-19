@@ -252,7 +252,7 @@ extension SidebarController: NSOutlineViewDelegate {
         // Align with the left edge of the selection pill (SidebarSelectionRowView draws
         // the pill with dx: 6, so the pill left edge sits at x=6 from the row bounds).
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 0),
             label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         return cell
@@ -281,7 +281,7 @@ extension SidebarController: NSOutlineViewDelegate {
             cell.textField = title
 
             NSLayoutConstraint.activate([
-                icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 16),
+                icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 0),
                 icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 icon.widthAnchor.constraint(equalToConstant: 22),
                 icon.heightAnchor.constraint(equalToConstant: 22),
