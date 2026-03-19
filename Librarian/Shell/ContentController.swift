@@ -3,6 +3,7 @@ import Photos
 import SwiftUI
 import ImageIO
 import UniformTypeIdentifiers
+import SharedUI
 import CryptoKit
 
 private enum DisplayAsset {

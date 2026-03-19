@@ -3,6 +3,7 @@ import Photos
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
+import SharedUI
 import ImageIO
 
 final class InspectorController: NSViewController {

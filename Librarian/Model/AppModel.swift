@@ -2,16 +2,7 @@ import Cocoa
 import Photos
 import Combine
 import SwiftUI
-
-enum AppTheme {
-    static var accentNSColor: NSColor {
-        .controlAccentColor
-    }
-
-    static var accentColor: Color {
-        Color(nsColor: accentNSColor)
-    }
-}
+import SharedUI
 
 enum ArchiveSettings {
     static let bookmarkKey = "com.librarian.app.archiveRootBookmark"

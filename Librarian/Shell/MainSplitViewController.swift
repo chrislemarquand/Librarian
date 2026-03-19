@@ -1,11 +1,12 @@
 import Cocoa
+import SharedUI
 
 final class MainSplitViewController: NSSplitViewController {
 
     let model: AppModel
     let toolbarDelegate: ToolbarDelegate
 
-    private let sidebarController: SidebarController
+    private let sidebarController: AppKitSidebarController<SidebarSection, SidebarItem>
     private let contentController: ContentController
     private let inspectorController: InspectorController
 
@@ -20,7 +21,10 @@ final class MainSplitViewController: NSSplitViewController {
 
     init(model: AppModel) {
         self.model = model
-        self.sidebarController = SidebarController(model: model)
+        self.sidebarController = AppKitSidebarController(
+            sections: SidebarSection.allCases,
+            items: SidebarItem.allItems
+        )
         self.contentController = ContentController(model: model)
         self.inspectorController = InspectorController(model: model)
         self.toolbarDelegate = ToolbarDelegate()
@@ -34,6 +38,9 @@ final class MainSplitViewController: NSSplitViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        sidebarController.onSelectionChange = { [weak self] item in
+            self?.model.setSelectedSidebarItem(item)
+        }
         buildSplitLayout()
         inspectorSplitItem?.isCollapsed = true
         toolbarDelegate.configure(splitVC: self)
@@ -139,6 +146,12 @@ final class MainSplitViewController: NSSplitViewController {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(sidebarIndexingStateChanged),
+            name: .librarianIndexingStateChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(sidebarSelectionChanged),
             name: .librarianSidebarSelectionChanged,
             object: nil
@@ -166,6 +179,12 @@ final class MainSplitViewController: NSSplitViewController {
     @objc private func modelStateChanged() {
         toolbarDelegate.refresh(model: model)
         refreshWindowSubtitle()
+    }
+
+    @objc private func sidebarIndexingStateChanged() {
+        let selectedKind = model.selectedSidebarItem?.kind ?? .allPhotos
+        sidebarController.reloadData()
+        sidebarController.selectItem(where: { $0.kind == selectedKind })
     }
 
     @objc private func sidebarSelectionChanged() {
