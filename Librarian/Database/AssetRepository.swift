@@ -733,26 +733,27 @@ final class AssetRepository: @unchecked Sendable {
 
     // MARK: - Archive Import helpers
 
-    /// Returns a lookup of [fileSizeBytes: Set<"YYYY-MM-DD">] for all non-deleted,
-    /// analysed assets. Used for PhotoKit exact-match deduplication during archive import.
-    func fetchAssetSizeDayIndex() throws -> [Int64: Set<String>] {
-        try db.read { db in
+    /// Returns a set of creation-date strings ("yyyy-MM-dd HH:mm:ss" in local timezone)
+    /// for all non-deleted assets. Used for PhotoKit deduplication during archive import.
+    /// creationDate is always indexed from PHAsset metadata and requires no analysis pass.
+    func fetchAssetDateSecondIndex() throws -> Set<String> {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        // Local timezone so it matches how EXIF timestamps are parsed (no tz in EXIF strings).
+
+        return try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT fileSizeBytes, creationDate
+                SELECT creationDate
                 FROM asset
                 WHERE isDeletedFromPhotos = 0
-                  AND fileSizeBytes IS NOT NULL
-                  AND fileSizeBytes > 0
                   AND creationDate IS NOT NULL
             """)
-            let cal = Calendar(identifier: .gregorian)
-            var index: [Int64: Set<String>] = [:]
+            var index = Set<String>()
+            index.reserveCapacity(rows.count)
             for row in rows {
-                guard let fileSize: Int64 = row["fileSizeBytes"],
-                      let date: Date = row["creationDate"] else { continue }
-                let c = cal.dateComponents([.year, .month, .day], from: date)
-                let day = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
-                index[fileSize, default: []].insert(day)
+                guard let date: Date = row["creationDate"] else { continue }
+                index.insert(formatter.string(from: date))
             }
             return index
         }

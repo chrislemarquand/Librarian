@@ -73,13 +73,13 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
         }
 
         // Check deduplicated files against the PhotoKit asset index.
-        // Exact match: same file size AND same capture day (YYYY-MM-DD).
-        let photoKitIndex = try database.assetRepository.fetchAssetSizeDayIndex()
+        // Matches on EXIF capture timestamp at second precision against asset.creationDate.
+        // creationDate is always indexed from PHAsset — no library analysis required.
+        let photoKitIndex = try database.assetRepository.fetchAssetDateSecondIndex()
         var candidateURLs: [URL] = []
         var existsInPhotoKit = 0
         for fileURL in deduplicatedFiles {
-            let size = fileSizeBytes(of: fileURL)
-            if size > 0, matchesPhotoKit(fileURL: fileURL, fileSize: size, index: photoKitIndex) {
+            if matchesPhotoKit(fileURL: fileURL, index: photoKitIndex) {
                 existsInPhotoKit += 1
             } else {
                 candidateURLs.append(fileURL)
@@ -225,13 +225,12 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
         return hasher.finalize().map { String(format: "%02hhx", $0) }.joined()
     }
 
-    private func fileSizeBytes(of url: URL) -> Int64 {
-        (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-    }
-
-    private func matchesPhotoKit(fileURL: URL, fileSize: Int64, index: [Int64: Set<String>]) -> Bool {
-        guard let dayStrings = index[fileSize] else { return false }
-        return dayStrings.contains(dayString(from: bestAvailableDate(for: fileURL)))
+    private func matchesPhotoKit(fileURL: URL, index: Set<String>) -> Bool {
+        // Only EXIF timestamps are precise enough to reliably match a PHAsset.
+        // Filename/filesystem dates are not reliable enough — if we can't read
+        // EXIF, we import the file rather than risk wrongly skipping it.
+        guard let exifDate = readCaptureDateIfAvailable(from: fileURL) else { return false }
+        return index.contains(secondString(from: exifDate))
     }
 
     /// Best-effort date for routing a file into the archive.
@@ -318,11 +317,16 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
         return nil
     }
 
-    private func dayString(from date: Date) -> String {
-        let cal = Calendar(identifier: .gregorian)
-        let c = cal.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    private func secondString(from date: Date) -> String {
+        return Self.secondFormatter.string(from: date)
     }
+
+    private static let secondFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
 
     private func uniqueDestinationURL(in directory: URL, fileName: String) -> URL {
         var candidate = directory.appendingPathComponent(fileName, isDirectory: false)
