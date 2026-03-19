@@ -206,9 +206,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
         // Date & Location
         result.append(InspectorSection(title: "Date & Location", rows: [
-            InspectorFieldRow(title: "Captured", value: formattedDate(asset.creationDate)),
-            InspectorFieldRow(title: "Modified", value: formattedDate(asset.modificationDate)),
-            InspectorFieldRow(title: "Location", value: hasLocation ? "Yes" : "No"),
+            SectionRow(title: "Captured", value: formattedDate(asset.creationDate)),
+            SectionRow(title: "Modified", value: formattedDate(asset.modificationDate)),
+            SectionRow(title: "Location", value: hasLocation ? "Yes" : "No"),
         ]))
 
         // Library
@@ -217,20 +217,20 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         else if asset.isCloudOnly { cloudLabel = "Cloud only" }
         else { cloudLabel = asset.iCloudDownloadState }
         result.append(InspectorSection(title: "Library", rows: [
-            InspectorFieldRow(title: "Favourite", value: yesNo(asset.isFavorite)),
-            InspectorFieldRow(title: "Hidden", value: yesNo(asset.isHidden)),
-            InspectorFieldRow(title: "Edited", value: yesNo(isEdited)),
-            InspectorFieldRow(title: "Burst Photo", value: yesNo(isBurst)),
-            InspectorFieldRow(title: "iCloud", value: cloudLabel),
-            InspectorFieldRow(title: "Albums", value: albums.isEmpty ? "None" : albums.joined(separator: ", ")),
+            SectionRow(title: "Favourite", value: yesNo(asset.isFavorite)),
+            SectionRow(title: "Hidden", value: yesNo(asset.isHidden)),
+            SectionRow(title: "Edited", value: yesNo(isEdited)),
+            SectionRow(title: "Burst Photo", value: yesNo(isBurst)),
+            SectionRow(title: "iCloud", value: cloudLabel),
+            SectionRow(title: "Albums", value: albums.isEmpty ? "None" : albums.joined(separator: ", ")),
         ]))
 
         // Camera & Capture (EXIF — only shown when data arrives, collapsed by default)
-        let captureRows: [InspectorFieldRow] = [
-            exifAperture.isEmpty    ? nil : InspectorFieldRow(title: "Aperture",      value: exifAperture),
-            exifShutterSpeed.isEmpty ? nil : InspectorFieldRow(title: "Shutter Speed", value: exifShutterSpeed),
-            exifISO.isEmpty         ? nil : InspectorFieldRow(title: "ISO",           value: exifISO),
-            exifFocalLength.isEmpty ? nil : InspectorFieldRow(title: "Focal Length",  value: exifFocalLength),
+        let captureRows: [SectionRow] = [
+            exifAperture.isEmpty    ? nil : SectionRow(title: "Aperture",      value: exifAperture),
+            exifShutterSpeed.isEmpty ? nil : SectionRow(title: "Shutter Speed", value: exifShutterSpeed),
+            exifISO.isEmpty         ? nil : SectionRow(title: "ISO",           value: exifISO),
+            exifFocalLength.isEmpty ? nil : SectionRow(title: "Focal Length",  value: exifFocalLength),
         ].compactMap { $0 }
         if !captureRows.isEmpty {
             result.append(InspectorSection(title: "Camera & Capture", rows: captureRows))
@@ -238,37 +238,37 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
         // Resources (collapsed by default)
         result.append(InspectorSection(title: "Resources", rows: [
-            InspectorFieldRow(title: "Original",       value: yesNo(asset.hasLocalOriginal)),
-            InspectorFieldRow(title: "Edited Version", value: yesNo(isEdited)),
-            InspectorFieldRow(title: "Live Photo",     value: yesNo(hasLivePhotoVideo)),
+            SectionRow(title: "Original",       value: yesNo(asset.hasLocalOriginal)),
+            SectionRow(title: "Edited Version", value: yesNo(isEdited)),
+            SectionRow(title: "Live Photo",     value: yesNo(hasLivePhotoVideo)),
         ]))
 
         // Analysis — only if quality score available (analysis has been run); collapsed by default
         if let score = overallScore {
-            var rows: [InspectorFieldRow] = [
-                InspectorFieldRow(title: "Quality Score", value: String(format: "%.2f", score)),
+            var rows: [SectionRow] = [
+                SectionRow(title: "Quality Score", value: String(format: "%.2f", score)),
             ]
             if !aiCaption.isEmpty {
-                rows.append(InspectorFieldRow(title: "Caption", value: aiCaption))
+                rows.append(SectionRow(title: "Caption", value: aiCaption))
             }
             let detected = detectedPersonCount ?? 0
             if detected > 0 {
                 let named = namedPersonCount ?? 0
-                rows.append(InspectorFieldRow(title: "People", value: "\(detected) detected, \(named) named"))
+                rows.append(SectionRow(title: "People", value: "\(detected) detected, \(named) named"))
             }
             result.append(InspectorSection(title: "Analysis", rows: rows))
         }
 
         // Archive — only if asset is in the archive queue
         if let info = archiveCandidateInfo {
-            var rows: [InspectorFieldRow] = [
-                InspectorFieldRow(title: "Status", value: archiveStatusLabel(info.status)),
-                InspectorFieldRow(title: "Queued", value: formattedDate(info.queuedAt)),
+            var rows: [SectionRow] = [
+                SectionRow(title: "Status", value: archiveStatusLabel(info.status)),
+                SectionRow(title: "Queued", value: formattedDate(info.queuedAt)),
             ]
-            if let d = info.exportedAt { rows.append(InspectorFieldRow(title: "Exported", value: formattedDate(d))) }
-            if let d = info.deletedAt  { rows.append(InspectorFieldRow(title: "Deleted",  value: formattedDate(d))) }
-            if let p = info.archivePath, !p.isEmpty { rows.append(InspectorFieldRow(title: "Archive Path", value: p)) }
-            if let e = info.lastError,  !e.isEmpty  { rows.append(InspectorFieldRow(title: "Last Error",   value: e)) }
+            if let d = info.exportedAt { rows.append(SectionRow(title: "Exported", value: formattedDate(d))) }
+            if let d = info.deletedAt  { rows.append(SectionRow(title: "Deleted",  value: formattedDate(d))) }
+            if let p = info.archivePath, !p.isEmpty { rows.append(SectionRow(title: "Archive Path", value: p)) }
+            if let e = info.lastError,  !e.isEmpty  { rows.append(SectionRow(title: "Last Error",   value: e)) }
             result.append(InspectorSection(title: "Archive", rows: rows))
         }
 
@@ -447,12 +447,12 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
 private struct InspectorSection: Identifiable {
     let title: String
-    let rows: [InspectorFieldRow]
+    let rows: [SectionRow]
 
     var id: String { title }
 }
 
-private struct InspectorFieldRow: Identifiable {
+private struct SectionRow: Identifiable {
     let title: String
     let value: String
 
@@ -462,44 +462,25 @@ private struct InspectorFieldRow: Identifiable {
 private struct InspectorReadOnlyView: View {
     @ObservedObject var viewModel: InspectorReadOnlyViewModel
 
-    private let topScrollStartInset: CGFloat = 56
-    private let contentHorizontalInset: CGFloat = 16
-    private let sectionInnerInset: CGFloat = 12
-
     var body: some View {
         ScrollView {
             if let asset = viewModel.selectedAsset {
                 VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(viewModel.title)
-                            .font(.title3.weight(.semibold))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text(viewModel.subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, contentHorizontalInset)
+                    InspectorHeaderView(title: viewModel.title, subtitle: viewModel.subtitle.isEmpty ? nil : viewModel.subtitle)
 
-                    DisclosureGroup(
+                    InspectorSectionContainer(
+                        "Preview",
                         isExpanded: Binding(
                             get: { !viewModel.isSectionCollapsed("Preview") },
                             set: { _ in viewModel.toggleSection("Preview") }
                         )
                     ) {
-                        previewCard
-                            .padding(sectionInnerInset)
-                            .background(sectionCardBackground)
-                    } label: {
-                        sectionHeader("Preview")
+                        InspectorPreviewCard(image: viewModel.previewImage, isLoading: viewModel.isPreviewLoading)
                     }
-                    .padding(.horizontal, contentHorizontalInset)
 
                     ForEach(viewModel.sections(for: asset)) { section in
-                        DisclosureGroup(
+                        InspectorSectionContainer(
+                            section.title,
                             isExpanded: Binding(
                                 get: { !viewModel.isSectionCollapsed(section.title) },
                                 set: { _ in viewModel.toggleSection(section.title) }
@@ -507,10 +488,11 @@ private struct InspectorReadOnlyView: View {
                         ) {
                             VStack(alignment: .leading, spacing: 10) {
                                 ForEach(section.rows) { row in
-                                    VStack(alignment: .leading, spacing: 4) {
+                                    InspectorFieldRow {
                                         Text(row.title.uppercased())
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
+                                    } value: {
                                         Text(row.value)
                                             .font(.body.monospaced())
                                             .foregroundStyle(.primary)
@@ -521,12 +503,7 @@ private struct InspectorReadOnlyView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(sectionInnerInset)
-                            .background(sectionCardBackground)
-                        } label: {
-                            sectionHeader(section.title)
                         }
-                        .padding(.horizontal, contentHorizontalInset)
                     }
                 }
                 .padding(.vertical, 12)
@@ -548,40 +525,7 @@ private struct InspectorReadOnlyView: View {
                 .containerRelativeFrame(.vertical, alignment: .center)
             }
         }
-        .ignoresSafeArea(.container, edges: .top)
-        .contentMargins(.top, topScrollStartInset, for: .scrollContent)
+        .inspectorScrollSetup()
     }
 
-    private var previewCard: some View {
-        ZStack {
-            if let image = viewModel.previewImage {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.quaternary.opacity(0.22))
-            }
-        }
-        .frame(height: 220)
-        .overlay {
-            if viewModel.isPreviewLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-        }
-    }
-
-    private var sectionCardBackground: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(.quaternary.opacity(0.35))
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(AppTheme.accentColor)
-            .tracking(0.4)
-    }
 }
