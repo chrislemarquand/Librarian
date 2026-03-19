@@ -1,4 +1,5 @@
 import Cocoa
+import SharedUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -6,8 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var splitController: MainSplitViewController?
     private var mainWindow: NSWindow?
     private var settingsWindowController: AppSettingsWindowController?
-    private var windowAppearanceObservation: NSKeyValueObservation?
-    private var lastWindowAppearanceName: NSAppearance.Name?
+    private var toolbarAppearanceAdapter: ToolbarAppearanceAdapter?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -24,10 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentViewController = splitVC
         splitVC.loadViewIfNeeded()
         window.minSize = NSSize(width: 1100, height: 680)
-        window.toolbarStyle = .automatic
-        window.titlebarSeparatorStyle = .automatic
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
+        configureWindowForToolbar(window)
         window.title = "Librarian"
         window.isRestorable = false
         window.setFrameAutosaveName("com.librarian.app.MainWindow")
@@ -36,7 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appModel = model
         splitController = splitVC
         installMainToolbar(on: window, resetDelegateState: true)
-        installWindowAppearanceObservationIfNeeded(on: window)
+        toolbarAppearanceAdapter = ToolbarAppearanceAdapter(window: window) { [weak self] in
+            self?.rebuildToolbarForCurrentAppearance()
+        }
 
         mainWindow = window
         window.makeKeyAndOrderFront(nil)
@@ -46,8 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        windowAppearanceObservation = nil
-        lastWindowAppearanceName = nil
+        toolbarAppearanceAdapter?.invalidate()
+        toolbarAppearanceAdapter = nil
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -144,19 +143,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toolbar.allowsUserCustomization = false
         toolbar.autosavesConfiguration = false
         window.toolbar = toolbar
-    }
-
-    private func installWindowAppearanceObservationIfNeeded(on window: NSWindow) {
-        guard windowAppearanceObservation == nil else { return }
-        lastWindowAppearanceName = window.effectiveAppearance.name
-        windowAppearanceObservation = window.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, change in
-            guard let self, let newName = change.newValue?.name else { return }
-            DispatchQueue.main.async {
-                guard self.lastWindowAppearanceName != newName else { return }
-                self.lastWindowAppearanceName = newName
-                self.rebuildToolbarForCurrentAppearance()
-            }
-        }
     }
 
     private func rebuildToolbarForCurrentAppearance() {
