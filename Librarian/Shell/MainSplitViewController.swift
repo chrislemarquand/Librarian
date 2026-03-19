@@ -31,7 +31,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             content: cc,
             inspector: ic,
             mainSplitAutosaveName: "com.librarian.app.MainSplit",
-            contentSplitAutosaveName: "com.librarian.app.InnerSplit"
+            contentSplitAutosaveName: "com.librarian.app.InnerSplit",
+            inspectorStartsVisible: false
         )
 
         sc.onSelectionChange = { [weak self] item in
