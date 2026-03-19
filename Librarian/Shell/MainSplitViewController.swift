@@ -1,7 +1,7 @@
 import Cocoa
 import SharedUI
 
-final class MainSplitViewController: NSSplitViewController {
+final class MainSplitViewController: ThreePaneSplitViewController {
 
     let model: AppModel
     let toolbarDelegate: ToolbarDelegate
@@ -10,25 +10,39 @@ final class MainSplitViewController: NSSplitViewController {
     private let contentController: ContentController
     private let inspectorController: InspectorController
 
-    // The inner split holds content + inspector side by side.
-    // Internal so ToolbarDelegate can reference its splitView for tracking separators.
-    let innerSplit = NSSplitViewController()
-
-    private static let mainSplitAutosave = "com.librarian.app.MainSplit"
-    private static let innerSplitAutosave = "com.librarian.app.InnerSplit"
-    private var didApplyInitialSplit = false
     private var keyEventMonitor: Any?
 
     init(model: AppModel) {
         self.model = model
-        self.sidebarController = AppKitSidebarController(
+
+        let sc = AppKitSidebarController(
             sections: SidebarSection.allCases,
             items: SidebarItem.allItems
         )
-        self.contentController = ContentController(model: model)
-        self.inspectorController = InspectorController(model: model)
+        let cc = ContentController(model: model)
+        let ic = InspectorController(model: model)
+        self.sidebarController = sc
+        self.contentController = cc
+        self.inspectorController = ic
         self.toolbarDelegate = ToolbarDelegate()
-        super.init(nibName: nil, bundle: nil)
+
+        super.init(
+            sidebar: sc,
+            content: cc,
+            inspector: ic,
+            mainSplitAutosaveName: "com.librarian.app.MainSplit",
+            contentSplitAutosaveName: "com.librarian.app.InnerSplit"
+        )
+
+        sc.onSelectionChange = { [weak self] item in
+            self?.model.setSelectedSidebarItem(item)
+        }
+
+        onPaneStateChanged = { [weak self] in
+            guard let self else { return }
+            self.model.isInspectorCollapsed = self.isInspectorCollapsed
+            self.toolbarDelegate.refresh(model: self.model)
+        }
     }
 
     @available(*, unavailable)
@@ -38,22 +52,14 @@ final class MainSplitViewController: NSSplitViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        sidebarController.onSelectionChange = { [weak self] item in
-            self?.model.setSelectedSidebarItem(item)
-        }
-        buildSplitLayout()
-        inspectorSplitItem?.isCollapsed = true
         toolbarDelegate.configure(splitVC: self)
         observeModelState()
         installKeyEventMonitor()
-        observeInnerSplitResize()
-        syncInspectorState()
         toolbarDelegate.refresh(model: model)
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        applyInitialInnerSplitIfNeeded()
         refreshWindowTitle()
         refreshWindowSubtitle()
     }
@@ -64,78 +70,7 @@ final class MainSplitViewController: NSSplitViewController {
         }
     }
 
-    // MARK: - Layout
-
-    private func buildSplitLayout() {
-        splitView.isVertical = true
-        splitView.autosaveName = NSSplitView.AutosaveName(Self.mainSplitAutosave)
-        splitView.dividerStyle = .thin
-
-        let sidebarWrap = NSSplitViewItem(sidebarWithViewController: sidebarController)
-        sidebarWrap.minimumThickness = 200
-        sidebarWrap.allowsFullHeightLayout = true
-        addSplitViewItem(sidebarWrap)
-
-        innerSplit.splitView.isVertical = true
-        innerSplit.splitView.autosaveName = NSSplitView.AutosaveName(Self.innerSplitAutosave)
-        innerSplit.splitView.dividerStyle = .thin
-
-        let contentWrap = NSSplitViewItem(viewController: contentController)
-        contentWrap.minimumThickness = 300
-        contentWrap.holdingPriority = NSLayoutConstraint.Priority(rawValue: NSLayoutConstraint.Priority.defaultLow.rawValue - 1)
-        innerSplit.addSplitViewItem(contentWrap)
-
-        let inspectorWrap = NSSplitViewItem(inspectorWithViewController: inspectorController)
-        inspectorWrap.minimumThickness = 240
-        inspectorWrap.maximumThickness = 480
-        inspectorWrap.canCollapse = true
-        inspectorWrap.holdingPriority = .defaultLow
-        innerSplit.addSplitViewItem(inspectorWrap)
-
-        let innerWrap = NSSplitViewItem(viewController: innerSplit)
-        innerWrap.holdingPriority = .defaultLow
-        addSplitViewItem(innerWrap)
-
-        sidebarController.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        sidebarController.view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        inspectorController.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        inspectorController.view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    }
-
-    private var inspectorSplitItem: NSSplitViewItem? {
-        innerSplit.splitViewItems.count == 2 ? innerSplit.splitViewItems[1] : nil
-    }
-
-    // MARK: - Inspector toggle
-
-    @objc override func toggleInspector(_ sender: Any?) {
-        guard let item = inspectorSplitItem else { return }
-        let previous = view.window?.firstResponder
-        item.animator().isCollapsed.toggle()
-        syncInspectorState()
-        if let previous {
-            DispatchQueue.main.async { [weak self] in
-                self?.view.window?.makeFirstResponder(previous)
-            }
-        }
-    }
-
-    private func syncInspectorState() {
-        guard let item = inspectorSplitItem else { return }
-        model.isInspectorCollapsed = item.isCollapsed
-        toolbarDelegate.refresh(model: model)
-    }
-
-    // MARK: - Split resize observation
-
-    private func observeInnerSplitResize() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(innerSplitDidResize(_:)),
-            name: NSSplitView.didResizeSubviewsNotification,
-            object: innerSplit.splitView
-        )
-    }
+    // MARK: - Model observation
 
     private func observeModelState() {
         NotificationCenter.default.addObserver(
@@ -191,26 +126,6 @@ final class MainSplitViewController: NSSplitViewController {
         refreshWindowTitle()
         refreshWindowSubtitle()
         toolbarDelegate.refresh(model: model)
-    }
-
-    @objc private func innerSplitDidResize(_ notification: Notification) {
-        syncInspectorState()
-    }
-
-    // MARK: - Initial proportions
-
-    private func applyInitialInnerSplitIfNeeded() {
-        guard !didApplyInitialSplit else { return }
-        didApplyInitialSplit = true
-
-        let key = "NSSplitView Subview Frames \(Self.innerSplitAutosave)"
-        guard UserDefaults.standard.object(forKey: key) == nil else { return }
-
-        let total = innerSplit.splitView.bounds.width
-        guard total > 400 else { return }
-
-        let target = min(max(total * 0.68, 300), total - 240)
-        innerSplit.splitView.setPosition(target, ofDividerAt: 0)
     }
 
     // MARK: - Keyboard

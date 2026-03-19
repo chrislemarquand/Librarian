@@ -1,4 +1,5 @@
 import Cocoa
+import SharedUI
 
 extension NSToolbarItem.Identifier {
     static let librarianSidebarSeparator  = NSToolbarItem.Identifier("com.librarian.app.toolbar.sidebarSeparator")
@@ -88,7 +89,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             guard let splitVC else { return nil }
             return NSTrackingSeparatorToolbarItem(
                 identifier: .librarianInspectorSeparator,
-                splitView: splitVC.innerSplit.splitView,
+                splitView: splitVC.innerSplitView,
                 dividerIndex: 0
             )
 
