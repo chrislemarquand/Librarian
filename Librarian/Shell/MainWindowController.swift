@@ -15,7 +15,7 @@ final class MainWindowController: NSWindowController {
         let defaultSize = ThreePaneSplitViewController.Metrics.windowDefault
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: defaultSize.width, height: defaultSize.height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -23,10 +23,7 @@ final class MainWindowController: NSWindowController {
         splitVC.loadViewIfNeeded()
         window.minSize = ThreePaneSplitViewController.Metrics.windowMinimum
         window.isRestorable = true
-        window.toolbarStyle = .automatic
-        window.titlebarSeparatorStyle = .automatic
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
+        configureWindowForToolbar(window)
         window.title = "Librarian"
         window.setFrameAutosaveName("com.librarian.app.MainWindow")
         window.center()

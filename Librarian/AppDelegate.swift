@@ -64,38 +64,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // App menu
         let appItem = NSMenuItem(title: "Librarian", action: nil, keyEquivalent: "")
+        appItem.submenu = makeStandardAppMenu(
+            appName: "Librarian",
+            settingsAction: #selector(showSettingsWindow(_:))
+        )
         mainMenu.addItem(appItem)
-        let appMenu = NSMenu(title: "Librarian")
-        appItem.submenu = appMenu
-        appMenu.addItem(NSMenuItem(title: "About Librarian", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
-        appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettingsWindow(_:)), keyEquivalent: ","))
-        appMenu.addItem(.separator())
-        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
-        let servicesMenu = NSMenu(title: "Services")
-        servicesItem.submenu = servicesMenu
-        NSApp.servicesMenu = servicesMenu
-        appMenu.addItem(servicesItem)
-        appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Hide Librarian", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-        let hideOthers = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
-        hideOthers.keyEquivalentModifierMask = [.command, .option]
-        appMenu.addItem(hideOthers)
-        appMenu.addItem(NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
-        appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit Librarian", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         // File menu
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         mainMenu.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
         fileItem.submenu = fileMenu
-        fileMenu.addItem(NSMenuItem(title: "Set Aside Selection", action: #selector(MainSplitViewController.setAsideSelectionAction(_:)), keyEquivalent: "a").then {
-            $0.keyEquivalentModifierMask = [.command, .option]
-        })
-        fileMenu.addItem(NSMenuItem(title: "Send to Archive", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "a").then {
-            $0.keyEquivalentModifierMask = [.command, .option, .shift]
-        })
+        let setAsideItem = NSMenuItem(title: "Set Aside Selection", action: #selector(MainSplitViewController.setAsideSelectionAction(_:)), keyEquivalent: "a")
+        setAsideItem.keyEquivalentModifierMask = [.command, .option]
+        fileMenu.addItem(setAsideItem)
+        let sendToArchiveItem = NSMenuItem(title: "Send to Archive", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "a")
+        sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        fileMenu.addItem(sendToArchiveItem)
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o"))
         fileMenu.addItem(.separator())
@@ -106,25 +91,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewItem.submenu = viewMenu
-        viewMenu.addItem(NSMenuItem(title: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s").then {
-            $0.keyEquivalentModifierMask = [.command, .control]
-        })
-        viewMenu.addItem(NSMenuItem(title: "Toggle Inspector", action: #selector(MainSplitViewController.toggleInspector(_:)), keyEquivalent: "i").then {
-            $0.keyEquivalentModifierMask = [.command, .control]
-        })
+        let toggleSidebarItem = NSMenuItem(title: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+        toggleSidebarItem.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(toggleSidebarItem)
+        let toggleInspectorItem = NSMenuItem(title: "Toggle Inspector", action: #selector(MainSplitViewController.toggleInspector(_:)), keyEquivalent: "i")
+        toggleInspectorItem.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(toggleInspectorItem)
         viewMenu.addItem(.separator())
         viewMenu.addItem(NSMenuItem(title: "Refresh View", action: #selector(MainSplitViewController.refreshCurrentViewAction(_:)), keyEquivalent: "r"))
 
         // Window menu
         let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
-        mainMenu.addItem(windowItem)
-        let windowMenu = NSMenu(title: "Window")
+        let windowMenu = makeStandardWindowMenu()
         windowItem.submenu = windowMenu
-        windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m"))
-        windowMenu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.zoom(_:)), keyEquivalent: ""))
-        windowMenu.addItem(.separator())
-        windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
         NSApp.windowsMenu = windowMenu
+        mainMenu.addItem(windowItem)
 
         NSApp.mainMenu = mainMenu
     }
@@ -164,12 +145,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// MARK: - Convenience
-
-extension NSMenuItem {
-    func then(_ configure: (NSMenuItem) -> Void) -> NSMenuItem {
-        configure(self)
-        return self
-    }
-}
 
