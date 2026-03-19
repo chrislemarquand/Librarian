@@ -271,6 +271,7 @@ extension SidebarController: NSOutlineViewDelegate {
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.imageScaling = .scaleNone
             icon.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
+            icon.contentTintColor = .labelColor
 
             let title = NSTextField(labelWithString: "")
             title.translatesAutoresizingMaskIntoConstraints = false
