@@ -260,11 +260,11 @@ extension SidebarController: NSOutlineViewDelegate {
 
     private func makeItemView(_ sidebarItem: SidebarItem) -> NSView {
         let id = NSUserInterfaceItemIdentifier("SidebarItemCell")
-        let cell: NSTableCellView
-        if let reused = outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView {
+        let cell: SidebarCellView
+        if let reused = outlineView.makeView(withIdentifier: id, owner: nil) as? SidebarCellView {
             cell = reused
         } else {
-            cell = NSTableCellView()
+            cell = SidebarCellView()
             cell.identifier = id
 
             let icon = NSImageView()
@@ -322,20 +322,39 @@ private final class SidebarSelectionRowView: NSTableRowView {
     }
 
     private func updateSubviewColors() {
-        // Icon: symbolConfiguration colour overrides contentTintColor and cannot
-        // be cleared by AppKit's deferred backgroundStyle propagation.
-        // Text: backgroundStyle propagation only fires when interiorBackgroundStyle
-        // changes, which never happens for non-selected rows (always .normal), so
-        // our explicit textColor set here is not overridden by AppKit.
-        let emphasized = isSelected && isEmphasized
-        let iconColor: NSColor  = emphasized ? .white : .labelColor
-        let textColor: NSColor  = emphasized ? .white : (isEmphasized ? .labelColor : .secondaryLabelColor)
+        // Selected rows: SidebarCellView.backgroundStyle fires when interiorBackgroundStyle
+        // changes (.emphasized ↔ .normal), so the cell owns its own icon and text colour.
+        // Non-selected rows: backgroundStyle stays .normal regardless of emphasis, so
+        // AppKit never fires it — we must set icon and text explicitly here.
+        guard !isSelected else { return }
+        let color: NSColor = isEmphasized ? .labelColor : .secondaryLabelColor
         let config = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [iconColor]))
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
         for subview in subviews {
             guard let cell = subview as? NSTableCellView else { continue }
             cell.imageView?.symbolConfiguration = config
-            cell.textField?.textColor = textColor
+            cell.textField?.textColor = color
+        }
+    }
+}
+
+// SidebarCellView owns icon and text colour for the selected row.
+// AppKit calls backgroundStyle on this cell when the row transitions between
+// .emphasized (selected+focused) and .normal (selected+unfocused or deselected),
+// so intercepting here is the correct and reliable place to keep them in sync.
+private final class SidebarCellView: NSTableCellView {
+    private static let normalConfig = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
+        .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor.labelColor]))
+    private static let emphasizedConfig = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
+        .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor.white]))
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        get { super.backgroundStyle }
+        set {
+            super.backgroundStyle = newValue
+            let emphasized = newValue == .emphasized
+            imageView?.symbolConfiguration = emphasized ? Self.emphasizedConfig : Self.normalConfig
+            textField?.textColor = emphasized ? .white : .labelColor
         }
     }
 }
