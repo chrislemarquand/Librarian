@@ -190,3 +190,27 @@ e.g. "Archived 47 photos."
 - Optional export profiles/presets.
 - Better post-export auditing and reporting UI.
 - Optional automation hooks for downstream archive workflows.
+
+### 19) Create New Archive Workflow
+
+Add a first-class flow to create a new active archive (single-archive model):
+
+- User picks a new archive destination (becomes both export destination and Archived-view source).
+- User selects one or more existing folders to import from.
+- App scans selected folders, imports files into the archive's fixed `YYYY/MM/DD` structure, and
+  deduplicates before writing.
+- New archive remains separate from PhotoKit-managed library files.
+
+Required checks:
+
+- Deduplicate within selected source folders (no duplicates copied into archive).
+- Compare candidate files against current PhotoKit library and avoid importing files that already
+  exist there (target: no image duplicated between archive and PhotoKit).
+- Preserve safety guarantees: no destructive action on source folders unless explicitly user-requested.
+
+Implementation notes:
+
+- Reuse archive organizer + archive indexer pipeline where possible.
+- Add a staged import report before finalizing (copied / skipped-duplicate / skipped-in-PhotoKit /
+  failed).
+- Keep this behind an explicit user-initiated workflow (Settings action), not automatic background ingest.
