@@ -267,7 +267,7 @@ extension SidebarController: NSOutlineViewDelegate {
             cell = NSTableCellView()
             cell.identifier = id
 
-            let icon = SidebarIconImageView()
+            let icon = NSImageView()
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.imageScaling = .scaleNone
             icon.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
@@ -296,6 +296,8 @@ extension SidebarController: NSOutlineViewDelegate {
 
         cell.textField?.stringValue = sidebarItem.title
         cell.imageView?.image = NSImage(systemSymbolName: sidebarItem.symbolName, accessibilityDescription: sidebarItem.title)
+        // Set on every configure, not just creation, so reused cells are also correct.
+        cell.imageView?.contentTintColor = .labelColor
 
         return cell
     }
@@ -304,8 +306,12 @@ extension SidebarController: NSOutlineViewDelegate {
 private final class SidebarSelectionRowView: NSTableRowView {
     static let pillInsetX: CGFloat = 6
 
+    override var isSelected: Bool {
+        didSet { needsDisplay = true; updateSubviewColors() }
+    }
+
     override var isEmphasized: Bool {
-        didSet { needsDisplay = true }
+        didSet { needsDisplay = true; updateSubviewColors() }
     }
 
     // Only tell cell views to use white text when the row is selected AND focused.
@@ -323,17 +329,18 @@ private final class SidebarSelectionRowView: NSTableRowView {
         NSBezierPath(roundedRect: bounds.insetBy(dx: Self.pillInsetX, dy: 0), xRadius: 8, yRadius: 8).fill()
     }
 
-}
+    // Catch cells added to the row after initial layout (e.g. on first load).
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        updateSubviewColors()
+    }
 
-// SidebarIconImageView overrides backgroundStyle at the NSImageView level — the final
-// stop in the propagation chain (NSTableRowView → NSTableCellView → NSImageView).
-// Intercepting here means nothing can override contentTintColor after us.
-private final class SidebarIconImageView: NSImageView {
-    override var backgroundStyle: NSView.BackgroundStyle {
-        get { super.backgroundStyle }
-        set {
-            super.backgroundStyle = newValue
-            contentTintColor = (newValue == .emphasized) ? .white : .labelColor
+    private func updateSubviewColors() {
+        // NSTableCellView handles textField via backgroundStyle automatically.
+        // NSImageView does not, so we set contentTintColor explicitly here.
+        for subview in subviews {
+            guard let cell = subview as? NSTableCellView else { continue }
+            cell.imageView?.contentTintColor = (isSelected && isEmphasized) ? .white : .labelColor
         }
     }
 }
