@@ -736,6 +736,28 @@ final class AssetRepository: @unchecked Sendable {
     /// Returns a set of creation-date strings ("yyyy-MM-dd HH:mm:ss" in local timezone)
     /// for all non-deleted assets. Used for PhotoKit deduplication during archive import.
     /// creationDate is always indexed from PHAsset metadata and requires no analysis pass.
+    struct AnalysisFields {
+        let overallScore: Double?
+        let aiCaption: String?
+        let namedPersonCount: Int?
+        let detectedPersonCount: Int?
+    }
+
+    func fetchAnalysisFields(localIdentifier: String) throws -> AnalysisFields? {
+        try db.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT overallScore, aiCaption, namedPersonCount, detectedPersonCount
+                FROM asset WHERE localIdentifier = ? LIMIT 1
+            """, arguments: [localIdentifier]) else { return nil }
+            return AnalysisFields(
+                overallScore: row["overallScore"],
+                aiCaption: row["aiCaption"],
+                namedPersonCount: row["namedPersonCount"],
+                detectedPersonCount: row["detectedPersonCount"]
+            )
+        }
+    }
+
     func fetchFileSizeBytes(localIdentifier: String) throws -> Int? {
         try db.read { db in
             let row = try Row.fetchOne(

@@ -3,6 +3,7 @@ import Photos
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
+import ImageIO
 
 final class InspectorController: NSViewController {
 
@@ -107,11 +108,28 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     @Published private(set) var originalFilename: String = ""
     @Published private(set) var fileFormat: String = ""
     @Published private(set) var fileSizeBytes: Int? = nil
+    // Library
+    @Published private(set) var hasLocation = false
+    @Published private(set) var isBurst = false
+    @Published private(set) var isEdited = false
+    @Published private(set) var hasLivePhotoVideo = false
+    @Published private(set) var albums: [String] = []
+    // Camera & Capture (EXIF, async)
+    @Published private(set) var exifAperture: String = ""
+    @Published private(set) var exifShutterSpeed: String = ""
+    @Published private(set) var exifISO: String = ""
+    @Published private(set) var exifFocalLength: String = ""
+    // Analysis
+    @Published private(set) var overallScore: Double? = nil
+    @Published private(set) var aiCaption: String = ""
+    @Published private(set) var namedPersonCount: Int? = nil
+    @Published private(set) var detectedPersonCount: Int? = nil
 
     private let model: AppModel
     private var representedPreviewIdentifier: String?
 
-    private static let collapsedSectionsKey = "ui.librarian.inspector.collapsed.sections"
+    // v2 key so old section-name collapse state doesn't carry over.
+    private static let collapsedSectionsKey = "ui.librarian.inspector.collapsed.sections.v2"
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -121,8 +139,12 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     init(model: AppModel) {
         self.model = model
-        let stored = UserDefaults.standard.stringArray(forKey: Self.collapsedSectionsKey) ?? []
-        self.collapsedSections = Set(stored)
+        if let stored = UserDefaults.standard.stringArray(forKey: Self.collapsedSectionsKey) {
+            self.collapsedSections = Set(stored)
+        } else {
+            // Camera & Capture, Resources, and Analysis are collapsed by default on first launch.
+            self.collapsedSections = ["Camera & Capture", "Resources", "Analysis"]
+        }
     }
 
     @Published private(set) var multipleSelectionCount: Int = 0
@@ -134,9 +156,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         previewImage = nil
         isPreviewLoading = false
         representedPreviewIdentifier = nil
-        originalFilename = ""
-        fileFormat = ""
-        fileSizeBytes = nil
+        resetMetadata()
     }
 
     func showMultiple(count: Int) {
@@ -146,21 +166,25 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         previewImage = nil
         isPreviewLoading = false
         representedPreviewIdentifier = nil
-        originalFilename = ""
-        fileFormat = ""
-        fileSizeBytes = nil
+        resetMetadata()
     }
 
     func showAsset(_ asset: IndexedAsset) {
         selectedAsset = asset
         archiveCandidateInfo = model.archiveCandidateInfo(for: asset.localIdentifier)
         previewImage = nil
-        originalFilename = ""
-        fileFormat = ""
-        fileSizeBytes = nil
+        resetMetadata()
         representedPreviewIdentifier = asset.localIdentifier
         requestPreviewImage(for: asset.localIdentifier)
         requestAssetMetadata(for: asset.localIdentifier)
+    }
+
+    private func resetMetadata() {
+        originalFilename = ""; fileFormat = ""; fileSizeBytes = nil
+        hasLocation = false; isBurst = false; isEdited = false; hasLivePhotoVideo = false
+        albums = []
+        exifAperture = ""; exifShutterSpeed = ""; exifISO = ""; exifFocalLength = ""
+        overallScore = nil; aiCaption = ""; namedPersonCount = nil; detectedPersonCount = nil
     }
 
     func toggleSection(_ title: String) {
@@ -177,70 +201,77 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     func sections(for asset: IndexedAsset) -> [InspectorSection] {
-        let dimensions = dimensionsText(width: asset.pixelWidth, height: asset.pixelHeight)
-        let megapixels = megapixelsText(width: asset.pixelWidth, height: asset.pixelHeight)
-        var sections: [InspectorSection] = [
-            InspectorSection(
-                title: "General",
-                rows: [
-                    InspectorFieldRow(title: "Local Identifier", value: asset.localIdentifier),
-                    InspectorFieldRow(title: "Type", value: mediaTypeLabel(for: asset.mediaType)),
-                ]
-            ),
-            InspectorSection(
-                title: "Dates",
-                rows: [
-                    InspectorFieldRow(title: "Captured", value: formattedDate(asset.creationDate)),
-                    InspectorFieldRow(title: "Modified", value: formattedDate(asset.modificationDate)),
-                ]
-            ),
-            InspectorSection(
-                title: "Image",
-                rows: [
-                    InspectorFieldRow(title: "Dimensions", value: dimensions),
-                    InspectorFieldRow(title: "Megapixels", value: megapixels),
-                ]
-            ),
-            InspectorSection(
-                title: "Flags",
-                rows: [
-                    InspectorFieldRow(title: "Favorite", value: yesNo(asset.isFavorite)),
-                    InspectorFieldRow(title: "Hidden", value: yesNo(asset.isHidden)),
-                    InspectorFieldRow(title: "Deleted In Photos", value: yesNo(asset.isDeletedFromPhotos)),
-                    InspectorFieldRow(title: "Screenshot", value: yesNo(asset.isScreenshot)),
-                ]
-            ),
-            InspectorSection(
-                title: "Storage",
-                rows: [
-                    InspectorFieldRow(title: "Cloud State", value: asset.iCloudDownloadState),
-                    InspectorFieldRow(title: "Local Thumbnail", value: yesNo(asset.hasLocalThumbnail)),
-                    InspectorFieldRow(title: "Local Original", value: yesNo(asset.hasLocalOriginal)),
-                ]
-            ),
-        ]
+        var result: [InspectorSection] = []
 
-        if let archiveCandidateInfo {
-            var archiveRows: [InspectorFieldRow] = [
-                InspectorFieldRow(title: "Status", value: archiveStatusLabel(archiveCandidateInfo.status)),
-                InspectorFieldRow(title: "Queued", value: formattedDate(archiveCandidateInfo.queuedAt)),
-            ]
-            if let exportedAt = archiveCandidateInfo.exportedAt {
-                archiveRows.append(InspectorFieldRow(title: "Exported", value: formattedDate(exportedAt)))
-            }
-            if let deletedAt = archiveCandidateInfo.deletedAt {
-                archiveRows.append(InspectorFieldRow(title: "Deleted", value: formattedDate(deletedAt)))
-            }
-            if let archivePath = archiveCandidateInfo.archivePath, !archivePath.isEmpty {
-                archiveRows.append(InspectorFieldRow(title: "Archive Path", value: archivePath))
-            }
-            if let error = archiveCandidateInfo.lastError, !error.isEmpty {
-                archiveRows.append(InspectorFieldRow(title: "Last Error", value: error))
-            }
-            sections.append(InspectorSection(title: "Archive", rows: archiveRows))
+        // Date & Location
+        result.append(InspectorSection(title: "Date & Location", rows: [
+            InspectorFieldRow(title: "Captured", value: formattedDate(asset.creationDate)),
+            InspectorFieldRow(title: "Modified", value: formattedDate(asset.modificationDate)),
+            InspectorFieldRow(title: "Location", value: hasLocation ? "Yes" : "No"),
+        ]))
+
+        // Library
+        let cloudLabel: String
+        if asset.hasLocalOriginal { cloudLabel = "Downloaded" }
+        else if asset.isCloudOnly { cloudLabel = "Cloud only" }
+        else { cloudLabel = asset.iCloudDownloadState }
+        result.append(InspectorSection(title: "Library", rows: [
+            InspectorFieldRow(title: "Favourite", value: yesNo(asset.isFavorite)),
+            InspectorFieldRow(title: "Hidden", value: yesNo(asset.isHidden)),
+            InspectorFieldRow(title: "Edited", value: yesNo(isEdited)),
+            InspectorFieldRow(title: "Burst Photo", value: yesNo(isBurst)),
+            InspectorFieldRow(title: "iCloud", value: cloudLabel),
+            InspectorFieldRow(title: "Albums", value: albums.isEmpty ? "None" : albums.joined(separator: ", ")),
+        ]))
+
+        // Camera & Capture (EXIF — only shown when data arrives, collapsed by default)
+        let captureRows: [InspectorFieldRow] = [
+            exifAperture.isEmpty    ? nil : InspectorFieldRow(title: "Aperture",      value: exifAperture),
+            exifShutterSpeed.isEmpty ? nil : InspectorFieldRow(title: "Shutter Speed", value: exifShutterSpeed),
+            exifISO.isEmpty         ? nil : InspectorFieldRow(title: "ISO",           value: exifISO),
+            exifFocalLength.isEmpty ? nil : InspectorFieldRow(title: "Focal Length",  value: exifFocalLength),
+        ].compactMap { $0 }
+        if !captureRows.isEmpty {
+            result.append(InspectorSection(title: "Camera & Capture", rows: captureRows))
         }
 
-        return sections
+        // Resources (collapsed by default)
+        result.append(InspectorSection(title: "Resources", rows: [
+            InspectorFieldRow(title: "Original",       value: yesNo(asset.hasLocalOriginal)),
+            InspectorFieldRow(title: "Edited Version", value: yesNo(isEdited)),
+            InspectorFieldRow(title: "Live Photo",     value: yesNo(hasLivePhotoVideo)),
+        ]))
+
+        // Analysis — only if quality score available (analysis has been run); collapsed by default
+        if let score = overallScore {
+            var rows: [InspectorFieldRow] = [
+                InspectorFieldRow(title: "Quality Score", value: String(format: "%.2f", score)),
+            ]
+            if !aiCaption.isEmpty {
+                rows.append(InspectorFieldRow(title: "Caption", value: aiCaption))
+            }
+            let detected = detectedPersonCount ?? 0
+            if detected > 0 {
+                let named = namedPersonCount ?? 0
+                rows.append(InspectorFieldRow(title: "People", value: "\(detected) detected, \(named) named"))
+            }
+            result.append(InspectorSection(title: "Analysis", rows: rows))
+        }
+
+        // Archive — only if asset is in the archive queue
+        if let info = archiveCandidateInfo {
+            var rows: [InspectorFieldRow] = [
+                InspectorFieldRow(title: "Status", value: archiveStatusLabel(info.status)),
+                InspectorFieldRow(title: "Queued", value: formattedDate(info.queuedAt)),
+            ]
+            if let d = info.exportedAt { rows.append(InspectorFieldRow(title: "Exported", value: formattedDate(d))) }
+            if let d = info.deletedAt  { rows.append(InspectorFieldRow(title: "Deleted",  value: formattedDate(d))) }
+            if let p = info.archivePath, !p.isEmpty { rows.append(InspectorFieldRow(title: "Archive Path", value: p)) }
+            if let e = info.lastError,  !e.isEmpty  { rows.append(InspectorFieldRow(title: "Last Error",   value: e)) }
+            result.append(InspectorSection(title: "Archive", rows: rows))
+        }
+
+        return result
     }
 
     var title: String {
@@ -272,6 +303,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     private func requestAssetMetadata(for localIdentifier: String) {
         if let phAsset = model.photosService.fetchAsset(localIdentifier: localIdentifier) {
+            // File info
             let resources = PHAssetResource.assetResources(for: phAsset)
             let primary = resources.first(where: { $0.type == .photo })
                 ?? resources.first(where: { $0.type == .fullSizePhoto })
@@ -280,8 +312,75 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
                 originalFilename = resource.originalFilename
                 fileFormat = UTType(resource.uniformTypeIdentifier)?.localizedDescription ?? ""
             }
+            hasLivePhotoVideo = resources.contains(where: { $0.type == .pairedVideo })
+
+            // PHAsset properties
+            hasLocation = phAsset.location != nil
+            isBurst = phAsset.representsBurst
+            isEdited = phAsset.adjustmentFormatIdentifier != nil
+
+            // Albums (synchronous Photos fetch)
+            let albumFetch = PHAssetCollection.fetchAssetCollectionsContaining(
+                phAsset, with: .album, options: nil
+            )
+            var names: [String] = []
+            albumFetch.enumerateObjects { collection, _, _ in
+                if let title = collection.localizedTitle { names.append(title) }
+            }
+            albums = names
+
+            // EXIF — async, requires image data
+            requestEXIF(for: phAsset, localIdentifier: localIdentifier)
         }
+
+        // DB reads
         fileSizeBytes = try? model.database.assetRepository.fetchFileSizeBytes(localIdentifier: localIdentifier)
+        if let analysis = try? model.database.assetRepository.fetchAnalysisFields(localIdentifier: localIdentifier) {
+            overallScore = analysis.overallScore
+            aiCaption = analysis.aiCaption ?? ""
+            namedPersonCount = analysis.namedPersonCount
+            detectedPersonCount = analysis.detectedPersonCount
+        }
+    }
+
+    private func requestEXIF(for phAsset: PHAsset, localIdentifier: String) {
+        let options = PHImageRequestOptions()
+        options.isNetworkAccessAllowed = false
+        options.deliveryMode = .fastFormat
+        options.isSynchronous = false
+        PHImageManager.default().requestImageDataAndOrientation(for: phAsset, options: options) { [weak self] data, _, _, _ in
+            guard let self, let data else { return }
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
+            else { return }
+
+            var aperture = ""
+            var shutter = ""
+            var iso = ""
+            var focal = ""
+
+            if let f = exif[kCGImagePropertyExifFNumber] as? Double {
+                aperture = String(format: "f/%.1f", f)
+            }
+            if let t = exif[kCGImagePropertyExifExposureTime] as? Double, t > 0 {
+                shutter = t >= 1 ? String(format: "%.1f s", t) : "1/\(Int((1.0 / t).rounded())) s"
+            }
+            if let speeds = exif[kCGImagePropertyExifISOSpeedRatings] as? [Int], let first = speeds.first {
+                iso = "ISO \(first)"
+            }
+            if let fl = exif[kCGImagePropertyExifFocalLength] as? Double {
+                focal = String(format: "%.0f mm", fl)
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.representedPreviewIdentifier == localIdentifier else { return }
+                self.exifAperture = aperture
+                self.exifShutterSpeed = shutter
+                self.exifISO = iso
+                self.exifFocalLength = focal
+            }
+        }
     }
 
     private func requestPreviewImage(for localIdentifier: String) {
