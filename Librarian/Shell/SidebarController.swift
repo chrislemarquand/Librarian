@@ -322,15 +322,20 @@ private final class SidebarSelectionRowView: NSTableRowView {
     }
 
     private func updateSubviewColors() {
-        // contentTintColor is reset to nil by AppKit's deferred backgroundStyle
-        // propagation, so we use symbolConfiguration instead — a colour set there
-        // overrides contentTintColor and cannot be cleared by AppKit.
-        let color: NSColor = (isSelected && isEmphasized) ? .white : .labelColor
+        // Icon: symbolConfiguration colour overrides contentTintColor and cannot
+        // be cleared by AppKit's deferred backgroundStyle propagation.
+        // Text: backgroundStyle propagation only fires when interiorBackgroundStyle
+        // changes, which never happens for non-selected rows (always .normal), so
+        // our explicit textColor set here is not overridden by AppKit.
+        let emphasized = isSelected && isEmphasized
+        let iconColor: NSColor  = emphasized ? .white : .labelColor
+        let textColor: NSColor  = emphasized ? .white : (isEmphasized ? .labelColor : .secondaryLabelColor)
         let config = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+            .applying(NSImage.SymbolConfiguration(paletteColors: [iconColor]))
         for subview in subviews {
             guard let cell = subview as? NSTableCellView else { continue }
             cell.imageView?.symbolConfiguration = config
+            cell.textField?.textColor = textColor
         }
     }
 }
