@@ -736,6 +736,17 @@ final class AssetRepository: @unchecked Sendable {
     /// Returns a set of creation-date strings ("yyyy-MM-dd HH:mm:ss" in local timezone)
     /// for all non-deleted assets. Used for PhotoKit deduplication during archive import.
     /// creationDate is always indexed from PHAsset metadata and requires no analysis pass.
+    func fetchFileSizeBytes(localIdentifier: String) throws -> Int? {
+        try db.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: "SELECT fileSizeBytes FROM asset WHERE localIdentifier = ? LIMIT 1",
+                arguments: [localIdentifier]
+            )
+            return row?["fileSizeBytes"] as? Int
+        }
+    }
+
     func fetchAssetDateSecondIndex() throws -> Set<String> {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

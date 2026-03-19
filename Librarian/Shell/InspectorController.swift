@@ -2,6 +2,7 @@ import Cocoa
 import Photos
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 final class InspectorController: NSViewController {
 
@@ -103,6 +104,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var isPreviewLoading = false
     @Published private(set) var collapsedSections: Set<String>
+    @Published private(set) var originalFilename: String = ""
+    @Published private(set) var fileFormat: String = ""
+    @Published private(set) var fileSizeBytes: Int? = nil
 
     private let model: AppModel
     private var representedPreviewIdentifier: String?
@@ -130,6 +134,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         previewImage = nil
         isPreviewLoading = false
         representedPreviewIdentifier = nil
+        originalFilename = ""
+        fileFormat = ""
+        fileSizeBytes = nil
     }
 
     func showMultiple(count: Int) {
@@ -139,14 +146,21 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         previewImage = nil
         isPreviewLoading = false
         representedPreviewIdentifier = nil
+        originalFilename = ""
+        fileFormat = ""
+        fileSizeBytes = nil
     }
 
     func showAsset(_ asset: IndexedAsset) {
         selectedAsset = asset
         archiveCandidateInfo = model.archiveCandidateInfo(for: asset.localIdentifier)
         previewImage = nil
+        originalFilename = ""
+        fileFormat = ""
+        fileSizeBytes = nil
         representedPreviewIdentifier = asset.localIdentifier
         requestPreviewImage(for: asset.localIdentifier)
+        requestAssetMetadata(for: asset.localIdentifier)
     }
 
     func toggleSection(_ title: String) {
@@ -230,15 +244,44 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     var title: String {
-        guard let asset = selectedAsset else { return "" }
-        return asset.localIdentifier.split(separator: "/").first.map(String.init) ?? asset.localIdentifier
+        guard selectedAsset != nil else { return "" }
+        return originalFilename.isEmpty
+            ? (selectedAsset?.localIdentifier.split(separator: "/").first.map(String.init) ?? "")
+            : originalFilename
     }
 
     var subtitle: String {
         guard let asset = selectedAsset else { return "" }
-        let type = mediaTypeLabel(for: asset.mediaType)
-        let dimensions = dimensionsText(width: asset.pixelWidth, height: asset.pixelHeight)
-        return "\(type) • \(dimensions)"
+        var parts: [String] = []
+        if !fileFormat.isEmpty { parts.append(fileFormat) }
+        if let bytes = fileSizeBytes, bytes > 0 {
+            parts.append(fileSizeText(bytes))
+        }
+        let dim = dimensionsText(width: asset.pixelWidth, height: asset.pixelHeight)
+        if dim != "Unknown" { parts.append(dim) }
+        let mp = megapixelsText(width: asset.pixelWidth, height: asset.pixelHeight)
+        if mp != "Unknown" { parts.append(mp) }
+        return parts.joined(separator: " • ")
+    }
+
+    private func fileSizeText(_ bytes: Int) -> String {
+        let mb = Double(bytes) / (1024 * 1024)
+        if mb >= 1 { return String(format: "%.1f MB", mb) }
+        return String(format: "%.0f KB", Double(bytes) / 1024)
+    }
+
+    private func requestAssetMetadata(for localIdentifier: String) {
+        if let phAsset = model.photosService.fetchAsset(localIdentifier: localIdentifier) {
+            let resources = PHAssetResource.assetResources(for: phAsset)
+            let primary = resources.first(where: { $0.type == .photo })
+                ?? resources.first(where: { $0.type == .fullSizePhoto })
+                ?? resources.first
+            if let resource = primary {
+                originalFilename = resource.originalFilename
+                fileFormat = UTType(resource.uniformTypeIdentifier)?.localizedDescription ?? ""
+            }
+        }
+        fileSizeBytes = try? model.database.assetRepository.fetchFileSizeBytes(localIdentifier: localIdentifier)
     }
 
     private func requestPreviewImage(for localIdentifier: String) {
