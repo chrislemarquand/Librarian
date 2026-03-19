@@ -500,11 +500,11 @@ final class ContentController: NSViewController {
         case .setAsideForArchive:
             return .unavailable(title: "Nothing Set Aside", symbolName: "tray.full", description: "Photos you set aside for archiving will appear here.")
         case .duplicates:
-            return .unavailable(title: "No Duplicates", symbolName: "doc.on.doc", description: "No exact duplicate photos found.")
+            return .unavailable(title: "No Duplicates", symbolName: "doc.on.doc", description: "No duplicate or near-duplicate photos found.")
         case .lowQuality:
             return .unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "No photos with a low quality score found.")
         case .receiptsAndDocuments:
-            return .unavailable(title: "No Receipts or Documents", symbolName: "doc.text", description: "No photos labelled as receipts or documents found.")
+            return .unavailable(title: "No Documents", symbolName: "doc.text", description: "No document-focused photos found.")
         case .log, .indexing:
             return .unavailable(title: "No Log Entries", symbolName: "list.bullet.rectangle", description: "Activity will appear here.")
         }

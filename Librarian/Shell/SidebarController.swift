@@ -37,7 +37,7 @@ struct SidebarItem: Equatable {
         SidebarItem(section: .queues,  kind: .screenshots,          title: "Screenshots",          symbolName: "camera.viewfinder"),
         SidebarItem(section: .queues,  kind: .duplicates,           title: "Duplicates",           symbolName: "doc.on.doc"),
         SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality",          symbolName: "wand.and.stars.inverse"),
-        SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Receipts & Documents", symbolName: "doc.text"),
+        SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Documents", symbolName: "doc.text"),
         SidebarItem(section: .archive, kind: .setAsideForArchive,   title: "Set Aside",            symbolName: "tray.full"),
         SidebarItem(section: .tasks,   kind: .log,               title: "Log",         symbolName: "list.bullet.rectangle"),
     ]

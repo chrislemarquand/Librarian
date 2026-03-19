@@ -1,9 +1,13 @@
 import Foundation
+import Photos
+import Vision
+import CoreImage
 
 struct AnalysisProgressUpdate {
     enum Phase {
         case querying
         case importing(completed: Int, total: Int)
+        case visionAnalysing(completed: Int, total: Int)
     }
     let phase: Phase
 
@@ -13,6 +17,8 @@ struct AnalysisProgressUpdate {
             return "Running osxphotos query…"
         case .importing(let completed, let total):
             return "Importing \(completed.formatted()) / \(total.formatted())…"
+        case .visionAnalysing(let completed, let total):
+            return "Vision analysis \(completed.formatted()) / \(total.formatted())…"
         }
     }
 }
@@ -20,12 +26,13 @@ struct AnalysisProgressUpdate {
 struct LibraryAnalyser {
 
     private let database: DatabaseManager
+    private let visionBatchLimit = 3_000
 
     init(database: DatabaseManager) {
         self.database = database
     }
 
-    func run() -> AsyncThrowingStream<AnalysisProgressUpdate, Error> {
+    nonisolated func run() -> AsyncThrowingStream<AnalysisProgressUpdate, Error> {
         AsyncThrowingStream<AnalysisProgressUpdate, Error> { continuation in
             Task.detached(priority: .utility) {
                 do {
@@ -83,8 +90,14 @@ struct LibraryAnalyser {
                         let batch = Array(results[offset ..< min(offset + batchSize, results.count)])
                         try await self.database.assetRepository.upsertAnalysisData(batch, analysedAt: analysedAt)
                         offset += batchSize
-                        continuation.yield(AnalysisProgressUpdate(phase: .importing(completed: offset, total: total)))
+                        continuation.yield(AnalysisProgressUpdate(phase: .importing(completed: min(offset, total), total: total)))
                     }
+
+                    try await runVisionAnalysisStage(
+                        database: self.database,
+                        visionBatchLimit: self.visionBatchLimit,
+                        continuation: continuation
+                    )
 
                     Task { @MainActor in AppLog.shared.info("Library analysis complete: \(records.count) records imported.") }
                     continuation.finish()
@@ -93,6 +106,250 @@ struct LibraryAnalyser {
                     continuation.finish(throwing: error)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Vision stage
+
+private struct VisionCandidateResult {
+    let localIdentifier: String
+    let creationDate: Date?
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let ocrText: String?
+    let barcodeDetected: Bool
+    let featurePrint: VNFeaturePrintObservation?
+}
+
+private nonisolated func runVisionAnalysisStage(
+    database: DatabaseManager,
+    visionBatchLimit: Int,
+    continuation: AsyncThrowingStream<AnalysisProgressUpdate, Error>.Continuation
+) async throws {
+    let candidates = try database.assetRepository.fetchVisionAnalysisCandidates(
+        limit: visionBatchLimit,
+        includePreviouslyAnalysed: true
+    )
+    guard !candidates.isEmpty else { return }
+
+    continuation.yield(
+        AnalysisProgressUpdate(phase: .visionAnalysing(completed: 0, total: candidates.count))
+    )
+
+    var analysed: [VisionCandidateResult] = []
+    analysed.reserveCapacity(candidates.count)
+    let imageManager = PHImageManager.default()
+    let progressInterval = 25
+
+    for (index, candidate) in candidates.enumerated() {
+        if Task.isCancelled { break }
+        autoreleasepool {
+            if let result = analyseVisionCandidate(candidate, imageManager: imageManager) {
+                analysed.append(result)
+            }
+        }
+        let completed = index + 1
+        if completed % progressInterval == 0 || completed == candidates.count {
+            continuation.yield(
+                AnalysisProgressUpdate(
+                    phase: .visionAnalysing(completed: completed, total: candidates.count)
+                )
+            )
+        }
+    }
+
+    let analysedAt = Date()
+    let writeResults = analysed.map {
+        VisionAnalysisWriteResult(
+            localIdentifier: $0.localIdentifier,
+            ocrText: $0.ocrText,
+            barcodeDetected: $0.barcodeDetected
+        )
+    }
+    try await database.assetRepository.upsertVisionAnalysisData(writeResults, analysedAt: analysedAt)
+
+    let clusterAssignments = buildNearDuplicateAssignments(results: analysed)
+    try await database.assetRepository.assignNearDuplicateClusters(clusterAssignments)
+
+    Task { @MainActor in
+        AppLog.shared.info(
+            "Vision analysis complete: \(analysed.count) assets scanned, \(Set(clusterAssignments.map(\.clusterID)).count) near-duplicate clusters."
+        )
+    }
+}
+
+private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandidate, imageManager: PHImageManager) -> VisionCandidateResult? {
+    guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [candidate.localIdentifier], options: nil).firstObject else {
+        return nil
+    }
+    guard let ciImage = requestCIImage(for: asset, imageManager: imageManager) else {
+        return nil
+    }
+
+    let textRequest = VNRecognizeTextRequest()
+    textRequest.recognitionLevel = .fast
+    textRequest.usesLanguageCorrection = false
+
+    let barcodeRequest = VNDetectBarcodesRequest()
+    let featurePrintRequest = VNGenerateImageFeaturePrintRequest()
+
+    let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
+    do {
+        try handler.perform([textRequest, barcodeRequest, featurePrintRequest])
+    } catch {
+        return nil
+    }
+
+    let recognizedText = (textRequest.results ?? [])
+        .compactMap { $0.topCandidates(1).first?.string }
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let cappedText = String(recognizedText.prefix(4000))
+    let ocrText = cappedText.isEmpty ? nil : cappedText
+    let barcodeDetected = !(barcodeRequest.results ?? []).isEmpty
+    let featurePrint = (featurePrintRequest.results?.first as? VNFeaturePrintObservation)
+
+    return VisionCandidateResult(
+        localIdentifier: candidate.localIdentifier,
+        creationDate: candidate.creationDate,
+        pixelWidth: candidate.pixelWidth,
+        pixelHeight: candidate.pixelHeight,
+        ocrText: ocrText,
+        barcodeDetected: barcodeDetected,
+        featurePrint: featurePrint
+    )
+}
+
+private nonisolated func requestCIImage(for asset: PHAsset, imageManager: PHImageManager) -> CIImage? {
+    let options = PHImageRequestOptions()
+    options.version = .current
+    options.deliveryMode = .highQualityFormat
+    options.resizeMode = .none
+    options.isNetworkAccessAllowed = false
+    options.isSynchronous = true
+
+    var resultData: Data?
+    var requestFailed = false
+
+    imageManager.requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
+        let cancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
+        if cancelled || info?[PHImageErrorKey] != nil {
+            requestFailed = true
+        } else {
+            resultData = data
+        }
+    }
+
+    if requestFailed { return nil }
+    guard let resultData else { return nil }
+    return CIImage(data: resultData)
+}
+
+private nonisolated func buildNearDuplicateAssignments(results: [VisionCandidateResult]) -> [NearDuplicateClusterAssignment] {
+    let withFeature = results.filter { $0.featurePrint != nil }
+    guard withFeature.count > 1 else { return [] }
+
+    let sorted = withFeature.sorted {
+        let lhs = $0.creationDate ?? .distantPast
+        let rhs = $1.creationDate ?? .distantPast
+        if lhs == rhs { return $0.localIdentifier < $1.localIdentifier }
+        return lhs < rhs
+    }
+    let unionFind = UnionFind(count: sorted.count)
+    let maxTimeDelta: TimeInterval = 10
+    let distanceThreshold: Float = 6.5
+
+    for i in 0..<sorted.count {
+        guard let leftPrint = sorted[i].featurePrint else { continue }
+        let leftDate = sorted[i].creationDate ?? .distantPast
+        var j = i + 1
+        while j < sorted.count {
+            let rightDate = sorted[j].creationDate ?? .distantPast
+            if rightDate.timeIntervalSince(leftDate) > maxTimeDelta {
+                break
+            }
+            guard let rightPrint = sorted[j].featurePrint else {
+                j += 1
+                continue
+            }
+            if !areComparableDimensions(lhs: sorted[i], rhs: sorted[j]) {
+                j += 1
+                continue
+            }
+            var distance: Float = 0
+            if (try? leftPrint.computeDistance(&distance, to: rightPrint)) != nil, distance <= distanceThreshold {
+                unionFind.union(i, j)
+            }
+            j += 1
+        }
+    }
+
+    var groups: [Int: [Int]] = [:]
+    for index in 0..<sorted.count {
+        groups[unionFind.find(index), default: []].append(index)
+    }
+
+    var assignments: [NearDuplicateClusterAssignment] = []
+    for members in groups.values where members.count > 1 {
+        let clusterID = UUID().uuidString
+        for memberIndex in members {
+            assignments.append(
+                NearDuplicateClusterAssignment(
+                    localIdentifier: sorted[memberIndex].localIdentifier,
+                    clusterID: clusterID
+                )
+            )
+        }
+    }
+    return assignments
+}
+
+private nonisolated func areComparableDimensions(lhs: VisionCandidateResult, rhs: VisionCandidateResult) -> Bool {
+    let lw = max(lhs.pixelWidth, 1)
+    let lh = max(lhs.pixelHeight, 1)
+    let rw = max(rhs.pixelWidth, 1)
+    let rh = max(rhs.pixelHeight, 1)
+
+    let leftAspect = Double(lw) / Double(lh)
+    let rightAspect = Double(rw) / Double(rh)
+    let aspectRatioDelta = abs(leftAspect - rightAspect) / max(leftAspect, rightAspect)
+    if aspectRatioDelta > 0.2 { return false }
+
+    let leftPixels = Double(lw * lh)
+    let rightPixels = Double(rw * rh)
+    let areaRatio = max(leftPixels, rightPixels) / max(min(leftPixels, rightPixels), 1)
+    return areaRatio <= 1.8
+}
+
+private final class UnionFind {
+    private var parent: [Int]
+    private var rank: [Int]
+
+    init(count: Int) {
+        self.parent = Array(0..<count)
+        self.rank = Array(repeating: 0, count: count)
+    }
+
+    func find(_ x: Int) -> Int {
+        if parent[x] != x {
+            parent[x] = find(parent[x])
+        }
+        return parent[x]
+    }
+
+    func union(_ a: Int, _ b: Int) {
+        let rootA = find(a)
+        let rootB = find(b)
+        guard rootA != rootB else { return }
+
+        if rank[rootA] < rank[rootB] {
+            parent[rootA] = rootB
+        } else if rank[rootA] > rank[rootB] {
+            parent[rootB] = rootA
+        } else {
+            parent[rootB] = rootA
+            rank[rootA] += 1
         }
     }
 }

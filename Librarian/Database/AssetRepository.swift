@@ -61,11 +61,30 @@ struct AssetAnalysisResult {
     let aiCaption: String?
 }
 
+struct VisionAnalysisCandidate {
+    let localIdentifier: String
+    let creationDate: Date?
+    let pixelWidth: Int
+    let pixelHeight: Int
+}
+
+struct VisionAnalysisWriteResult {
+    let localIdentifier: String
+    let ocrText: String?
+    let barcodeDetected: Bool
+}
+
+struct NearDuplicateClusterAssignment {
+    let localIdentifier: String
+    let clusterID: String
+}
+
 // MARK: - AssetRepository
 
 final class AssetRepository: @unchecked Sendable {
 
     private let db: DatabaseQueue
+    private let minimumDocumentOCRCharacters = 120
 
     init(db: DatabaseQueue) {
         self.db = db
@@ -409,14 +428,30 @@ final class AssetRepository: @unchecked Sendable {
                     FROM asset_active a
                     LEFT JOIN queue_keep_decision qk
                         ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'duplicates'
-                    WHERE a.fingerprint IS NOT NULL
-                      AND a.fingerprint IN (
-                        SELECT fingerprint FROM asset
-                        WHERE isDeletedFromPhotos = 0
-                          AND fingerprint IS NOT NULL
-                        GROUP BY fingerprint
-                        HAVING COUNT(*) > 1
-                      )
+                    WHERE (
+                        (
+                            a.fingerprint IS NOT NULL
+                            AND a.fingerprint IN (
+                                SELECT fingerprint
+                                FROM asset
+                                WHERE isDeletedFromPhotos = 0
+                                  AND fingerprint IS NOT NULL
+                                GROUP BY fingerprint
+                                HAVING COUNT(*) > 1
+                            )
+                        )
+                        OR (
+                            a.nearDuplicateClusterID IS NOT NULL
+                            AND a.nearDuplicateClusterID IN (
+                                SELECT nearDuplicateClusterID
+                                FROM asset
+                                WHERE isDeletedFromPhotos = 0
+                                  AND nearDuplicateClusterID IS NOT NULL
+                                GROUP BY nearDuplicateClusterID
+                                HAVING COUNT(*) > 1
+                            )
+                        )
+                    )
                       AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
@@ -456,19 +491,25 @@ final class AssetRepository: @unchecked Sendable {
                     FROM asset_active a
                     LEFT JOIN queue_keep_decision qk
                         ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'receiptsAndDocuments'
-                    WHERE a.labelsJSON IS NOT NULL
-                      AND (
-                        a.labelsJSON LIKE '%"receipt"%'
-                        OR a.labelsJSON LIKE '%"document"%'
-                        OR a.labelsJSON LIKE '%"text"%'
-                        OR a.labelsJSON LIKE '%"menu"%'
-                        OR a.labelsJSON LIKE '%"whiteboard"%'
-                      )
+                    WHERE (
+                        a.visionOcrText IS NOT NULL
+                        AND LENGTH(TRIM(a.visionOcrText)) >= ?
+                        AND (
+                            (a.labelsJSON IS NOT NULL AND a.labelsJSON LIKE '%"document"%')
+                            OR LOWER(a.visionOcrText) LIKE '%invoice%'
+                            OR LOWER(a.visionOcrText) LIKE '%statement%'
+                            OR LOWER(a.visionOcrText) LIKE '%policy%'
+                            OR LOWER(a.visionOcrText) LIKE '%account%'
+                            OR LOWER(a.visionOcrText) LIKE '%contract%'
+                            OR LOWER(a.visionOcrText) LIKE '%application%'
+                            OR LOWER(a.visionOcrText) LIKE '%certificate%'
+                        )
+                    )
                       AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
-                arguments: [limit, offset]
+                arguments: [minimumDocumentOCRCharacters, limit, offset]
             )
             return try request.fetchAll(db)
         }
@@ -496,11 +537,30 @@ final class AssetRepository: @unchecked Sendable {
                     SELECT COUNT(*) FROM asset_active a
                     LEFT JOIN queue_keep_decision qk
                         ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'duplicates'
-                    WHERE a.fingerprint IS NOT NULL
-                      AND a.fingerprint IN (
-                        SELECT fingerprint FROM asset WHERE isDeletedFromPhotos = 0 AND fingerprint IS NOT NULL
-                        GROUP BY fingerprint HAVING COUNT(*) > 1
-                      )
+                    WHERE (
+                        (
+                            a.fingerprint IS NOT NULL
+                            AND a.fingerprint IN (
+                                SELECT fingerprint
+                                FROM asset
+                                WHERE isDeletedFromPhotos = 0
+                                  AND fingerprint IS NOT NULL
+                                GROUP BY fingerprint
+                                HAVING COUNT(*) > 1
+                            )
+                        )
+                        OR (
+                            a.nearDuplicateClusterID IS NOT NULL
+                            AND a.nearDuplicateClusterID IN (
+                                SELECT nearDuplicateClusterID
+                                FROM asset
+                                WHERE isDeletedFromPhotos = 0
+                                  AND nearDuplicateClusterID IS NOT NULL
+                                GROUP BY nearDuplicateClusterID
+                                HAVING COUNT(*) > 1
+                            )
+                        )
+                    )
                       AND qk.assetLocalIdentifier IS NULL
                 """) ?? 0
             case .lowQuality:
@@ -516,12 +576,22 @@ final class AssetRepository: @unchecked Sendable {
                     SELECT COUNT(*) FROM asset_active a
                     LEFT JOIN queue_keep_decision qk
                         ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'receiptsAndDocuments'
-                    WHERE a.labelsJSON IS NOT NULL
-                      AND (a.labelsJSON LIKE '%"receipt"%' OR a.labelsJSON LIKE '%"document"%'
-                           OR a.labelsJSON LIKE '%"text"%' OR a.labelsJSON LIKE '%"menu"%'
-                           OR a.labelsJSON LIKE '%"whiteboard"%')
+                    WHERE (
+                        a.visionOcrText IS NOT NULL
+                        AND LENGTH(TRIM(a.visionOcrText)) >= ?
+                        AND (
+                            (a.labelsJSON IS NOT NULL AND a.labelsJSON LIKE '%"document"%')
+                            OR LOWER(a.visionOcrText) LIKE '%invoice%'
+                            OR LOWER(a.visionOcrText) LIKE '%statement%'
+                            OR LOWER(a.visionOcrText) LIKE '%policy%'
+                            OR LOWER(a.visionOcrText) LIKE '%account%'
+                            OR LOWER(a.visionOcrText) LIKE '%contract%'
+                            OR LOWER(a.visionOcrText) LIKE '%application%'
+                            OR LOWER(a.visionOcrText) LIKE '%certificate%'
+                        )
+                    )
                       AND qk.assetLocalIdentifier IS NULL
-                """) ?? 0
+                """, arguments: [minimumDocumentOCRCharacters]) ?? 0
             case .setAsideForArchive:
                 return try Int.fetchOne(db, sql: """
                     SELECT COUNT(*) FROM archive_candidate
@@ -600,6 +670,96 @@ final class AssetRepository: @unchecked Sendable {
                             result.aiCaption,
                             analysedAt,
                             result.uuid
+                        ]
+                    )
+                }
+            }
+            offset += batchSize
+        }
+    }
+
+    func fetchVisionAnalysisCandidates(limit: Int, includePreviouslyAnalysed: Bool) throws -> [VisionAnalysisCandidate] {
+        try db.read { db in
+            let sql: String
+            if includePreviouslyAnalysed {
+                sql = """
+                    SELECT a.localIdentifier, a.creationDate, a.pixelWidth, a.pixelHeight
+                    FROM asset_active a
+                    WHERE a.hasLocalOriginal = 1
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
+                    LIMIT ?
+                """
+            } else {
+                sql = """
+                    SELECT a.localIdentifier, a.creationDate, a.pixelWidth, a.pixelHeight
+                    FROM asset_active a
+                    WHERE a.hasLocalOriginal = 1
+                      AND a.visionAnalysedAt IS NULL
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
+                    LIMIT ?
+                """
+            }
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: [limit])
+            return rows.compactMap { row in
+                guard let localIdentifier: String = row["localIdentifier"] else { return nil }
+                return VisionAnalysisCandidate(
+                    localIdentifier: localIdentifier,
+                    creationDate: row["creationDate"],
+                    pixelWidth: row["pixelWidth"] ?? 0,
+                    pixelHeight: row["pixelHeight"] ?? 0
+                )
+            }
+        }
+    }
+
+    func upsertVisionAnalysisData(_ results: [VisionAnalysisWriteResult], analysedAt: Date) async throws {
+        guard !results.isEmpty else { return }
+        let batchSize = 500
+        var offset = 0
+        while offset < results.count {
+            let batch = Array(results[offset ..< min(offset + batchSize, results.count)])
+            try await db.write { db in
+                for result in batch {
+                    try db.execute(
+                        sql: """
+                            UPDATE asset
+                            SET visionOcrText = ?,
+                                visionBarcodeDetected = ?,
+                                nearDuplicateClusterID = NULL,
+                                visionAnalysedAt = ?
+                            WHERE localIdentifier = ?
+                        """,
+                        arguments: [
+                            result.ocrText,
+                            result.barcodeDetected,
+                            analysedAt,
+                            result.localIdentifier
+                        ]
+                    )
+                }
+            }
+            offset += batchSize
+        }
+    }
+
+    func assignNearDuplicateClusters(_ assignments: [NearDuplicateClusterAssignment]) async throws {
+        guard !assignments.isEmpty else { return }
+        let batchSize = 500
+        var offset = 0
+        while offset < assignments.count {
+            let batch = Array(assignments[offset ..< min(offset + batchSize, assignments.count)])
+            try await db.write { db in
+                for assignment in batch {
+                    try db.execute(
+                        sql: """
+                            UPDATE asset
+                            SET nearDuplicateClusterID = ?
+                            WHERE localIdentifier = ?
+                        """,
+                        arguments: [
+                            assignment.clusterID,
+                            assignment.localIdentifier
                         ]
                     )
                 }

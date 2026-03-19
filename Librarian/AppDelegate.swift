@@ -279,7 +279,7 @@ final class AppSettingsViewController: NSViewController {
         let queues: [(title: String, kind: String)] = [
             ("Screenshots", "screenshots"),
             ("Low Quality", "lowQuality"),
-            ("Receipts & Documents", "receiptsAndDocuments"),
+            ("Documents", "receiptsAndDocuments"),
             ("Duplicates", "duplicates"),
         ]
         var resetRows: [[NSView]] = [[keepsLabel, keepsNote, NSView()]]
