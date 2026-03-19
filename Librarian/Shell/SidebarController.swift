@@ -302,6 +302,20 @@ extension SidebarController: NSOutlineViewDelegate {
 private final class SidebarSelectionRowView: NSTableRowView {
     static let pillInsetX: CGFloat = 6
 
+    // Window-active-but-sidebar-unfocused pill (matches Notes mid-grey).
+    private static let pillActiveUnfocused = NSColor(name: "SidebarPillActiveUnfocused") { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.32, alpha: 1)
+            : NSColor(red: 241/255, green: 239/255, blue: 236/255, alpha: 1)
+    }!
+
+    // Window-inactive pill (matches Notes light-grey).
+    private static let pillWindowInactive = NSColor(name: "SidebarPillWindowInactive") { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.26, alpha: 1)
+            : NSColor(red: 242/255, green: 242/255, blue: 242/255, alpha: 1)
+    }!
+
     override var isSelected: Bool {
         didSet { needsDisplay = true; updateSubviewColors() }
     }
@@ -316,11 +330,37 @@ private final class SidebarSelectionRowView: NSTableRowView {
         isSelected && isEmphasized ? .emphasized : .normal
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Re-register key-window observers whenever the row moves to a new window.
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        if let window {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowKeyStateChanged),
+                                                   name: NSWindow.didBecomeKeyNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(windowKeyStateChanged),
+                                                   name: NSWindow.didResignKeyNotification, object: window)
+        }
+    }
+
+    @objc private func windowKeyStateChanged() {
+        needsDisplay = true
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none, isSelected else { return }
-        let fillColor = isEmphasized
-            ? AppTheme.accentNSColor
-            : NSColor.unemphasizedSelectedContentBackgroundColor
+        let fillColor: NSColor
+        if isEmphasized {
+            fillColor = AppTheme.accentNSColor
+        } else if window?.isKeyWindow == true {
+            fillColor = Self.pillActiveUnfocused
+        } else {
+            fillColor = Self.pillWindowInactive
+        }
         fillColor.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: Self.pillInsetX, dy: 0), xRadius: 8, yRadius: 8).fill()
     }
