@@ -22,6 +22,7 @@ final class MainWindowController: NSWindowController {
         window.contentViewController = splitVC
         splitVC.loadViewIfNeeded()
         window.minSize = ThreePaneSplitViewController.Metrics.windowMinimum
+        window.isRestorable = true
         window.toolbarStyle = .automatic
         window.titlebarSeparatorStyle = .automatic
         window.titleVisibility = .visible
@@ -30,7 +31,7 @@ final class MainWindowController: NSWindowController {
         window.setFrameAutosaveName("com.librarian.app.MainWindow")
         window.center()
 
-        let toolbar = NSToolbar(identifier: "com.librarian.app.MainToolbar")
+        let toolbar = NSToolbar(identifier: "com.librarian.app.MainToolbar.v1")
         toolbar.delegate = splitVC.toolbarDelegate
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
