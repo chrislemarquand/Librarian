@@ -260,14 +260,14 @@ extension SidebarController: NSOutlineViewDelegate {
 
     private func makeItemView(_ sidebarItem: SidebarItem) -> NSView {
         let id = NSUserInterfaceItemIdentifier("SidebarItemCell")
-        let cell: SidebarCellView
-        if let reused = outlineView.makeView(withIdentifier: id, owner: nil) as? SidebarCellView {
+        let cell: NSTableCellView
+        if let reused = outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView {
             cell = reused
         } else {
-            cell = SidebarCellView()
+            cell = NSTableCellView()
             cell.identifier = id
 
-            let icon = NSImageView()
+            let icon = SidebarIconImageView()
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.imageScaling = .scaleNone
             icon.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
@@ -325,14 +325,15 @@ private final class SidebarSelectionRowView: NSTableRowView {
 
 }
 
-// SidebarCellView intercepts backgroundStyle so icon tinting is set after AppKit's
-// own propagation (which resets contentTintColor to nil for .normal state).
-private final class SidebarCellView: NSTableCellView {
+// SidebarIconImageView overrides backgroundStyle at the NSImageView level — the final
+// stop in the propagation chain (NSTableRowView → NSTableCellView → NSImageView).
+// Intercepting here means nothing can override contentTintColor after us.
+private final class SidebarIconImageView: NSImageView {
     override var backgroundStyle: NSView.BackgroundStyle {
         get { super.backgroundStyle }
         set {
             super.backgroundStyle = newValue
-            imageView?.contentTintColor = (newValue == .emphasized) ? .white : .labelColor
+            contentTintColor = (newValue == .emphasized) ? .white : .labelColor
         }
     }
 }
