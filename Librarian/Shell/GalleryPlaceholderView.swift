@@ -1,4 +1,5 @@
 import Combine
+import SharedUI
 import SwiftUI
 
 // MARK: - Content
@@ -24,18 +25,9 @@ struct GalleryPlaceholderView: View {
         if let content = viewModel.content {
             switch content {
             case let .unavailable(title, symbolName, description):
-                ContentUnavailableView {
-                    Label(title, systemImage: symbolName)
-                } description: {
-                    Text(description)
-                }
+                PlaceholderView(symbolName: symbolName, title: title, description: description)
             case let .loading(title, symbolName):
-                ContentUnavailableView {
-                    Label(title, systemImage: symbolName)
-                } description: {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+                PlaceholderView(symbolName: symbolName, title: title, isLoading: true)
             }
         }
     }

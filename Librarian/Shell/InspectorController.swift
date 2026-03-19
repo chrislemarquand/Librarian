@@ -531,18 +531,18 @@ private struct InspectorReadOnlyView: View {
                 }
                 .padding(.vertical, 12)
             } else if viewModel.multipleSelectionCount > 1 {
-                ContentUnavailableView(
-                    "\(viewModel.multipleSelectionCount) Photos Selected",
-                    systemImage: "photo.stack",
-                    description: Text("Select a single photo to view its metadata.")
+                PlaceholderView(
+                    symbolName: "photo.stack",
+                    title: "\(viewModel.multipleSelectionCount) Photos Selected",
+                    description: "Select a single photo to view its metadata."
                 )
                 .frame(maxWidth: .infinity)
                 .containerRelativeFrame(.vertical, alignment: .center)
             } else {
-                ContentUnavailableView(
-                    "No Selection",
-                    systemImage: "slider.horizontal.3",
-                    description: Text("Select a photo to view metadata.")
+                PlaceholderView(
+                    symbolName: "slider.horizontal.3",
+                    title: "No Selection",
+                    description: "Select a photo to view metadata."
                 )
                 .frame(maxWidth: .infinity)
                 .containerRelativeFrame(.vertical, alignment: .center)
