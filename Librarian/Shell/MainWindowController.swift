@@ -1,4 +1,5 @@
 import Cocoa
+import SharedUI
 
 final class MainWindowController: NSWindowController {
 
@@ -11,15 +12,16 @@ final class MainWindowController: NSWindowController {
 
         // Use the explicit initializer — more reliable than NSWindow(contentViewController:)
         // when assembling the shell programmatically.
+        let defaultSize = ThreePaneSplitViewController.Metrics.windowDefault
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1300, height: 800),
+            contentRect: NSRect(x: 0, y: 0, width: defaultSize.width, height: defaultSize.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.contentViewController = splitVC
         splitVC.loadViewIfNeeded()
-        window.minSize = NSSize(width: 1100, height: 680)
+        window.minSize = ThreePaneSplitViewController.Metrics.windowMinimum
         window.toolbarStyle = .automatic
         window.titlebarSeparatorStyle = .automatic
         window.titleVisibility = .visible
