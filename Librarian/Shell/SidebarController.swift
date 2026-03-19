@@ -281,7 +281,7 @@ extension SidebarController: NSOutlineViewDelegate {
             cell.textField = title
 
             NSLayoutConstraint.activate([
-                icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 16),
                 icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 icon.widthAnchor.constraint(equalToConstant: 22),
                 icon.heightAnchor.constraint(equalToConstant: 22),
