@@ -5,7 +5,7 @@ import SwiftUI
 
 enum AppTheme {
     static var accentNSColor: NSColor {
-        .systemRed
+        .controlAccentColor
     }
 
     static var accentColor: Color {
