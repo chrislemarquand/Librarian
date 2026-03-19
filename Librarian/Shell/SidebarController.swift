@@ -270,8 +270,6 @@ extension SidebarController: NSOutlineViewDelegate {
             let icon = NSImageView()
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.imageScaling = .scaleNone
-            icon.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
-            icon.contentTintColor = .labelColor
 
             let title = NSTextField(labelWithString: "")
             title.translatesAutoresizingMaskIntoConstraints = false
@@ -296,8 +294,6 @@ extension SidebarController: NSOutlineViewDelegate {
 
         cell.textField?.stringValue = sidebarItem.title
         cell.imageView?.image = NSImage(systemSymbolName: sidebarItem.symbolName, accessibilityDescription: sidebarItem.title)
-        // Set on every configure, not just creation, so reused cells are also correct.
-        cell.imageView?.contentTintColor = .labelColor
 
         return cell
     }
@@ -336,11 +332,15 @@ private final class SidebarSelectionRowView: NSTableRowView {
     }
 
     private func updateSubviewColors() {
-        // NSTableCellView handles textField via backgroundStyle automatically.
-        // NSImageView does not, so we set contentTintColor explicitly here.
+        // contentTintColor is reset to nil by AppKit's deferred backgroundStyle
+        // propagation, so we use symbolConfiguration instead — a colour set there
+        // overrides contentTintColor and cannot be cleared by AppKit.
+        let color: NSColor = (isSelected && isEmphasized) ? .white : .labelColor
+        let config = NSImage.SymbolConfiguration(textStyle: .body, scale: .small)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
         for subview in subviews {
             guard let cell = subview as? NSTableCellView else { continue }
-            cell.imageView?.contentTintColor = (isSelected && isEmphasized) ? .white : .labelColor
+            cell.imageView?.symbolConfiguration = config
         }
     }
 }
