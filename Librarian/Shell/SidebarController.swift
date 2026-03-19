@@ -95,7 +95,7 @@ final class SidebarController: NSViewController {
         outlineView.floatsGroupRows = false
         outlineView.allowsEmptySelection = false
         outlineView.allowsMultipleSelection = false
-        outlineView.indentationPerLevel = 13
+        outlineView.indentationPerLevel = 16
         outlineView.rowSizeStyle = preferredRowSizeStyle()
         outlineView.focusRingType = .none
 
@@ -315,7 +315,7 @@ private final class SidebarSelectionRowView: NSTableRowView {
     static let pillInsetX: CGFloat = 6
 
     override var isSelected: Bool {
-        didSet { needsDisplay = true; updateSubviewColors() }
+        didSet { updateSubviewColors() }
     }
 
     override var isEmphasized: Bool {
@@ -344,15 +344,14 @@ private final class SidebarSelectionRowView: NSTableRowView {
     }
 
     private func updateSubviewColors() {
+        // NSTableCellView automatically propagates backgroundStyle to its textField
+        // (via interiorBackgroundStyle → backgroundStyle), so text colour is handled
+        // by AppKit. NSImageView does not participate in that propagation, so we
+        // manage contentTintColor explicitly. Use .labelColor (not nil) so the symbol
+        // adapts correctly across all system appearances and accessibility settings.
         for subview in subviews {
             guard let cell = subview as? NSTableCellView else { continue }
-            if isSelected && isEmphasized {
-                cell.textField?.textColor = .white
-                cell.imageView?.contentTintColor = .white
-            } else {
-                cell.textField?.textColor = .labelColor
-                cell.imageView?.contentTintColor = nil
-            }
+            cell.imageView?.contentTintColor = (isSelected && isEmphasized) ? .white : .labelColor
         }
     }
 }
