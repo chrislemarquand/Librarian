@@ -96,7 +96,7 @@ final class SidebarController: NSViewController {
         outlineView.allowsEmptySelection = false
         outlineView.allowsMultipleSelection = false
         outlineView.indentationPerLevel = 16
-        outlineView.rowSizeStyle = preferredRowSizeStyle()
+        outlineView.rowSizeStyle = .default
         outlineView.focusRingType = .none
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
@@ -130,17 +130,6 @@ final class SidebarController: NSViewController {
         selectItem(kind: .allPhotos)
 
         observeModel()
-    }
-
-    private func preferredRowSizeStyle() -> NSTableView.RowSizeStyle {
-        // Track macOS list-size preference used by many AppKit sidebars.
-        let value = UserDefaults.standard.integer(forKey: "NSTableViewDefaultSizeMode")
-        switch value {
-        case 1: return .small
-        case 2: return .medium
-        case 3: return .large
-        default: return .default
-        }
     }
 
     // MARK: - Selection
@@ -334,7 +323,7 @@ private final class SidebarSelectionRowView: NSTableRowView {
             ? AppTheme.accentNSColor
             : NSColor.unemphasizedSelectedContentBackgroundColor
         fillColor.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: Self.pillInsetX, dy: 2), xRadius: 8, yRadius: 8).fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: Self.pillInsetX, dy: 0), xRadius: 8, yRadius: 8).fill()
     }
 
     // Called when a cell view is added to the row (e.g. after reuse/creation).
