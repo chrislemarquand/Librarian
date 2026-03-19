@@ -158,9 +158,7 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
 
         for (index, sourceURL) in candidates.enumerated() {
             do {
-                let modDate = (try? sourceURL.resourceValues(forKeys: [.contentModificationDateKey])
-                    .contentModificationDate) ?? Date()
-                let captureDate = readCaptureDateIfAvailable(from: sourceURL) ?? modDate
+                let captureDate = bestAvailableDate(for: sourceURL)
 
                 let cal = Calendar(identifier: .gregorian)
                 let comps = cal.dateComponents([.year, .month, .day], from: captureDate)
@@ -233,11 +231,68 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
 
     private func matchesPhotoKit(fileURL: URL, fileSize: Int64, index: [Int64: Set<String>]) -> Bool {
         guard let dayStrings = index[fileSize] else { return false }
-        let captureDate = readCaptureDateIfAvailable(from: fileURL)
-            ?? (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-            ?? Date()
-        return dayStrings.contains(dayString(from: captureDate))
+        return dayStrings.contains(dayString(from: bestAvailableDate(for: fileURL)))
     }
+
+    /// Best-effort date for routing a file into the archive.
+    /// Priority: EXIF capture date → filename-embedded date → file creation date → file modification date.
+    private func bestAvailableDate(for fileURL: URL) -> Date {
+        if let exif = readCaptureDateIfAvailable(from: fileURL) { return exif }
+        if let fromName = parseDateFromFilename(fileURL.lastPathComponent) { return fromName }
+        let keys: Set<URLResourceKey> = [.creationDateKey, .contentModificationDateKey]
+        if let values = try? fileURL.resourceValues(forKeys: keys) {
+            if let created = values.creationDate { return created }
+            if let modified = values.contentModificationDate { return modified }
+        }
+        return Date()
+    }
+
+    /// Tries to extract a date from common camera/export filename patterns:
+    /// - Separated: `YYYY-MM-DD`, `YYYY_MM_DD`, `YYYY.MM.DD`
+    /// - Compact:   `YYYYMMDD` (e.g. `IMG_20230415_142530`)
+    private func parseDateFromFilename(_ filename: String) -> Date? {
+        let stem = (filename as NSString).deletingPathExtension
+        let cal = Calendar(identifier: .gregorian)
+
+        // Separated pattern: YYYY[-_.]MM[-_.]DD
+        let separated = Self.separatedDateRegex
+        if let m = separated.firstMatch(in: stem, range: NSRange(stem.startIndex..., in: stem)),
+           let range = Range(m.range(at: 0), in: stem) {
+            let digits = String(stem[range]).filter(\.isNumber)
+            if digits.count >= 8,
+               let y = Int(digits.prefix(4)),
+               let mo = Int(digits.dropFirst(4).prefix(2)),
+               let d = Int(digits.dropFirst(6).prefix(2)),
+               mo >= 1, mo <= 12, d >= 1, d <= 31 {
+                return cal.date(from: DateComponents(year: y, month: mo, day: d))
+            }
+        }
+
+        // Compact pattern: YYYYMMDD (not preceded or followed by another digit)
+        let compact = Self.compactDateRegex
+        if let m = compact.firstMatch(in: stem, range: NSRange(stem.startIndex..., in: stem)),
+           let range = Range(m.range(at: 0), in: stem) {
+            let part = String(stem[range])
+            if let y = Int(part.prefix(4)),
+               let mo = Int(part.dropFirst(4).prefix(2)),
+               let d = Int(part.dropFirst(6).prefix(2)),
+               y >= 1900, y <= 2100, mo >= 1, mo <= 12, d >= 1, d <= 31 {
+                return cal.date(from: DateComponents(year: y, month: mo, day: d))
+            }
+        }
+
+        return nil
+    }
+
+    private static let separatedDateRegex: NSRegularExpression = {
+        // Matches YYYY[-_.]MM[-_.]DD where year starts with 19 or 20
+        try! NSRegularExpression(pattern: #"(?<!\d)((?:19|20)\d{2})[-_.](0[1-9]|1[0-2])[-_.](0[1-9]|[12]\d|3[01])(?!\d)"#)
+    }()
+
+    private static let compactDateRegex: NSRegularExpression = {
+        // Matches eight consecutive digits YYYYMMDD not surrounded by other digits
+        try! NSRegularExpression(pattern: #"(?<!\d)((?:19|20)\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)"#)
+    }()
 
     private func readCaptureDateIfAvailable(from fileURL: URL) -> Date? {
         let lowerExt = fileURL.pathExtension.lowercased()
