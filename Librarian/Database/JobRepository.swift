@@ -20,6 +20,7 @@ struct Job: Codable, FetchableRecord, @preconcurrency PersistableRecord {
         case archiveRootMigration
         case visionAnalysis
         case nearDuplicateClustering
+        case archiveImport
     }
 
     enum JobState: String, Codable {

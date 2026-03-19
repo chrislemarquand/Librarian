@@ -207,6 +207,7 @@ final class AppSettingsViewController: NSViewController {
     private let model: AppModel
     private let archiveOrganizer = ArchiveOrganizer()
     private var isOrganizingArchive = false
+    private var isCreatingArchive = false
 
     init(model: AppModel) {
         self.model = model
@@ -265,6 +266,19 @@ final class AppSettingsViewController: NSViewController {
         return label
     }()
 
+    private lazy var createArchiveButton: NSButton = {
+        makeActionButton(title: "Create New Archive…", action: #selector(createNewArchive))
+    }()
+
+    private lazy var createArchiveStatusLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "Import photos from existing folders into a new archive root.")
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         NotificationCenter.default.addObserver(
@@ -294,6 +308,7 @@ final class AppSettingsViewController: NSViewController {
         let rebuildLabel = makeCategoryLabel(title: "Index:")
         let analyseLabel = makeCategoryLabel(title: "Library analysis:")
         let organizeLabel = makeCategoryLabel(title: "Archive organization:")
+        let createArchiveLabel = makeCategoryLabel(title: "Create archive:")
 
         let keepsLabel = makeCategoryLabel(title: "Queue keep decisions:")
         let keepsNote = NSTextField(labelWithString: "Reset which items have been marked Keep in each queue.")
@@ -325,6 +340,7 @@ final class AppSettingsViewController: NSViewController {
             [rebuildLabel, rebuildStatusLabel, rebuildButton],
             [analyseLabel, analyseStatusLabel, analyseButton],
             [organizeLabel, organizeArchiveStatusLabel, organizeArchiveButton],
+            [createArchiveLabel, createArchiveStatusLabel, createArchiveButton],
         ] + resetRows)
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.rowSpacing = 12
@@ -351,6 +367,7 @@ final class AppSettingsViewController: NSViewController {
         refreshRebuildButtonState()
         refreshAnalyseButtonState()
         refreshOrganizeArchiveButtonState()
+        refreshCreateArchiveButtonState()
     }
 
     deinit {
@@ -559,5 +576,187 @@ final class AppSettingsViewController: NSViewController {
         organizeArchiveStatusLabel.stringValue = "Moved \(summary.movedCount.formatted()) file(s). \(summary.alreadyOrganizedCount.formatted()) already organized."
         AppLog.shared.info("Archive organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+    }
+
+    // MARK: - Create New Archive workflow
+
+    @objc private func createNewArchive() {
+        guard !isCreatingArchive else { return }
+        Task { @MainActor [weak self] in
+            await self?.runCreateNewArchiveFlow()
+        }
+    }
+
+    @MainActor
+    private func runCreateNewArchiveFlow() async {
+        guard !isCreatingArchive else { return }
+
+        // Step 1: Choose new archive root folder.
+        let rootPanel = NSOpenPanel()
+        rootPanel.title = "Choose New Archive Root"
+        rootPanel.message = "Choose or create a folder that will become the new active archive root."
+        rootPanel.prompt = "Choose Root"
+        rootPanel.canChooseDirectories = true
+        rootPanel.canChooseFiles = false
+        rootPanel.allowsMultipleSelection = false
+        rootPanel.canCreateDirectories = true
+        rootPanel.directoryURL = ArchiveSettings.restoreArchiveRootURL()
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        guard rootPanel.runModal() == .OK, let archiveRoot = rootPanel.url else { return }
+
+        // Step 2: Choose source folders to import from.
+        let sourcePanel = NSOpenPanel()
+        sourcePanel.title = "Choose Source Folders"
+        sourcePanel.message = "Choose one or more folders whose photos will be imported into the new archive. These folders will not be modified."
+        sourcePanel.prompt = "Choose Sources"
+        sourcePanel.canChooseDirectories = true
+        sourcePanel.canChooseFiles = false
+        sourcePanel.allowsMultipleSelection = true
+        sourcePanel.canCreateDirectories = false
+        sourcePanel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        guard sourcePanel.runModal() == .OK, !sourcePanel.urls.isEmpty else { return }
+        let sourceFolders = sourcePanel.urls
+
+        // Step 3: Run preflight scan.
+        isCreatingArchive = true
+        refreshCreateArchiveButtonState()
+        createArchiveStatusLabel.stringValue = "Scanning…"
+
+        let coordinator = ArchiveImportCoordinator(
+            archiveRoot: archiveRoot,
+            sourceFolders: sourceFolders,
+            database: model.database
+        )
+        let preflight: ArchiveImportPreflightResult
+        do {
+            preflight = try await Task.detached(priority: .utility) {
+                try coordinator.runPreflight()
+            }.value
+        } catch {
+            isCreatingArchive = false
+            refreshCreateArchiveButtonState()
+            createArchiveStatusLabel.stringValue = "Scan failed: \(error.localizedDescription)"
+            AppLog.shared.error("Archive import preflight failed: \(error.localizedDescription)")
+            return
+        }
+
+        // Step 4: Show preflight report and ask for confirmation.
+        createArchiveStatusLabel.stringValue = "\(preflight.totalDiscovered.formatted()) file(s) found."
+        let confirmed = await showPreflightConfirmation(preflight: preflight)
+        guard confirmed else {
+            isCreatingArchive = false
+            refreshCreateArchiveButtonState()
+            createArchiveStatusLabel.stringValue = "Import cancelled."
+            return
+        }
+
+        // Guard against no candidates.
+        guard preflight.toImport > 0 else {
+            isCreatingArchive = false
+            refreshCreateArchiveButtonState()
+            createArchiveStatusLabel.stringValue = "Nothing to import after deduplication."
+            return
+        }
+
+        // Step 5: Run import.
+        createArchiveStatusLabel.stringValue = "Importing…"
+        let summary: ArchiveImportRunSummary
+        do {
+            summary = try await model.runArchiveImport(
+                archiveRoot: archiveRoot,
+                sourceFolders: sourceFolders,
+                preflight: preflight
+            )
+        } catch {
+            isCreatingArchive = false
+            refreshCreateArchiveButtonState()
+            createArchiveStatusLabel.stringValue = "Import failed: \(error.localizedDescription)"
+            return
+        }
+
+        isCreatingArchive = false
+        refreshCreateArchiveButtonState()
+
+        // Update archive path display if root was switched.
+        if summary.imported > 0 {
+            refreshArchivePath()
+            refreshOrganizeArchiveButtonState()
+        }
+
+        // Step 6: Show completion summary.
+        createArchiveStatusLabel.stringValue = "\(summary.imported.formatted()) file(s) imported."
+        showImportCompletionAlert(summary: summary)
+    }
+
+    @MainActor
+    private func showPreflightConfirmation(preflight: ArchiveImportPreflightResult) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Create Archive?"
+
+        var lines: [String] = ["\(preflight.totalDiscovered.formatted()) file(s) discovered."]
+        if preflight.duplicatesInSource > 0 {
+            lines.append("• \(preflight.duplicatesInSource.formatted()) duplicate(s) within source folders will be skipped.")
+        }
+        if preflight.existsInPhotoKit > 0 {
+            lines.append("• \(preflight.existsInPhotoKit.formatted()) file(s) already in your Photos library will be skipped.")
+        }
+        lines.append("")
+        if preflight.toImport > 0 {
+            lines.append("\(preflight.toImport.formatted()) file(s) will be imported.")
+        } else {
+            lines.append("Nothing to import — all files are duplicates or already in Photos.")
+        }
+        alert.informativeText = lines.joined(separator: "\n")
+        alert.addButton(withTitle: preflight.toImport > 0 ? "Create Archive" : "OK")
+        if preflight.toImport > 0 {
+            alert.addButton(withTitle: "Cancel")
+        }
+
+        let response: NSApplication.ModalResponse
+        if let window = view.window {
+            response = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+            }
+        } else {
+            response = alert.runModal()
+        }
+        return response == .alertFirstButtonReturn && preflight.toImport > 0
+    }
+
+    private func showImportCompletionAlert(summary: ArchiveImportRunSummary) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Archive Created"
+
+        var lines: [String] = ["\(summary.imported.formatted()) file(s) imported."]
+        if summary.skippedDuplicateInSource > 0 {
+            lines.append("• \(summary.skippedDuplicateInSource.formatted()) duplicate(s) in source folders skipped.")
+        }
+        if summary.skippedExistsInPhotoKit > 0 {
+            lines.append("• \(summary.skippedExistsInPhotoKit.formatted()) file(s) already in Photos skipped.")
+        }
+        if summary.failed > 0 {
+            lines.append("• \(summary.failed.formatted()) file(s) failed — check the log for details.")
+        }
+        alert.informativeText = lines.joined(separator: "\n")
+        alert.addButton(withTitle: "Done")
+
+        if let window = view.window {
+            alert.beginSheetModal(for: window) { _ in }
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func refreshCreateArchiveButtonState() {
+        createArchiveButton.isEnabled = !isCreatingArchive && !model.isImportingArchive
+        createArchiveButton.title = (isCreatingArchive || model.isImportingArchive) ? "Importing…" : "Create New Archive…"
+        if !isCreatingArchive && !model.isImportingArchive {
+            if createArchiveStatusLabel.stringValue == "Importing…"
+                || createArchiveStatusLabel.stringValue == "Scanning…" {
+                createArchiveStatusLabel.stringValue = "Import photos from existing folders into a new archive root."
+            }
+        }
     }
 }

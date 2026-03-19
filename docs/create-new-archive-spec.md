@@ -38,7 +38,7 @@ Resulting archive layout remains canonical: `Archive/YYYY/MM/DD`.
 - Date source: EXIF capture date for supported image formats, fallback to file modification date.
 - Name collisions: suffix (`-2`, `-3`, ...).
 - Cleanup: remove empty intermediate folders created/left over during import only when empty.
-- Source folders are read-only by default (no deletions/moves unless future explicit option).
+- Source folders are never modified: no deletions, moves, renames, or writes of any kind. The import reads files and nothing else.
 
 ## Data and State Changes
 

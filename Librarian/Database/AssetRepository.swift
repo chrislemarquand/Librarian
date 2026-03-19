@@ -731,6 +731,73 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    // MARK: - Archive Import helpers
+
+    /// Returns a lookup of [fileSizeBytes: Set<"YYYY-MM-DD">] for all non-deleted,
+    /// analysed assets. Used for PhotoKit exact-match deduplication during archive import.
+    func fetchAssetSizeDayIndex() throws -> [Int64: Set<String>] {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT fileSizeBytes, creationDate
+                FROM asset
+                WHERE isDeletedFromPhotos = 0
+                  AND fileSizeBytes IS NOT NULL
+                  AND fileSizeBytes > 0
+                  AND creationDate IS NOT NULL
+            """)
+            let cal = Calendar(identifier: .gregorian)
+            var index: [Int64: Set<String>] = [:]
+            for row in rows {
+                guard let fileSize: Int64 = row["fileSizeBytes"],
+                      let date: Date = row["creationDate"] else { continue }
+                let c = cal.dateComponents([.year, .month, .day], from: date)
+                let day = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+                index[fileSize, default: []].insert(day)
+            }
+            return index
+        }
+    }
+
+    func saveArchiveImportRun(
+        id: String,
+        startedAt: Date,
+        summary: ArchiveImportRunSummary,
+        archiveRootPath: String,
+        sourcePaths: [String]
+    ) throws {
+        let sourcePathsJSON = (try? JSONEncoder().encode(sourcePaths))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let failureDetailsJSON: String? = summary.failures.isEmpty ? nil : {
+            let details = summary.failures.map { ["path": $0.path, "reason": $0.reason] }
+            return (try? JSONEncoder().encode(details)).flatMap { String(data: $0, encoding: .utf8) }
+        }()
+        let discovered = summary.imported + summary.skippedDuplicateInSource + summary.skippedExistsInPhotoKit + summary.failed
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO archive_import_run
+                        (id, startedAt, completedAt, archiveRootPath, sourcePathsJSON,
+                         discovered, imported, skippedDuplicateInSource, skippedExistsInPhotoKit,
+                         failed, failureDetailsJSON)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    id,
+                    startedAt,
+                    summary.completedAt,
+                    archiveRootPath,
+                    sourcePathsJSON,
+                    discovered,
+                    summary.imported,
+                    summary.skippedDuplicateInSource,
+                    summary.skippedExistsInPhotoKit,
+                    summary.failed,
+                    failureDetailsJSON
+                ]
+            )
+        }
+    }
+
     func countKeepDecisions(for queueKind: String) throws -> Int {
         try db.read { db in
             try Int.fetchOne(

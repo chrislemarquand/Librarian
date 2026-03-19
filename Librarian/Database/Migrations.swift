@@ -191,5 +191,21 @@ enum LibrarianMigrations {
             try db.create(index: "archived_item_sortDate", on: "archived_item", columns: ["sortDate"])
             try db.create(index: "archived_item_fileModificationDate", on: "archived_item", columns: ["fileModificationDate"])
         }
+
+        migrator.registerMigration("v11_add_archive_import_run") { db in
+            try db.create(table: "archive_import_run") { t in
+                t.primaryKey("id", .text)
+                t.column("startedAt", .datetime).notNull()
+                t.column("completedAt", .datetime)
+                t.column("archiveRootPath", .text).notNull()
+                t.column("sourcePathsJSON", .text).notNull()
+                t.column("discovered", .integer).notNull().defaults(to: 0)
+                t.column("imported", .integer).notNull().defaults(to: 0)
+                t.column("skippedDuplicateInSource", .integer).notNull().defaults(to: 0)
+                t.column("skippedExistsInPhotoKit", .integer).notNull().defaults(to: 0)
+                t.column("failed", .integer).notNull().defaults(to: 0)
+                t.column("failureDetailsJSON", .text)
+            }
+        }
     }
 }

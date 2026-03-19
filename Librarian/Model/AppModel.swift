@@ -77,6 +77,8 @@ final class AppModel: ObservableObject {
     @Published var isSendingArchive = false
     @Published var isAnalysing = false
     @Published var analysisStatusText: String = ""
+    @Published var isImportingArchive = false
+    @Published var importStatusText: String = ""
     @Published var indexedAssetCount = 0
     @Published var pendingArchiveCandidateCount = 0
     @Published var failedArchiveCandidateCount = 0
@@ -314,6 +316,90 @@ final class AppModel: ObservableObject {
 
     private func notifyAnalysisStateChanged() {
         NotificationCenter.default.post(name: .librarianAnalysisStateChanged, object: nil)
+    }
+
+    func runArchiveImport(
+        archiveRoot: URL,
+        sourceFolders: [URL],
+        preflight: ArchiveImportPreflightResult
+    ) async throws -> ArchiveImportRunSummary {
+        guard !isImportingArchive else {
+            throw NSError(domain: "com.librarian.app.archiveImport", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "An archive import is already in progress."
+            ])
+        }
+        isImportingArchive = true
+        importStatusText = "Starting import…"
+        defer {
+            isImportingArchive = false
+        }
+
+        let jobStartedAt = Date()
+        let jobID = UUID().uuidString
+        let job = try await database.jobRepository.create(type: .archiveImport)
+        try await database.jobRepository.markRunning(job)
+
+        let coordinator = ArchiveImportCoordinator(
+            archiveRoot: archiveRoot,
+            sourceFolders: sourceFolders,
+            database: database
+        )
+
+        var finalSummary: ArchiveImportRunSummary?
+        do {
+            for try await event in coordinator.runImport(preflight: preflight) {
+                switch event {
+                case .progress(let completed, let total):
+                    importStatusText = "Importing \(completed.formatted()) / \(total.formatted())…"
+                case .done(let summary):
+                    finalSummary = summary
+                    importStatusText = ""
+                }
+            }
+
+            guard let summary = finalSummary else {
+                throw NSError(domain: "com.librarian.app.archiveImport", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "Import produced no result."
+                ])
+            }
+
+            try database.assetRepository.saveArchiveImportRun(
+                id: jobID,
+                startedAt: jobStartedAt,
+                summary: summary,
+                archiveRootPath: archiveRoot.path,
+                sourcePaths: sourceFolders.map(\.path)
+            )
+
+            // Only commit the new archive root if at least some files were imported.
+            if summary.imported > 0 {
+                updateArchiveRoot(archiveRoot)
+                // Re-index the new archive root on a background thread so sidebar counts update.
+                let db = self.database
+                Task.detached(priority: .utility) {
+                    let indexer = ArchiveIndexer(database: db)
+                    _ = try? indexer.refreshIndex()
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+                    }
+                }
+            }
+
+            try await database.jobRepository.markCompleted(job)
+            AppLog.shared.info(
+                "Archive import completed. imported=\(summary.imported), " +
+                "skippedDuplicateInSource=\(summary.skippedDuplicateInSource), " +
+                "skippedExistsInPhotoKit=\(summary.skippedExistsInPhotoKit), " +
+                "failed=\(summary.failed)"
+            )
+            return summary
+
+        } catch {
+            try? await database.jobRepository.markFailed(job, error: error.localizedDescription)
+            importStatusText = "Import failed: \(error.localizedDescription)"
+            AppLog.shared.error("Archive import failed: \(error.localizedDescription)")
+            throw error
+        }
     }
 
     func archiveCandidateInfo(for localIdentifier: String) -> ArchiveCandidateInfo? {
