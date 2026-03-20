@@ -311,10 +311,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
-        if let window = view.window {
-            alert.beginSheetModal(for: window, completionHandler: nil)
-        } else {
-            alert.runModal()
-        }
+        alert.runSheetOrModal(for: view.window) { _ in }
     }
 }

@@ -1370,7 +1370,7 @@ private final class AppKitGalleryCollectionView: NSCollectionView {
 
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
-           event.keyCode == 53 { // Escape
+           event.keyCode == KeyCode.escape {
             deselectAll(nil)
             onBackgroundClick?()
             return
@@ -1381,10 +1381,10 @@ private final class AppKitGalleryCollectionView: NSCollectionView {
             let extendingSelection = movementModifiers.contains(.shift)
             let direction: MoveCommandDirection?
             switch event.keyCode {
-            case 123: direction = .left
-            case 124: direction = .right
-            case 125: direction = .down
-            case 126: direction = .up
+            case KeyCode.leftArrow: direction = .left
+            case KeyCode.rightArrow: direction = .right
+            case KeyCode.downArrow: direction = .down
+            case KeyCode.upArrow: direction = .up
             default: direction = nil
             }
             if let direction {

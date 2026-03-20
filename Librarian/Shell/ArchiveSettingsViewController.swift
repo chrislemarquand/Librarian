@@ -158,14 +158,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         alert.addButton(withTitle: "Organize Now")
         alert.addButton(withTitle: "Not Now")
 
-        let response: NSApplication.ModalResponse
-        if let window = view.window {
-            response = await withCheckedContinuation { continuation in
-                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-            }
-        } else {
-            response = alert.runModal()
-        }
+        let response = await alert.runSheetOrModal(for: view.window)
         guard response == .alertFirstButtonReturn else { return }
         await organizeArchive()
     }
@@ -312,14 +305,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         alert.addButton(withTitle: preflight.toImport > 0 ? "Create Archive" : "OK")
         if preflight.toImport > 0 { alert.addButton(withTitle: "Cancel") }
 
-        let response: NSApplication.ModalResponse
-        if let window = view.window {
-            response = await withCheckedContinuation { continuation in
-                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-            }
-        } else {
-            response = alert.runModal()
-        }
+        let response = await alert.runSheetOrModal(for: view.window)
         return response == .alertFirstButtonReturn && preflight.toImport > 0
     }
 
@@ -341,10 +327,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         alert.informativeText = lines.joined(separator: "\n")
         alert.addButton(withTitle: "Done")
 
-        if let window = view.window {
-            alert.beginSheetModal(for: window) { _ in }
-        } else {
-            alert.runModal()
-        }
+        alert.runSheetOrModal(for: view.window) { _ in }
     }
 }
