@@ -57,40 +57,51 @@ These are already present in code and should be treated as shipped baseline:
 
 Goal: stable daily-driver release with safe archive trust boundary and release-safe process model.
 
+Status key: `[Done]`, `[Partial]`, `[Planned]`
+
 ### In
 
 - Archive pipeline hardening:
-  - startup reset of stale `exporting` rows
-  - retry-safe failure handling and clearer per-item failure visibility
-  - improved partial-success summaries
-  - archive move guardrails to prevent recursive self-copy when destination resolves inside current archive
+  - [Done] startup reset of stale `exporting` rows
+  - [Done] retry-safe failure handling and clearer per-item failure visibility
+  - [Done] improved partial-success summaries
+  - [Done] archive move guardrails to prevent recursive self-copy when destination resolves inside current archive
 - Export UX:
-  - progress sheet (indeterminate + status line + completion summary + log access)
+  - [Done] progress sheet (indeterminate + status line + completion summary + log access)
 - osxphotos boundary:
-  - replace direct subprocess usage with XPC service path for export and analysis invocations
+  - [Planned] replace direct subprocess usage with XPC service path for export and analysis invocations
 - Export behavior controls:
-  - add user-visible toggles for edited/live export handling (the approved flags decision)
+  - [Done] add user-visible toggles for edited/live export handling (the approved flags decision)
 - Runtime dependency hardening:
-  - bundle and validate ExifTool at app runtime so export behavior is not dependent on user machine installs
+  - [Planned] bundle and validate ExifTool at app runtime so export behavior is not dependent on user machine installs
 - Interaction baseline:
-  - Quick Look (`Space`)
-  - gallery context menus
-  - keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
+  - [Planned] Quick Look (`Space`)
+  - [Planned] gallery context menus
+  - [Partial] keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
 - Sidebar visibility:
-  - item badges wired through `badgeText` + repository counts
+  - [Done] item badges wired through `badgeText` + repository counts
 - Trust-boundary test gate:
-  - state transitions
-  - mixed export outcomes
-  - deletion reconciliation
-  - interrupted-run recovery
-  - archive move destination safety regression coverage (inside-source blocked, parent-destination allowed, recursive-copy guard)
+  - [Partial] state transitions
+  - [Planned] mixed export outcomes
+  - [Planned] deletion reconciliation
+  - [Done] interrupted-run recovery
+  - [Done] archive move destination safety regression coverage (inside-source blocked, parent-destination allowed, recursive-copy guard)
 - External archive robustness baseline:
-  - archive control folder (`.librarian`) with schema/version metadata and stable archive ID
-  - archive relink flow for moved archives (internal ↔ external), with archive ID validation
-  - startup/offline handling when archive volume is unavailable
-  - write-access and free-space preflight before archive export/import
-  - crash/disconnect-safe control-file writes (atomic writes for archive metadata and run artifacts)
-  - async archive-view/badge/subtitle synchronization after archive index refresh
+  - [Done] archive control folder (`.librarian`) with schema/version metadata and stable archive ID
+  - [Partial] archive relink flow for moved archives (internal ↔ external), with archive ID validation
+  - [Done] startup/offline handling when archive volume is unavailable
+  - [Partial] write-access and free-space preflight before archive export/import
+  - [Done] crash/disconnect-safe control-file writes (atomic writes for archive metadata and run artifacts)
+  - [Done] async archive-view/badge/subtitle synchronization after archive index refresh
+
+### Remaining Priority To Reach v1.0
+
+- Move osxphotos execution to an XPC boundary.
+- Bundle ExifTool with runtime validation/fallback path.
+- Implement Quick Look and gallery context menus.
+- Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
+- Expand trust-boundary tests for mixed outcomes and deletion reconciliation.
+- Complete external archive robustness follow-through (full relink and free-space preflight coverage across export/import paths).
 
 ### Out
 
