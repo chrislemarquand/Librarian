@@ -299,7 +299,14 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     private func resolveOrPromptArchiveRoot() -> URL? {
         if let existing = ArchiveSettings.restoreArchiveRootURL() {
-            return existing
+            let availability = ArchiveSettings.archiveRootAvailability(for: existing)
+            if availability == .available {
+                return existing
+            }
+            showArchiveAlert(
+                title: "Archive Unavailable",
+                message: "\(availability.userVisibleDescription) Choose a new archive destination."
+            )
         }
         guard let chosen = promptForArchiveRoot() else { return nil }
         let currentArchiveID = UserDefaults.standard.string(forKey: ArchiveSettings.archiveIDKey)
@@ -317,7 +324,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             return nil
         }
 
-        guard ArchiveSettings.persistArchiveRootURL(chosen) else { return nil }
+        guard model.updateArchiveRoot(chosen) else { return nil }
         return chosen
     }
 

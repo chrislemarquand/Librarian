@@ -592,6 +592,23 @@ final class ContentController: NSViewController {
         case .setAsideForArchive:
             return .unavailable(title: "Nothing Set Aside", symbolName: "tray.full", description: "Photos you set aside for archiving will appear here.")
         case .archived:
+            let availability = model.refreshArchiveRootAvailability()
+            switch availability {
+            case .notConfigured:
+                return .unavailable(
+                    title: "No Archive Destination",
+                    symbolName: "externaldrive.badge.questionmark",
+                    description: "Set an archive destination in Settings to view archived photos."
+                )
+            case .unavailable, .readOnly, .permissionDenied:
+                return .unavailable(
+                    title: "Archive Unavailable",
+                    symbolName: "externaldrive.badge.exclamationmark",
+                    description: "\(availability.userVisibleDescription) Update the destination in Settings or reconnect the drive."
+                )
+            case .available:
+                break
+            }
             return .unavailable(title: "No Archive Photos", symbolName: "archivebox", description: "Archive photos will appear here after export.")
         case .duplicates:
             return .unavailable(title: "No Duplicates", symbolName: "doc.on.doc", description: "No duplicate or near-duplicate photos found.")

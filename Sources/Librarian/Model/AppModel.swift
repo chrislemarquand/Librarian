@@ -30,6 +30,29 @@ enum AppBrand {
 }
 
 enum ArchiveSettings {
+    enum ArchiveRootAvailability: Equatable {
+        case notConfigured
+        case available
+        case unavailable
+        case readOnly
+        case permissionDenied
+
+        var userVisibleDescription: String {
+            switch self {
+            case .notConfigured:
+                return "No archive destination is configured."
+            case .available:
+                return "Archive destination is available."
+            case .unavailable:
+                return "The archive destination is currently unavailable. It may be offline or disconnected."
+            case .readOnly:
+                return "The archive destination is read-only."
+            case .permissionDenied:
+                return "Librarian does not currently have permission to access the archive destination."
+            }
+        }
+    }
+
     static let bookmarkKey = "com.librarian.app.archiveRootBookmark"
     static let archiveIDKey = "com.librarian.app.archiveID"
     static let controlFolderName = ".librarian"
@@ -187,6 +210,45 @@ enum ArchiveSettings {
         guard let root = restoreArchiveRootURL() else { return nil }
         return archiveTreeRootURL(from: root)
     }
+
+    static func currentArchiveRootAvailability() -> ArchiveRootAvailability {
+        guard let rootURL = restoreArchiveRootURL() else { return .notConfigured }
+        return archiveRootAvailability(for: rootURL)
+    }
+
+    static func archiveRootAvailability(for rootURL: URL) -> ArchiveRootAvailability {
+        let didAccess = rootURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                rootURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: rootURL.path) else {
+            return .unavailable
+        }
+
+        do {
+            let values = try rootURL.resourceValues(forKeys: [.isDirectoryKey, .volumeIsReadOnlyKey])
+            if values.isDirectory == false {
+                return .unavailable
+            }
+            if values.volumeIsReadOnly == true {
+                return .readOnly
+            }
+        } catch {
+            AppLog.shared.error("Failed to read archive root resource values: \(error.localizedDescription)")
+        }
+
+        if !didAccess && !fileManager.isReadableFile(atPath: rootURL.path) {
+            return .permissionDenied
+        }
+        if !fileManager.isWritableFile(atPath: rootURL.path) {
+            return .permissionDenied
+        }
+        return .available
+    }
 }
 
 @MainActor
@@ -217,6 +279,7 @@ final class AppModel: ObservableObject {
     @Published var selectedAsset: IndexedAsset?
     @Published var selectedAssetCount: Int = 0
     @Published var indexingProgress: IndexingProgress = .idle
+    @Published var archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability = .notConfigured
     @Published var galleryGridLevel: Int = 4 {
         didSet {
             let clamped = min(max(galleryGridLevel, Self.galleryColumnRange.lowerBound), Self.galleryColumnRange.upperBound)
@@ -283,6 +346,7 @@ final class AppModel: ObservableObject {
         pendingArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.pending, .exporting, .failed])) ?? 0
         failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
         AppLog.shared.info("Loaded persisted index count: \(indexedAssetCount)")
+        refreshArchiveRootAvailability()
 
         await requestPhotosAccess()
     }
@@ -428,9 +492,21 @@ final class AppModel: ObservableObject {
     @discardableResult
     func updateArchiveRoot(_ url: URL) -> Bool {
         guard ArchiveSettings.persistArchiveRootURL(url) else { return false }
+        refreshArchiveRootAvailability()
         NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
         return true
+    }
+
+    @discardableResult
+    func refreshArchiveRootAvailability() -> ArchiveSettings.ArchiveRootAvailability {
+        let previous = archiveRootAvailability
+        let current = ArchiveSettings.currentArchiveRootAvailability()
+        archiveRootAvailability = current
+        if previous != current {
+            AppLog.shared.info("Archive root availability changed: \(String(describing: previous)) -> \(String(describing: current))")
+        }
+        return current
     }
 
     func runLibraryAnalysis() async {
@@ -465,6 +541,12 @@ final class AppModel: ObservableObject {
         sourceFolders: [URL],
         preflight: ArchiveImportPreflightResult
     ) async throws -> ArchiveImportRunSummary {
+        let archiveStatus = ArchiveSettings.archiveRootAvailability(for: archiveRoot)
+        guard archiveStatus == .available else {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: archiveStatus.userVisibleDescription
+            ])
+        }
         guard ArchiveSettings.ensureControlFolder(at: archiveRoot) else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 4, userInfo: [
                 NSLocalizedDescriptionKey: "Couldn’t initialize archive control folder at the selected location."
@@ -576,6 +658,12 @@ final class AppModel: ObservableObject {
         to archiveRootURL: URL,
         options: ArchiveExportOptions
     ) async throws -> ArchiveSendOutcome {
+        let archiveStatus = ArchiveSettings.archiveRootAvailability(for: archiveRootURL)
+        guard archiveStatus == .available else {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: archiveStatus.userVisibleDescription
+            ])
+        }
         guard ArchiveSettings.ensureControlFolder(at: archiveRootURL) else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 8, userInfo: [
                 NSLocalizedDescriptionKey: "Couldn’t initialize archive control folder at the selected location."
