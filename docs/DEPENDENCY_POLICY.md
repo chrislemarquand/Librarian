@@ -1,27 +1,32 @@
 # Dependency Policy
 
-## Pinning
+## Current Mode: Local-Only SharedUI
 
-- Shared cross-repo dependencies (for example `SharedUI`) must be pinned to a released tag.
-- Do not ship with local path package references.
+- `SharedUI` must be referenced as a local path dependency: `.package(path: "../SharedUI")`.
+- Do not reference `https://github.com/chrislemarquand/SharedUI.git` in normal development.
+- Do not run remote/version bump workflow unless explicitly requested.
 
-## Update Procedure
+## Local Lockstep Workflow
 
-1. Update package requirement in Xcode/project settings.
-2. Resolve dependencies:
-
-```bash
-xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Librarian
-```
-
-3. Commit the lockfile:
-
-- `Librarian.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`
-
-4. Run release gates:
+1. Verify local dependency wiring:
 
 ```bash
-./scripts/release/release_check.sh
+./scripts/deps/verify_shared_ui_pin.sh
 ```
 
-5. Include dependency bumps in release notes/changelog.
+2. Sync local package resolution:
+
+```bash
+./scripts/deps/bump_sharedui.sh
+```
+
+3. Run a quick lockstep build check:
+
+```bash
+./scripts/deps/sync_sharedui_local.sh
+```
+
+## Release Mode (Only When Explicitly Requested)
+
+- Switching back to a tagged remote `SharedUI` dependency is a release action.
+- Do not perform that switch unless explicitly requested.
