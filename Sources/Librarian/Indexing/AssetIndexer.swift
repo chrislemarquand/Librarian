@@ -73,7 +73,7 @@ struct AssetIndexer {
 // MARK: - IndexedAsset init from PHAsset
 
 extension IndexedAsset {
-    @MainActor init(from asset: PHAsset, lastSeenAt: Date) {
+    init(from asset: PHAsset, lastSeenAt: Date) {
         let subtypes = asset.mediaSubtypes
         let isScreenshot = subtypes.contains(.photoScreenshot)
         let isCloudOnly = !asset.isLocallyAvailable

@@ -1,9 +1,20 @@
+# macOS
+.DS_Store
+
+# SwiftPM
+/.build
+/Packages
+
 # Xcode
 xcuserdata/
 *.xcuserstate
 DerivedData/
 
-# Package resolution — managed by Xcode, not tracked in git.
-# Local packages (SharedUI) are live references; re-resolution is only
-# needed when a package manifest changes, which Xcode handles automatically.
-Librarian.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+# Local build/release outputs
+build/
+build_artifacts/
+build_derived/
+build_derived_*/
+dist/
+
+# Package resolution is tracked for reproducible builds.

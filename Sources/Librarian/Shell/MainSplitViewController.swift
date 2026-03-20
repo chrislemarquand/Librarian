@@ -1,6 +1,7 @@
 import Cocoa
 import SharedUI
 
+@MainActor
 final class MainSplitViewController: ThreePaneSplitViewController {
 
     let model: AppModel
@@ -65,10 +66,9 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         refreshWindowSubtitle()
     }
 
-    deinit {
-        if let monitor = keyEventMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        removeKeyEventMonitor()
     }
 
     // MARK: - Model observation
@@ -132,8 +132,16 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     // MARK: - Keyboard
 
     private func installKeyEventMonitor() {
+        removeKeyEventMonitor()
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyDown(event) ?? event
+        }
+    }
+
+    private func removeKeyEventMonitor() {
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyEventMonitor = nil
         }
     }
 
@@ -159,22 +167,17 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             return
         }
         guard model.database.assetRepository != nil else { return }
-        let database = model.database
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let count = (try? database.assetRepository.countForSidebarKind(kind)) ?? 0
-            let text: String
-            switch kind {
-            case .log, .indexing:
-                text = ""
-            case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots:
-                text = count == 1 ? "1 item" : "\(count.formatted()) items"
-            case .allPhotos, .recents, .favourites:
-                text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
-            }
-            DispatchQueue.main.async { [weak self] in
-                self?.setSubtitle(text)
-            }
+        let count = (try? model.database.assetRepository.countForSidebarKind(kind)) ?? 0
+        let text: String
+        switch kind {
+        case .log, .indexing:
+            text = ""
+        case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots:
+            text = count == 1 ? "1 item" : "\(count.formatted()) items"
+        case .allPhotos, .recents, .favourites:
+            text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
         }
+        setSubtitle(text)
     }
 
     private func setSubtitle(_ text: String) {
