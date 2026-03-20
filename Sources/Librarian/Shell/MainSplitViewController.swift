@@ -1,6 +1,7 @@
 import Cocoa
 import SharedUI
 
+@MainActor
 final class MainSplitViewController: ThreePaneSplitViewController {
 
     let model: AppModel

@@ -489,9 +489,7 @@ private struct InspectorReadOnlyView: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 ForEach(section.rows) { row in
                                     InspectorFieldRow {
-                                        Text(row.title.uppercased())
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                        InspectorFieldLabel(row.title)
                                     } value: {
                                         Text(row.value)
                                             .font(.body.monospaced())

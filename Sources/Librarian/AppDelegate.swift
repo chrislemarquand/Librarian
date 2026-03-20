@@ -110,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = mainMenu
     }
 
-    @objc private func showSettingsWindow(_ sender: Any?) {
+    @MainActor @objc private func showSettingsWindow(_ sender: Any?) {
         if settingsWindowController == nil {
             guard let appModel else { return }
             settingsWindowController = SettingsWindowController(tabs: [
@@ -123,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController?.showWindowAndActivate()
     }
 
-    private func installMainToolbar(on window: NSWindow, resetDelegateState: Bool) {
+    @MainActor private func installMainToolbar(on window: NSWindow, resetDelegateState: Bool) {
         guard let splitVC = splitController else { return }
         if resetDelegateState {
             splitVC.toolbarDelegate.resetCachedToolbarReferences()
@@ -137,12 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.toolbar = toolbar
     }
 
-    private func rebuildToolbarForCurrentAppearance() {
+    @MainActor private func rebuildToolbarForCurrentAppearance() {
         guard let window = mainWindow, let model = appModel, let splitVC = splitController else { return }
         installMainToolbar(on: window, resetDelegateState: true)
         splitVC.toolbarDelegate.refresh(model: model)
         window.toolbar?.validateVisibleItems()
     }
 }
-
-

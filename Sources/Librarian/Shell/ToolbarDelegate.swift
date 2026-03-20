@@ -13,6 +13,7 @@ extension NSToolbarItem.Identifier {
     static let librarianToggleInspector   = NSToolbarItem.Identifier("com.librarian.app.toolbar.toggleInspector")
 }
 
+@MainActor
 final class ToolbarDelegate: NSObject, NSToolbarDelegate {
 
     private weak var splitVC: MainSplitViewController?
