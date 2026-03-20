@@ -78,6 +78,8 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
   - [Planned] Quick Look (`Space`)
   - [Planned] gallery context menus
   - [Partial] keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
+- Inspector completeness:
+  - [Planned] finalise Inspector fields, including Archive-view-specific metadata coverage
 - Sidebar visibility:
   - [Done] item badges wired through `badgeText` + repository counts
 - Trust-boundary test gate:
