@@ -46,6 +46,13 @@ private enum DisplayAsset {
         }
         return nil
     }
+
+    var archivedItem: ArchivedItem? {
+        if case .archived(let item) = self {
+            return item
+        }
+        return nil
+    }
 }
 
 final class ContentController: NSViewController {
@@ -1161,6 +1168,8 @@ extension ContentController {
         }
         if let selectedAsset = displayAssets[selectedIndex].photoAsset {
             model.setSelectedAsset(selectedAsset, count: count)
+        } else if let selectedArchivedItem = displayAssets[selectedIndex].archivedItem {
+            model.setSelectedArchivedItem(selectedArchivedItem, count: count)
         } else {
             model.setSelectedAsset(nil, count: 0)
         }

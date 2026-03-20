@@ -277,7 +277,9 @@ final class AppModel: ObservableObject {
     @Published var failedArchiveCandidateCount = 0
     @Published var assetDataVersion: Int = 0
     @Published var selectedAsset: IndexedAsset?
+    @Published var selectedArchivedItem: ArchivedItem?
     @Published var selectedAssetCount: Int = 0
+    @Published var activeInspectorFieldCatalog: [InspectorFieldCatalogEntry] = AppModel.defaultInspectorFieldCatalog()
     @Published var indexingProgress: IndexingProgress = .idle
     @Published var archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability = .notConfigured
     @Published var galleryGridLevel: Int = 4 {
@@ -302,6 +304,7 @@ final class AppModel: ObservableObject {
 
     static let galleryColumnRange = 2 ... 9
     private static let galleryGridLevelKey = "ui.gallery.grid.level"
+    static let inspectorFieldVisibilityKey = "ui.inspector.field.visibility"
 
     // MARK: - Init
 
@@ -315,6 +318,7 @@ final class AppModel: ObservableObject {
         } else {
             galleryGridLevel = min(max(storedLevel, Self.galleryColumnRange.lowerBound), Self.galleryColumnRange.upperBound)
         }
+        activeInspectorFieldCatalog = Self.applyingInspectorVisibilityPreferences(to: Self.defaultInspectorFieldCatalog())
     }
 
     // MARK: - Setup
@@ -455,10 +459,26 @@ final class AppModel: ObservableObject {
 
     func setSelectedAsset(_ asset: IndexedAsset?, count: Int = 1) {
         let newCount = asset == nil ? 0 : count
-        if selectedAsset?.localIdentifier == asset?.localIdentifier, selectedAssetCount == newCount {
+        if selectedAsset?.localIdentifier == asset?.localIdentifier,
+           selectedArchivedItem == nil,
+           selectedAssetCount == newCount {
             return
         }
         selectedAsset = asset
+        selectedArchivedItem = nil
+        selectedAssetCount = newCount
+        NotificationCenter.default.post(name: .librarianSelectionChanged, object: nil)
+    }
+
+    func setSelectedArchivedItem(_ item: ArchivedItem?, count: Int = 1) {
+        let newCount = item == nil ? 0 : count
+        if selectedArchivedItem?.relativePath == item?.relativePath,
+           selectedAsset == nil,
+           selectedAssetCount == newCount {
+            return
+        }
+        selectedArchivedItem = item
+        selectedAsset = nil
         selectedAssetCount = newCount
         NotificationCenter.default.post(name: .librarianSelectionChanged, object: nil)
     }

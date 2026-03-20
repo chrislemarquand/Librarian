@@ -84,4 +84,5 @@ extension Notification.Name {
     static let librarianArchiveRootChanged = Notification.Name("\(prefix).archiveRootChanged")
     static let librarianAnalysisStateChanged = Notification.Name("\(prefix).analysisStateChanged")
     static let librarianContentDataChanged = Notification.Name("\(prefix).contentDataChanged")
+    static let librarianInspectorFieldsChanged = Notification.Name("\(prefix).inspectorFieldsChanged")
 }

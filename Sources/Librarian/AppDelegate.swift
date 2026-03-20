@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 viewController: LibrarySettingsViewController(model: model)),
             SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                 viewController: ArchiveSettingsViewController(model: model)),
+            SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",
+                viewController: InspectorSettingsViewController(model: model), preferredHeight: 520),
         ])
         let windowController = MainWindowController(model: model)
         mainWindowController = windowController
@@ -190,6 +192,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     viewController: LibrarySettingsViewController(model: appModel)),
                 SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                     viewController: ArchiveSettingsViewController(model: appModel)),
+                SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",
+                    viewController: InspectorSettingsViewController(model: appModel), preferredHeight: 520),
             ])
         }
         settingsWindowController?.showWindowAndActivate()

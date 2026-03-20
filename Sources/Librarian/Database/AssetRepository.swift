@@ -752,19 +752,21 @@ final class AssetRepository: @unchecked Sendable {
         let aiCaption: String?
         let namedPersonCount: Int?
         let detectedPersonCount: Int?
+        let visionOcrText: String?
     }
 
     func fetchAnalysisFields(localIdentifier: String) throws -> AnalysisFields? {
         try db.read { db in
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT overallScore, aiCaption, namedPersonCount, detectedPersonCount
+                SELECT overallScore, aiCaption, namedPersonCount, detectedPersonCount, visionOcrText
                 FROM asset WHERE localIdentifier = ? LIMIT 1
             """, arguments: [localIdentifier]) else { return nil }
             return AnalysisFields(
                 overallScore: row["overallScore"],
                 aiCaption: row["aiCaption"],
                 namedPersonCount: row["namedPersonCount"],
-                detectedPersonCount: row["detectedPersonCount"]
+                detectedPersonCount: row["detectedPersonCount"],
+                visionOcrText: row["visionOcrText"]
             )
         }
     }
