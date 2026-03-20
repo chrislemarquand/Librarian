@@ -1087,7 +1087,8 @@ extension ContentController: NSCollectionViewDataSource {
         item.prepare(
             localIdentifier: asset.id,
             preferredAspectRatio: preferredAspectRatio,
-            tileSide: thumbnailTileSide()
+            tileSide: thumbnailTileSide(),
+            showsSharedLibraryBadge: asset.photoAsset?.isCloudShared == true
         )
 
         switch asset {
@@ -1254,6 +1255,7 @@ private final class AssetGridItem: NSCollectionViewItem {
     private var currentTileSide: CGFloat = 160
     private var imageWidthConstraint: NSLayoutConstraint?
     private var imageHeightConstraint: NSLayoutConstraint?
+    private var sharedLibraryBadgeView: NSImageView?
 
     override func loadView() {
         view = NSView()
@@ -1283,6 +1285,20 @@ private final class AssetGridItem: NSCollectionViewItem {
         fallback.contentTintColor = .tertiaryLabelColor
         view.addSubview(fallback)
 
+        let sharedBadge = NSImageView()
+        sharedBadge.translatesAutoresizingMaskIntoConstraints = false
+        sharedBadge.image = NSImage(systemSymbolName: "person.2.fill", accessibilityDescription: "Shared library")
+        sharedBadge.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        sharedBadge.contentTintColor = .white
+        sharedBadge.wantsLayer = true
+        sharedBadge.layer?.shadowColor = NSColor.black.cgColor
+        sharedBadge.layer?.shadowOpacity = 0.35
+        sharedBadge.layer?.shadowRadius = 1.0
+        sharedBadge.layer?.shadowOffset = CGSize(width: 0, height: -0.5)
+        sharedBadge.isHidden = true
+        imageView.addSubview(sharedBadge)
+        sharedLibraryBadgeView = sharedBadge
+
         NSLayoutConstraint.activate([
             selectionBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             selectionBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -1294,6 +1310,11 @@ private final class AssetGridItem: NSCollectionViewItem {
 
             fallback.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             fallback.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+
+            sharedBadge.topAnchor.constraint(equalTo: imageView.topAnchor, constant: 10),
+            sharedBadge.trailingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: -6),
+            sharedBadge.widthAnchor.constraint(equalToConstant: 15),
+            sharedBadge.heightAnchor.constraint(equalToConstant: 10),
         ])
         imageWidthConstraint = imageView.widthAnchor.constraint(equalToConstant: 20)
         imageHeightConstraint = imageView.heightAnchor.constraint(equalToConstant: 20)
@@ -1313,14 +1334,16 @@ private final class AssetGridItem: NSCollectionViewItem {
         preferredAspectRatio = nil
         imageView?.image = nil
         fallback.isHidden = false
+        sharedLibraryBadgeView?.isHidden = true
         isSelected = false
     }
 
-    func prepare(localIdentifier: String, preferredAspectRatio: CGFloat?, tileSide: CGFloat) {
+    func prepare(localIdentifier: String, preferredAspectRatio: CGFloat?, tileSide: CGFloat, showsSharedLibraryBadge: Bool) {
         representedLocalIdentifier = localIdentifier
         self.preferredAspectRatio = preferredAspectRatio
         imageView?.image = nil
         fallback.isHidden = false
+        sharedLibraryBadgeView?.isHidden = !showsSharedLibraryBadge
         updateTileSide(tileSide)
     }
 

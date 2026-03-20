@@ -207,5 +207,12 @@ enum LibrarianMigrations {
                 t.column("failureDetailsJSON", .text)
             }
         }
+
+        migrator.registerMigration("v12_add_cloud_shared_flag") { db in
+            try db.alter(table: "asset") { t in
+                t.add(column: "isCloudShared", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(index: "asset_isCloudShared", on: "asset", columns: ["isCloudShared"])
+        }
     }
 }

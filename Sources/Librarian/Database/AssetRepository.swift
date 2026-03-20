@@ -17,6 +17,7 @@ struct IndexedAsset: Codable, FetchableRecord, PersistableRecord {
     var isFavorite: Bool
     var isHidden: Bool
     var isScreenshot: Bool
+    var isCloudShared: Bool
     var isCloudOnly: Bool
     var hasLocalThumbnail: Bool
     var hasLocalOriginal: Bool

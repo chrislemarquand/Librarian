@@ -76,6 +76,7 @@ extension IndexedAsset {
     init(from asset: PHAsset, lastSeenAt: Date) {
         let subtypes = asset.mediaSubtypes
         let isScreenshot = subtypes.contains(.photoScreenshot)
+        let isCloudShared = asset.isSharedLibraryItem
         let isCloudOnly = !asset.isLocallyAvailable
 
         self.init(
@@ -90,6 +91,7 @@ extension IndexedAsset {
             isFavorite: asset.isFavorite,
             isHidden: asset.isHidden,
             isScreenshot: isScreenshot,
+            isCloudShared: isCloudShared,
             isCloudOnly: isCloudOnly,
             hasLocalThumbnail: true, // thumbnails are always locally cached by Photos
             hasLocalOriginal: asset.isLocallyAvailable,
@@ -104,6 +106,19 @@ extension IndexedAsset {
 // MARK: - PHAsset local availability
 
 private extension PHAsset {
+    var isSharedLibraryItem: Bool {
+        if sourceType.contains(.typeCloudShared) {
+            return true
+        }
+
+        // iCloud Shared Library items on macOS currently surface via this runtime flag.
+        // Keep this as a fallback when sourceType does not expose the scope.
+        if let participatesInLibraryScope = value(forKey: "participatesInLibraryScope") as? Bool {
+            return participatesInLibraryScope
+        }
+        return false
+    }
+
     /// True when the original resource is present on disk (not cloud-only).
     var isLocallyAvailable: Bool {
         let resources = PHAssetResource.assetResources(for: self)
