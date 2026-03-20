@@ -444,6 +444,16 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func recoverStaleArchiveExports(errorMessage: String) throws -> Int {
+        // If the app crashes after marking candidates as exported but before delete-step
+        // completion, those rows can get stuck in an "exported" limbo and disappear from
+        // both All Photos and Set Aside. Recover both transitional states.
+        let staleIdentifiers = try fetchArchiveCandidateIdentifiers(statuses: [.exporting, .exported])
+        guard !staleIdentifiers.isEmpty else { return 0 }
+        try markArchiveCandidatesFailed(identifiers: staleIdentifiers, error: errorMessage)
+        return staleIdentifiers.count
+    }
+
     private func updateArchiveCandidateStatus(identifiers: [String], status: ArchiveCandidateStatus) throws {
         guard !identifiers.isEmpty else { return }
         try db.write { db in
