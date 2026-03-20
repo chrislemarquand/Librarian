@@ -3,7 +3,7 @@ import GRDB
 
 // MARK: - IndexedAsset (GRDB record)
 
-struct IndexedAsset: Codable, FetchableRecord, @preconcurrency PersistableRecord {
+struct IndexedAsset: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "asset"
 
     var localIdentifier: String
@@ -79,7 +79,7 @@ struct NearDuplicateClusterAssignment {
     let clusterID: String
 }
 
-struct ArchivedItem: Codable, FetchableRecord, @preconcurrency PersistableRecord {
+struct ArchivedItem: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "archived_item"
 
     var relativePath: String

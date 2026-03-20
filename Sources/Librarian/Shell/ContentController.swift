@@ -1167,7 +1167,9 @@ extension ContentController: NSCollectionViewDataSource {
             let targetSize = thumbnailTargetSize()
             archivedThumbnailService.requestThumbnail(for: archivedItem, targetSize: targetSize) { [weak item] image in
                 guard let item else { return }
-                item.applyImage(image, forLocalIdentifier: asset.id)
+                Task { @MainActor in
+                    item.applyImage(image, forLocalIdentifier: asset.id)
+                }
             }
         }
 
@@ -1741,7 +1743,7 @@ final class ArchiveOrganizer: @unchecked Sendable {
     }
 }
 
-final class ArchiveIndexer {
+final class ArchiveIndexer: @unchecked Sendable {
     private let database: DatabaseManager
     private let fileManager = FileManager.default
     private let organizer = ArchiveOrganizer()
@@ -1891,14 +1893,14 @@ final class ArchiveIndexer {
     }
 }
 
-final class ArchivedThumbnailService {
+final class ArchivedThumbnailService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.librarian.app.archived-thumbnails", qos: .utility)
     private let cache = NSCache<NSString, NSImage>()
     private let fileManager = FileManager.default
 
-    func requestThumbnail(for item: ArchivedItem, targetSize: CGSize, completion: @escaping (NSImage?) -> Void) {
-        let cacheKey = "\(item.relativePath)#\(Int(max(targetSize.width, targetSize.height)))" as NSString
-        if let cached = cache.object(forKey: cacheKey) {
+    func requestThumbnail(for item: ArchivedItem, targetSize: CGSize, completion: @escaping @Sendable (NSImage?) -> Void) {
+        let cacheKey = "\(item.relativePath)#\(Int(max(targetSize.width, targetSize.height)))"
+        if let cached = cache.object(forKey: cacheKey as NSString) {
             completion(cached)
             return
         }
@@ -1911,7 +1913,7 @@ final class ArchivedThumbnailService {
 
             let image = self.loadOrGenerateThumbnail(for: item, maxPixelSize: Int(max(targetSize.width, targetSize.height)))
             if let image {
-                self.cache.setObject(image, forKey: cacheKey)
+                self.cache.setObject(image, forKey: cacheKey as NSString)
             }
             DispatchQueue.main.async {
                 completion(image)

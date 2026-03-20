@@ -1,6 +1,7 @@
 import Cocoa
 import SharedUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var appModel: AppModel?

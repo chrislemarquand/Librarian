@@ -3,7 +3,7 @@ import GRDB
 
 // MARK: - Job (GRDB record)
 
-struct Job: Codable, FetchableRecord, @preconcurrency PersistableRecord {
+struct Job: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "job"
 
     enum JobType: String, Codable {
