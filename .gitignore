@@ -1,6 +1,20 @@
+# macOS
+.DS_Store
+
+# SwiftPM
+/.build
+/Packages
+
 # Xcode
 xcuserdata/
 *.xcuserstate
 DerivedData/
+
+# Local build/release outputs
+build/
+build_artifacts/
+build_derived/
+build_derived_*/
+dist/
 
 # Package resolution is tracked for reproducible builds.
