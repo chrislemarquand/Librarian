@@ -69,6 +69,22 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
         let result = panel.runModal()
         guard result == .OK, let url = panel.url else { return }
+
+        let currentArchiveID = UserDefaults.standard.string(forKey: ArchiveSettings.archiveIDKey)
+        let selectedArchiveID = ArchiveSettings.archiveID(for: url)
+
+        if let selectedArchiveID,
+           let currentArchiveID,
+           selectedArchiveID != currentArchiveID,
+           !ArchiveRootPrompts.confirmArchiveSwitch(fromArchiveID: currentArchiveID, toArchiveID: selectedArchiveID) {
+            return
+        }
+
+        if selectedArchiveID == nil,
+           !ArchiveRootPrompts.confirmInitializeArchive(at: url) {
+            return
+        }
+
         guard model.updateArchiveRoot(url) else { return }
         refreshArchivePath()
         Task { @MainActor [weak self] in

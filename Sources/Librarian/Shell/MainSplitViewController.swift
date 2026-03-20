@@ -1,5 +1,6 @@
 import Cocoa
 import SharedUI
+import SwiftUI
 
 @MainActor
 final class MainSplitViewController: ThreePaneSplitViewController {
@@ -12,13 +13,14 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private let inspectorController: InspectorController
 
     private var keyEventMonitor: Any?
+    private var archiveExportSheetWindow: NSWindow?
 
     init(model: AppModel) {
         self.model = model
 
         let sc = AppKitSidebarController(
             sections: SidebarSection.allCases,
-            items: SidebarItem.allItems
+            items: Self.buildSidebarItemsWithBadges(model: model)
         )
         let cc = ContentController(model: model)
         let ic = InspectorController(model: model)
@@ -113,14 +115,13 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     @objc private func modelStateChanged() {
+        refreshSidebarItemsWithBadges()
         toolbarDelegate.refresh(model: model)
         refreshWindowSubtitle()
     }
 
     @objc private func sidebarIndexingStateChanged() {
-        let selectedKind = model.selectedSidebarItem?.kind ?? .allPhotos
-        sidebarController.reloadData()
-        sidebarController.selectItem(where: { $0.kind == selectedKind })
+        refreshSidebarItemsWithBadges()
     }
 
     @objc private func sidebarSelectionChanged() {
@@ -157,6 +158,40 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private func refreshWindowTitle() {
         let itemTitle = model.selectedSidebarItem?.title ?? "Librarian"
         view.window?.title = itemTitle
+    }
+
+    private func refreshSidebarItemsWithBadges() {
+        guard model.database.assetRepository != nil else { return }
+        let selectedKind = model.selectedSidebarItem?.kind ?? .allPhotos
+        let updatedItems = Self.buildSidebarItemsWithBadges(model: model)
+        guard updatedItems != sidebarController.items else { return }
+        sidebarController.items = updatedItems
+        sidebarController.reloadData()
+        sidebarController.selectItem(where: { $0.kind == selectedKind })
+    }
+
+    private static func buildSidebarItemsWithBadges(model: AppModel) -> [SidebarItem] {
+        guard let repository = model.database.assetRepository else {
+            return SidebarItem.baseItems
+        }
+        return SidebarItem.baseItems.map { item in
+            var updated = item
+            let count = (try? repository.countForSidebarKind(item.kind)) ?? 0
+            updated.badgeText = compactBadgeText(for: count)
+            return updated
+        }
+    }
+
+    private static func compactBadgeText(for count: Int) -> String? {
+        guard count > 0 else { return nil }
+        switch count {
+        case 0..<1_000:
+            return count.formatted()
+        case 1_000..<1_000_000:
+            return "\(count / 1_000)K"
+        default:
+            return "\(count / 1_000_000)M"
+        }
     }
 
     private var lastSubtitleText = ""
@@ -223,30 +258,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     @objc func sendToArchiveAction(_ sender: Any?) {
         guard model.pendingArchiveCandidateCount > 0 else { return }
         guard let archiveRoot = resolveOrPromptArchiveRoot() else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let didAccess = archiveRoot.startAccessingSecurityScopedResource()
-            defer {
-                if didAccess {
-                    archiveRoot.stopAccessingSecurityScopedResource()
-                }
-            }
-            do {
-                try await self.model.sendPendingArchive(to: archiveRoot)
-                self.showArchiveAlert(
-                    title: "Archive Complete",
-                    message: "Set-aside photos were exported and moved to Recently Deleted in Photos."
-                )
-            } catch {
-                AppLog.shared.error("Send to archive failed: \(error.localizedDescription)")
-                self.showArchiveAlert(
-                    title: "Archive Failed",
-                    message: error.localizedDescription
-                )
-            }
-            self.contentController.refreshDisplayedAssets()
-            self.toolbarDelegate.refresh(model: self.model)
-        }
+        presentArchiveExportSheet(initialDestination: archiveRoot)
     }
 
     @objc func zoomOutAction(_ sender: Any?) {
@@ -290,6 +302,21 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             return existing
         }
         guard let chosen = promptForArchiveRoot() else { return nil }
+        let currentArchiveID = UserDefaults.standard.string(forKey: ArchiveSettings.archiveIDKey)
+        let selectedArchiveID = ArchiveSettings.archiveID(for: chosen)
+
+        if let selectedArchiveID,
+           let currentArchiveID,
+           selectedArchiveID != currentArchiveID,
+           !ArchiveRootPrompts.confirmArchiveSwitch(fromArchiveID: currentArchiveID, toArchiveID: selectedArchiveID) {
+            return nil
+        }
+
+        if selectedArchiveID == nil,
+           !ArchiveRootPrompts.confirmInitializeArchive(at: chosen) {
+            return nil
+        }
+
         guard ArchiveSettings.persistArchiveRootURL(chosen) else { return nil }
         return chosen
     }
@@ -315,5 +342,36 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.runSheetOrModal(for: view.window) { _ in }
+    }
+
+    private func presentArchiveExportSheet(initialDestination: URL) {
+        guard archiveExportSheetWindow == nil else { return }
+        guard let parent = view.window else { return }
+
+        let sheetView = ArchiveExportSheetView(
+            model: model,
+            initialDestinationURL: initialDestination
+        ) { [weak self] in
+            self?.dismissArchiveExportSheet()
+        }
+        let hostingController = NSHostingController(rootView: sheetView)
+        let sheetWindow = NSWindow(contentViewController: hostingController)
+        sheetWindow.styleMask = [.titled, .closable]
+        sheetWindow.titleVisibility = .hidden
+        sheetWindow.titlebarAppearsTransparent = true
+        sheetWindow.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        sheetWindow.standardWindowButton(.zoomButton)?.isHidden = true
+        sheetWindow.isReleasedWhenClosed = false
+
+        archiveExportSheetWindow = sheetWindow
+        parent.beginSheet(sheetWindow)
+    }
+
+    private func dismissArchiveExportSheet() {
+        guard let parent = view.window, let sheet = archiveExportSheetWindow else { return }
+        parent.endSheet(sheet)
+        archiveExportSheetWindow = nil
+        contentController.refreshDisplayedAssets()
+        toolbarDelegate.refresh(model: model)
     }
 }
