@@ -865,8 +865,15 @@ final class ContentController: NSViewController {
             && !archivedBannerDismissedForLaunch
         archivedNoticeBar.isHidden = !shouldShow
         archivedNoticeBarHeightConstraint.constant = shouldShow ? 40 : 0
-        scrollTopToArchivedNoticeConstraint.isActive = shouldShow
-        scrollTopToContainerConstraint.isActive = !shouldShow
+        // Switch these mutually-exclusive constraints atomically to avoid
+        // transient unsatisfiable states where both are active at once.
+        NSLayoutConstraint.deactivate([
+            scrollTopToArchivedNoticeConstraint,
+            scrollTopToContainerConstraint,
+        ])
+        NSLayoutConstraint.activate([
+            shouldShow ? scrollTopToArchivedNoticeConstraint : scrollTopToContainerConstraint
+        ])
 
         guard shouldShow else { return }
         archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) file(s) are outside YYYY/MM/DD. Organize archive now?"
