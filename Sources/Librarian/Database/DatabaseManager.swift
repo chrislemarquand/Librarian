@@ -23,6 +23,9 @@ final class DatabaseManager: @unchecked Sendable {
 
     // MARK: - Location
 
+    private static let legacyContainerName = "com.librarian.app"
+    private static let containerName = "com.chrislemarquand.Librarian"
+
     private func databaseURL() throws -> URL {
         let appSupport = try FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -30,9 +33,17 @@ final class DatabaseManager: @unchecked Sendable {
             appropriateFor: nil,
             create: true
         )
-        let dir = appSupport.appendingPathComponent("com.librarian.app", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("librarian.sqlite")
+        let newDir = appSupport.appendingPathComponent(Self.containerName, isDirectory: true)
+        let legacyDir = appSupport.appendingPathComponent(Self.legacyContainerName, isDirectory: true)
+
+        // One-time migration from the old bundle identifier's Application Support folder.
+        if !FileManager.default.fileExists(atPath: newDir.path),
+           FileManager.default.fileExists(atPath: legacyDir.path) {
+            try FileManager.default.moveItem(at: legacyDir, to: newDir)
+        }
+
+        try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
+        return newDir.appendingPathComponent("librarian.sqlite")
     }
 
     // MARK: - Migrations

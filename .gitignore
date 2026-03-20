@@ -17,4 +17,6 @@ build_derived/
 build_derived_*/
 dist/
 
-# Package resolution is tracked for reproducible builds.
+# Package resolution is tracked at root (Package.resolved).
+# Ignore the nested copy Xcode may regenerate.
+Librarian.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
