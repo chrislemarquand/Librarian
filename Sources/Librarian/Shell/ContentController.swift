@@ -592,7 +592,7 @@ final class ContentController: NSViewController {
         case .setAsideForArchive:
             return .unavailable(title: "Nothing Set Aside", symbolName: "tray.full", description: "Photos you set aside for archiving will appear here.")
         case .archived:
-            return .unavailable(title: "No Archived Photos", symbolName: "archivebox", description: "Archived photos will appear here after export.")
+            return .unavailable(title: "No Archive Photos", symbolName: "archivebox", description: "Archive photos will appear here after export.")
         case .duplicates:
             return .unavailable(title: "No Duplicates", symbolName: "doc.on.doc", description: "No duplicate or near-duplicate photos found.")
         case .lowQuality:
@@ -822,11 +822,11 @@ final class ContentController: NSViewController {
                 let summary = try await Task.detached(priority: .utility) {
                     try organizer.organizeArchiveTree(in: archiveTreeRoot)
                 }.value
-                AppLog.shared.info("Archived view organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
+                AppLog.shared.info("Archive view organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
                 self.archivedBannerDismissedForLaunch = false
                 NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
             } catch {
-                AppLog.shared.error("Archived view organization failed: \(error.localizedDescription)")
+                AppLog.shared.error("Archive view organization failed: \(error.localizedDescription)")
             }
             self.isOrganizingArchivedFiles = false
             self.updateArchivedNoticeBarState()

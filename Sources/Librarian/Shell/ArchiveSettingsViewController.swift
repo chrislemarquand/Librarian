@@ -61,7 +61,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     @objc private func chooseArchivePath() {
         let panel = NSOpenPanel()
         panel.prompt = "Set Archive Folder"
-        panel.message = "Choose the active archive root used for export and the Archived view."
+        panel.message = "Choose the active archive root used for export and the Archive view."
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false

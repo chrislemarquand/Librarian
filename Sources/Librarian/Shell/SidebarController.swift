@@ -5,7 +5,7 @@ import SharedUI
 
 enum SidebarSection: String, CaseIterable, AppKitSidebarSectionType {
     case library = "Library"
-    case queues  = "Queues"
+    case queues  = "Boxes"
     case archive = "Archive"
     case tasks   = "Tasks"
 
@@ -42,7 +42,7 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         SidebarItem(section: .queues,  kind: .lowQuality,            title: "Low Quality", symbolName: "wand.and.stars.inverse", badgeText: nil),
         SidebarItem(section: .queues,  kind: .receiptsAndDocuments,  title: "Documents",   symbolName: "doc.text", badgeText: nil),
         SidebarItem(section: .archive, kind: .setAsideForArchive,    title: "Set Aside",   symbolName: "tray.full", badgeText: nil),
-        SidebarItem(section: .archive, kind: .archived,              title: "Archived",    symbolName: "archivebox", badgeText: nil),
+        SidebarItem(section: .archive, kind: .archived,              title: "Archive",     symbolName: "archivebox", badgeText: nil),
         SidebarItem(section: .tasks,   kind: .log,                   title: "Log",         symbolName: "list.bullet.rectangle", badgeText: nil),
     ]
 
