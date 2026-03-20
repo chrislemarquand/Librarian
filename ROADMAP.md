@@ -63,6 +63,7 @@ Goal: stable daily-driver release with safe archive trust boundary and release-s
   - startup reset of stale `exporting` rows
   - retry-safe failure handling and clearer per-item failure visibility
   - improved partial-success summaries
+  - archive move guardrails to prevent recursive self-copy when destination resolves inside current archive
 - Export UX:
   - progress sheet (indeterminate + status line + completion summary + log access)
 - osxphotos boundary:
@@ -82,12 +83,14 @@ Goal: stable daily-driver release with safe archive trust boundary and release-s
   - mixed export outcomes
   - deletion reconciliation
   - interrupted-run recovery
+  - archive move destination safety regression coverage (inside-source blocked, parent-destination allowed, recursive-copy guard)
 - External archive robustness baseline:
   - archive control folder (`.librarian`) with schema/version metadata and stable archive ID
   - archive relink flow for moved archives (internal ↔ external), with archive ID validation
   - startup/offline handling when archive volume is unavailable
   - write-access and free-space preflight before archive export/import
   - crash/disconnect-safe control-file writes (atomic writes for archive metadata and run artifacts)
+  - async archive-view/badge/subtitle synchronization after archive index refresh
 
 ### Out
 

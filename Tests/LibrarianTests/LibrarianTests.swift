@@ -1,5 +1,6 @@
 import Testing
 import GRDB
+import Foundation
 @testable import Librarian
 
 @Test func recoverStaleArchiveExportsMarksExportingAsFailed() throws {
@@ -56,4 +57,62 @@ import GRDB
     let repository = AssetRepository(db: dbQueue)
     let recovered = try repository.recoverStaleArchiveExports(errorMessage: "unused")
     #expect(recovered == 0)
+}
+
+@Test func archiveMovePreflightBlocksDestinationInsideSource() throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: root) }
+
+    let source = root.appendingPathComponent("Archive", isDirectory: true)
+    let destinationInside = source.appendingPathComponent("NestedDestination", isDirectory: true)
+    try fm.createDirectory(at: source, withIntermediateDirectories: true)
+    try fm.createDirectory(at: source.appendingPathComponent(".librarian", isDirectory: true), withIntermediateDirectories: true)
+
+    do {
+        try ArchiveSettingsViewController.test_preflightArchiveMove(sourceRoot: source, destinationRoot: destinationInside)
+        Issue.record("Expected preflight to throw for destination-inside-source")
+    } catch {
+        let nsError = error as NSError
+        #expect(nsError.code == 11)
+    }
+}
+
+@Test func archiveMovePreflightAllowsParentDestination() throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: root) }
+
+    let source = root.appendingPathComponent("Librarian", isDirectory: true)
+    let destinationParent = root
+
+    try fm.createDirectory(at: source, withIntermediateDirectories: true)
+    #expect(ArchiveSettings.ensureControlFolder(at: source))
+    try Data("x".utf8).write(to: source.appendingPathComponent("photo1.jpg"))
+
+    try ArchiveSettingsViewController.test_preflightArchiveMove(sourceRoot: source, destinationRoot: destinationParent)
+}
+
+@Test func archiveMoveCopyGuardsAgainstRecursiveDestinationTraversal() throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: root) }
+
+    let source = root.appendingPathComponent("Archive", isDirectory: true)
+    let destinationInside = source.appendingPathComponent("Archive", isDirectory: true)
+
+    try fm.createDirectory(at: source, withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: source.appendingPathComponent("photo1.jpg"))
+
+    do {
+        try ArchiveSettingsViewController.test_copyAndVerifyArchiveMove(
+            sourceRoot: source,
+            destinationRoot: destinationInside,
+            expectedFileCount: 1
+        )
+        Issue.record("Expected copy to throw for destination-inside-source")
+    } catch {
+        let nsError = error as NSError
+        #expect(nsError.code == 11)
+    }
 }

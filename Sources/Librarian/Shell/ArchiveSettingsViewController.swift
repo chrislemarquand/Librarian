@@ -409,12 +409,20 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         let destinationPath = canonicalPath(for: destinationRoot)
         if sourcePath == destinationPath {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "Destination must be different from the current archive location."
+                NSLocalizedDescriptionKey: """
+                Destination must be different from the current archive location.
+                Current: \(sourcePath)
+                Selected: \(destinationPath)
+                """
             ])
         }
         if isPath(destinationRoot, inside: sourceRoot) {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 11, userInfo: [
-                NSLocalizedDescriptionKey: "Destination cannot be inside the current archive. Choose a different folder."
+                NSLocalizedDescriptionKey: """
+                Destination cannot be inside the current archive.
+                Current: \(sourcePath)
+                Selected: \(destinationPath)
+                """
             ])
         }
 
@@ -467,7 +475,12 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
                 let preview = conflicts.prefix(3).joined(separator: "\n")
                 let suffix = conflicts.count > 3 ? "\n(and \(conflicts.count - 3) more)" : ""
                 throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 5, userInfo: [
-                    NSLocalizedDescriptionKey: "Selected destination already contains files that would be overwritten:\n\(preview)\(suffix)"
+                    NSLocalizedDescriptionKey: """
+                    Selected destination already contains files that would be overwritten.
+                    Destination: \(destinationPath)
+                    Conflicts:
+                    \(preview)\(suffix)
+                    """
                 ])
             }
         }
@@ -504,7 +517,11 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
         if isPath(destinationRoot, inside: sourceRoot) {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 11, userInfo: [
-                NSLocalizedDescriptionKey: "Destination cannot be inside the current archive. Choose a different folder."
+                NSLocalizedDescriptionKey: """
+                Destination cannot be inside the current archive.
+                Current: \(canonicalPath(for: sourceRoot))
+                Selected: \(canonicalPath(for: destinationRoot))
+                """
             ])
         }
 
@@ -613,6 +630,24 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     nonisolated private static func canonicalPath(for url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
+
+#if DEBUG
+    nonisolated static func test_preflightArchiveMove(sourceRoot: URL, destinationRoot: URL) throws {
+        _ = try preflightArchiveMove(sourceRoot: sourceRoot, destinationRoot: destinationRoot)
+    }
+
+    nonisolated static func test_copyAndVerifyArchiveMove(
+        sourceRoot: URL,
+        destinationRoot: URL,
+        expectedFileCount: Int
+    ) throws {
+        try copyAndVerifyArchiveMove(
+            sourceRoot: sourceRoot,
+            destinationRoot: destinationRoot,
+            expectedFileCount: expectedFileCount
+        )
+    }
+#endif
 
     // MARK: - Create New Archive workflow
 

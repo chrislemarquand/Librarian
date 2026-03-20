@@ -20,10 +20,19 @@ All notable changes to Librarian are tracked here.
   - Quick Look coordinator
   - gallery context-menu selection infrastructure
   - three-pane keyboard focus utility
+- Archive move preflight/error copy now includes explicit source/destination paths and clearer conflict context.
+- Archive view subtitle/badge refresh is now synchronized with async archive content/index refresh completion.
 
 ### Fixed
 - Restored app icon asset mapping after source/project structure moves.
 - Restored gallery header fade styling regression.
+- Prevented recursive `.../Librarian/Librarian/...` self-copy during archive move operations.
+
+### Tests
+- Added archive move regression tests for:
+  - destination-inside-source rejection
+  - parent destination acceptance
+  - copy-phase recursive destination guard
 
 ## 2026-03-19
 
