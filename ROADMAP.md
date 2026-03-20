@@ -78,6 +78,12 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
   - [Planned] Quick Look (`Space`)
   - [Planned] gallery context menus
   - [Partial] keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
+- Box expansion:
+  - [Planned] WhatsApp Box (smart view) with confidence-based classification:
+    - album signal (`WhatsApp` album membership)
+    - filename-pattern signal (WhatsApp export naming conventions)
+    - optional public metadata signal where available
+  - [Planned] persist `isWhatsApp` classification at index time with tests for classifier + sidebar counts + box fetch path
 - Inspector completeness:
   - [Planned] finalise Inspector fields, including Archive-view-specific metadata coverage
 - Sidebar visibility:
@@ -102,6 +108,7 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 - Bundle ExifTool with runtime validation/fallback path.
 - Implement Quick Look and gallery context menus.
 - Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
+- Implement WhatsApp Box classification + indexing + view wiring.
 - Expand trust-boundary tests for mixed outcomes and deletion reconciliation.
 - Complete external archive robustness follow-through (full relink and free-space preflight coverage across export/import paths).
 
