@@ -31,20 +31,22 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
     let kind: Kind
     var title: String
     var symbolName: String
-    var badgeText: String? { nil }
+    var badgeText: String?
 
-    static let allItems: [SidebarItem] = [
-        SidebarItem(section: .library, kind: .allPhotos,             title: "All Photos",  symbolName: "photo.on.rectangle.angled"),
-        SidebarItem(section: .library, kind: .recents,               title: "Recents",     symbolName: "clock"),
-        SidebarItem(section: .library, kind: .favourites,            title: "Favourites",  symbolName: "heart"),
-        SidebarItem(section: .queues,  kind: .screenshots,           title: "Screenshots", symbolName: "camera.viewfinder"),
-        SidebarItem(section: .queues,  kind: .duplicates,            title: "Duplicates",  symbolName: "doc.on.doc"),
-        SidebarItem(section: .queues,  kind: .lowQuality,            title: "Low Quality", symbolName: "wand.and.stars.inverse"),
-        SidebarItem(section: .queues,  kind: .receiptsAndDocuments,  title: "Documents",   symbolName: "doc.text"),
-        SidebarItem(section: .archive, kind: .setAsideForArchive,    title: "Set Aside",   symbolName: "tray.full"),
-        SidebarItem(section: .archive, kind: .archived,              title: "Archived",    symbolName: "archivebox"),
-        SidebarItem(section: .tasks,   kind: .log,                   title: "Log",         symbolName: "list.bullet.rectangle"),
+    static let baseItems: [SidebarItem] = [
+        SidebarItem(section: .library, kind: .allPhotos,             title: "All Photos",  symbolName: "photo.on.rectangle.angled", badgeText: nil),
+        SidebarItem(section: .library, kind: .recents,               title: "Recents",     symbolName: "clock", badgeText: nil),
+        SidebarItem(section: .library, kind: .favourites,            title: "Favourites",  symbolName: "heart", badgeText: nil),
+        SidebarItem(section: .queues,  kind: .screenshots,           title: "Screenshots", symbolName: "camera.viewfinder", badgeText: nil),
+        SidebarItem(section: .queues,  kind: .duplicates,            title: "Duplicates",  symbolName: "doc.on.doc", badgeText: nil),
+        SidebarItem(section: .queues,  kind: .lowQuality,            title: "Low Quality", symbolName: "wand.and.stars.inverse", badgeText: nil),
+        SidebarItem(section: .queues,  kind: .receiptsAndDocuments,  title: "Documents",   symbolName: "doc.text", badgeText: nil),
+        SidebarItem(section: .archive, kind: .setAsideForArchive,    title: "Set Aside",   symbolName: "tray.full", badgeText: nil),
+        SidebarItem(section: .archive, kind: .archived,              title: "Archived",    symbolName: "archivebox", badgeText: nil),
+        SidebarItem(section: .tasks,   kind: .log,                   title: "Log",         symbolName: "list.bullet.rectangle", badgeText: nil),
     ]
+
+    static var allItems: [SidebarItem] { baseItems }
 
     static func items(in section: SidebarSection) -> [SidebarItem] {
         allItems.filter { $0.section == section }

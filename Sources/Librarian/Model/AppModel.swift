@@ -31,6 +31,43 @@ enum AppBrand {
 
 enum ArchiveSettings {
     static let bookmarkKey = "com.librarian.app.archiveRootBookmark"
+    static let archiveIDKey = "com.librarian.app.archiveID"
+    static let controlFolderName = ".librarian"
+    static let configFileName = "archive.json"
+
+    struct ArchiveControlPaths {
+        let rootURL: URL
+
+        var controlRootURL: URL {
+            rootURL.appendingPathComponent(ArchiveSettings.controlFolderName, isDirectory: true)
+        }
+
+        var configURL: URL {
+            controlRootURL.appendingPathComponent(ArchiveSettings.configFileName, isDirectory: false)
+        }
+
+        var thumbnailsURL: URL {
+            controlRootURL.appendingPathComponent("thumbnails", isDirectory: true)
+        }
+
+        var reportsURL: URL {
+            controlRootURL.appendingPathComponent("reports", isDirectory: true)
+        }
+    }
+
+    private struct ArchiveControlConfig: Codable {
+        let schemaVersion: Int
+        let archiveID: String
+        let createdAt: Date
+        let createdByVersion: String
+        let layoutMode: String
+        let paths: Paths
+
+        struct Paths: Codable {
+            let thumbnails: String
+            let reports: String
+        }
+    }
 
     static func restoreArchiveRootURL() -> URL? {
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else {
@@ -53,6 +90,9 @@ enum ArchiveSettings {
 
     @discardableResult
     static func persistArchiveRootURL(_ url: URL) -> Bool {
+        guard ensureControlFolder(at: url) else { return false }
+        let newArchiveID = archiveID(for: url)
+        let previousArchiveID = UserDefaults.standard.string(forKey: archiveIDKey)
         guard let bookmark = try? url.bookmarkData(
             options: [.withSecurityScope],
             includingResourceValuesForKeys: nil,
@@ -62,8 +102,81 @@ enum ArchiveSettings {
             return false
         }
         UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
+        if let newArchiveID {
+            UserDefaults.standard.set(newArchiveID, forKey: archiveIDKey)
+            if let previousArchiveID {
+                if previousArchiveID == newArchiveID {
+                    AppLog.shared.info("Archive root relinked to existing archive id \(newArchiveID)")
+                } else {
+                    AppLog.shared.info("Archive root switched from archive id \(previousArchiveID) to \(newArchiveID)")
+                }
+            } else {
+                AppLog.shared.info("Archive root linked to archive id \(newArchiveID)")
+            }
+        }
         AppLog.shared.info("Archive root set to: \(url.path)")
         return true
+    }
+
+    @discardableResult
+    static func ensureControlFolder(at rootURL: URL) -> Bool {
+        let didAccess = rootURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                rootURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let fileManager = FileManager.default
+        let paths = ArchiveControlPaths(rootURL: rootURL)
+        do {
+            try fileManager.createDirectory(at: paths.controlRootURL, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: paths.thumbnailsURL, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: paths.reportsURL, withIntermediateDirectories: true)
+            if !fileManager.fileExists(atPath: paths.configURL.path) {
+                try writeInitialControlConfig(to: paths.configURL)
+            }
+            return true
+        } catch {
+            AppLog.shared.error("Failed to initialize archive control folder: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private static func writeInitialControlConfig(to configURL: URL) throws {
+        let bundle = Bundle.main
+        let version = (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let config = ArchiveControlConfig(
+            schemaVersion: 1,
+            archiveID: UUID().uuidString,
+            createdAt: Date(),
+            createdByVersion: (version?.isEmpty == false ? version! : "dev"),
+            layoutMode: "YYYY/MM/DD",
+            paths: .init(
+                thumbnails: "thumbnails",
+                reports: "reports"
+            )
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(config)
+        try data.write(to: configURL, options: .atomic)
+    }
+
+    static func archiveID(for rootURL: URL) -> String? {
+        let didAccess = rootURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                rootURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        let configURL = ArchiveControlPaths(rootURL: rootURL).configURL
+        guard let data = try? Data(contentsOf: configURL) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(ArchiveControlConfig.self, from: data))?.archiveID
     }
 
     static func archiveTreeRootURL(from rootURL: URL) -> URL {
@@ -78,6 +191,8 @@ enum ArchiveSettings {
 
 @MainActor
 final class AppModel: ObservableObject {
+    private static let staleArchiveExportMessage =
+        "Previous archive export was interrupted. Item returned to Set Aside."
 
     // MARK: - Services (owned here, accessed by coordinators)
 
@@ -151,6 +266,17 @@ final class AppModel: ObservableObject {
             return
         }
         AppLog.shared.info("Database opened")
+
+        do {
+            let recovered = try database.assetRepository.recoverStaleArchiveExports(
+                errorMessage: Self.staleArchiveExportMessage
+            )
+            if recovered > 0 {
+                AppLog.shared.info("Recovered \(recovered) stale archive export item(s) at launch")
+            }
+        } catch {
+            AppLog.shared.error("Failed to recover stale archive exports: \(error.localizedDescription)")
+        }
 
         // Load persisted count before requesting Photos access so UI isn't blank
         indexedAssetCount = (try? database.assetRepository.count()) ?? 0
@@ -339,6 +465,11 @@ final class AppModel: ObservableObject {
         sourceFolders: [URL],
         preflight: ArchiveImportPreflightResult
     ) async throws -> ArchiveImportRunSummary {
+        guard ArchiveSettings.ensureControlFolder(at: archiveRoot) else {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "Couldn’t initialize archive control folder at the selected location."
+            ])
+        }
         guard !isImportingArchive else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "An archive import is already in progress."
@@ -423,11 +554,40 @@ final class AppModel: ObservableObject {
     }
 
     func sendPendingArchive(to archiveRootURL: URL) async throws {
-        guard !isSendingArchive else { return }
-        let identifiers = try database.assetRepository.fetchArchiveCandidateIdentifiers(
-            statuses: [.pending, .failed]
-        )
-        guard !identifiers.isEmpty else { return }
+        let outcome = try await sendPendingArchiveWithOutcome(to: archiveRootURL, options: .default)
+        if outcome.exportedCount == 0 {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Export failed for \(outcome.failedCount) item(s). Nothing was deleted."
+            ])
+        }
+        if outcome.notDeletedCount > 0 {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "Exported \(outcome.exportedCount) item(s), but \(outcome.notDeletedCount) could not be removed from Photos. Those items were returned to Set Aside."
+            ])
+        }
+        if outcome.failedCount > 0 {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 7, userInfo: [
+                NSLocalizedDescriptionKey: "Exported \(outcome.exportedCount) item(s). \(outcome.failedCount) failed and remain in Set Aside."
+            ])
+        }
+    }
+
+    func sendPendingArchiveWithOutcome(
+        to archiveRootURL: URL,
+        options: ArchiveExportOptions
+    ) async throws -> ArchiveSendOutcome {
+        guard ArchiveSettings.ensureControlFolder(at: archiveRootURL) else {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "Couldn’t initialize archive control folder at the selected location."
+            ])
+        }
+        guard !isSendingArchive else {
+            return ArchiveSendOutcome(exportedCount: 0, deletedCount: 0, failedCount: 0, notDeletedCount: 0, failures: [])
+        }
+        let identifiers = try database.assetRepository.fetchArchiveCandidateIdentifiers(statuses: [.pending, .failed])
+        guard !identifiers.isEmpty else {
+            return ArchiveSendOutcome(exportedCount: 0, deletedCount: 0, failedCount: 0, notDeletedCount: 0, failures: [])
+        }
 
         isSendingArchive = true
         defer { isSendingArchive = false }
@@ -444,16 +604,20 @@ final class AppModel: ObservableObject {
                     localIdentifiers: identifiers
                 )
             ]
+            let exportRoot = archiveRootURL
             let exportResult = try await Task.detached(priority: .utility) {
-                try runOsxPhotosExportBatch(targets: exportTargets)
+                try withArchiveRootAccess(root: exportRoot) {
+                    try runOsxPhotosExportBatch(targets: exportTargets, options: options)
+                }
             }.value
             let exportedIdentifiers = Array(Set(exportResult.exportedGroups.flatMap(\.localIdentifiers)))
-            let failedIdentifiers = Array(Set(exportResult.failures.map(\.identifier)))
+            var failures = exportResult.failures
+            let failedIdentifiers = Array(Set(failures.map(\.identifier)))
 
             if !failedIdentifiers.isEmpty {
-                let failedByIdentifier = Dictionary(grouping: exportResult.failures, by: \.identifier)
+                let failedByIdentifier = Dictionary(grouping: failures, by: \.identifier)
                 let summary = failedIdentifiers.compactMap { identifier -> String? in
-                    guard let failures = failedByIdentifier[identifier], let message = failures.first?.message else { return nil }
+                    guard let groupedFailures = failedByIdentifier[identifier], let message = groupedFailures.first?.message else { return nil }
                     return "\(identifier): \(message)"
                 }.joined(separator: " | ")
                 try database.assetRepository.markArchiveCandidatesFailed(identifiers: failedIdentifiers, error: summary)
@@ -463,10 +627,15 @@ final class AppModel: ObservableObject {
             guard !exportedIdentifiers.isEmpty else {
                 try await database.jobRepository.markFailed(job, error: "No items were exported.")
                 refreshArchiveCandidateCount()
-                throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "Export failed for \(failedIdentifiers.count) item(s). Nothing was deleted."
-                ])
+                return ArchiveSendOutcome(
+                    exportedCount: 0,
+                    deletedCount: 0,
+                    failedCount: failedIdentifiers.count,
+                    notDeletedCount: 0,
+                    failures: failures
+                )
             }
+
             for group in exportResult.exportedGroups where !group.localIdentifiers.isEmpty {
                 try database.assetRepository.markArchiveCandidatesExported(identifiers: group.localIdentifiers, archivePath: group.destinationPath)
             }
@@ -484,15 +653,20 @@ final class AppModel: ObservableObject {
             if !notDeleted.isEmpty {
                 let errorText = "Delete step did not remove \(notDeleted.count) item(s) from Photos. Returned to archive queue."
                 try database.assetRepository.markArchiveCandidatesFailed(identifiers: notDeleted, error: errorText)
+                failures.append(contentsOf: notDeleted.map { ArchiveExportFailure(identifier: $0, message: errorText) })
                 try await database.jobRepository.markFailed(job, error: errorText)
                 AppLog.shared.error("Archive send partially failed. Exported \(exportedIdentifiers.count), deleted \(deletedIdentifiers.count), not deleted \(notDeleted.count).")
                 indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
                 assetDataVersion &+= 1
                 refreshArchiveCandidateCount()
                 notifyIndexingStateChanged()
-                throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 6, userInfo: [
-                    NSLocalizedDescriptionKey: "Exported \(exportedIdentifiers.count) item(s), but \(notDeleted.count) could not be removed from Photos. Those items were returned to Set Aside."
-                ])
+                return ArchiveSendOutcome(
+                    exportedCount: exportedIdentifiers.count,
+                    deletedCount: deletedIdentifiers.count,
+                    failedCount: Array(Set(failures.map(\.identifier))).count,
+                    notDeletedCount: notDeleted.count,
+                    failures: failures
+                )
             }
 
             if !failedIdentifiers.isEmpty {
@@ -502,9 +676,13 @@ final class AppModel: ObservableObject {
                 assetDataVersion &+= 1
                 refreshArchiveCandidateCount()
                 notifyIndexingStateChanged()
-                throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 7, userInfo: [
-                    NSLocalizedDescriptionKey: message
-                ])
+                return ArchiveSendOutcome(
+                    exportedCount: exportedIdentifiers.count,
+                    deletedCount: deletedIdentifiers.count,
+                    failedCount: failedIdentifiers.count,
+                    notDeletedCount: 0,
+                    failures: failures
+                )
             }
 
             try await database.jobRepository.markCompleted(job)
@@ -513,6 +691,13 @@ final class AppModel: ObservableObject {
             assetDataVersion &+= 1
             refreshArchiveCandidateCount()
             notifyIndexingStateChanged()
+            return ArchiveSendOutcome(
+                exportedCount: exportedIdentifiers.count,
+                deletedCount: deletedIdentifiers.count,
+                failedCount: 0,
+                notDeletedCount: 0,
+                failures: []
+            )
         } catch {
             let exportingIdentifiers = (try? database.assetRepository.fetchArchiveCandidateIdentifiers(statuses: [.exporting])) ?? []
             let stillExporting = Array(Set(exportingIdentifiers).intersection(Set(identifiers)))
@@ -687,9 +872,27 @@ final class AppModel: ObservableObject {
     }
 }
 
-private struct ArchiveExportFailure {
+struct ArchiveExportOptions: Sendable {
+    var keepOriginalsAlongsideEdits: Bool
+    var keepLivePhotos: Bool
+
+    static let `default` = ArchiveExportOptions(
+        keepOriginalsAlongsideEdits: false,
+        keepLivePhotos: false
+    )
+}
+
+struct ArchiveExportFailure: Sendable {
     let identifier: String
     let message: String
+}
+
+struct ArchiveSendOutcome: Sendable {
+    let exportedCount: Int
+    let deletedCount: Int
+    let failedCount: Int
+    let notDeletedCount: Int
+    let failures: [ArchiveExportFailure]
 }
 
 private struct OsxPhotosReportRow: Decodable {
@@ -733,7 +936,10 @@ private struct ArchiveExportBatchResult {
     let failures: [ArchiveExportFailure]
 }
 
-nonisolated private func runOsxPhotosExportBatch(targets: [ArchiveExportTarget]) throws -> ArchiveExportBatchResult {
+nonisolated private func runOsxPhotosExportBatch(
+    targets: [ArchiveExportTarget],
+    options: ArchiveExportOptions
+) throws -> ArchiveExportBatchResult {
     var exportedGroups: [ArchiveExportGroupResult] = []
     var failures: [ArchiveExportFailure] = []
 
@@ -763,15 +969,19 @@ nonisolated private func runOsxPhotosExportBatch(targets: [ArchiveExportTarget])
             "--report", reportURL.path,
             "--exportdb", exportDBURL.path,
             "--export-by-date",
-            "--skip-original-if-edited",
             "--jpeg-ext", "jpg",
-            "--skip-live",
             "--no-progress",
             "--update-errors",
             "--retry", "2",
             "--exiftool",
             "--update"
         ]
+        if !options.keepOriginalsAlongsideEdits {
+            args.append("--skip-original-if-edited")
+        }
+        if !options.keepLivePhotos {
+            args.append("--skip-live")
+        }
         logInfoAsync("osxphotos command: \(renderShellCommand(arguments: args))")
 
         var result = runOsxPhotos(arguments: args)
@@ -884,12 +1094,28 @@ nonisolated private func shouldRetryWithoutExifTool(outputText: String) -> Bool 
 }
 
 nonisolated private func runOsxPhotos(arguments: [String]) -> (exitCode: Int32, outputText: String) {
-    let process = Process()
-    do {
-        process.executableURL = try resolveBundledOsxPhotosExecutable()
-    } catch {
-        return (1, error.localizedDescription)
+    if let bundledExecutable = try? resolveBundledOsxPhotosExecutable() {
+        let bundledResult = runProcess(executableURL: bundledExecutable, arguments: arguments)
+        if bundledResult.exitCode != 0,
+           isPyInstallerSemaphoreError(outputText: bundledResult.outputText),
+           let externalExecutable = resolveExternalOsxPhotosExecutable() {
+            logInfoAsync("Bundled osxphotos failed with sandboxed PyInstaller semaphore error. Retrying with external osxphotos at \(externalExecutable.path)")
+            return runProcess(executableURL: externalExecutable, arguments: arguments)
+        }
+        return bundledResult
     }
+
+    if let externalExecutable = resolveExternalOsxPhotosExecutable() {
+        logInfoAsync("Bundled osxphotos executable not found. Using external osxphotos at \(externalExecutable.path)")
+        return runProcess(executableURL: externalExecutable, arguments: arguments)
+    }
+
+    return (1, "Bundled osxphotos executable not found in app resources, and no external osxphotos executable was found.")
+}
+
+nonisolated private func runProcess(executableURL: URL, arguments: [String]) -> (exitCode: Int32, outputText: String) {
+    let process = Process()
+    process.executableURL = executableURL
     process.arguments = arguments
     let fileManager = FileManager.default
     let logURL = fileManager.temporaryDirectory
@@ -920,6 +1146,12 @@ nonisolated private func runOsxPhotos(arguments: [String]) -> (exitCode: Int32, 
     return (process.terminationStatus, outputText)
 }
 
+nonisolated private func isPyInstallerSemaphoreError(outputText: String) -> Bool {
+    let lower = outputText.lowercased()
+    return lower.contains("failed to initialize sync semaphore")
+        || (lower.contains("pyi-") && lower.contains("semctl") && lower.contains("operation not permitted"))
+}
+
 nonisolated private func resolveBundledOsxPhotosExecutable() throws -> URL {
     let fm = FileManager.default
     let bundle = Bundle.main
@@ -948,8 +1180,61 @@ nonisolated private func resolveBundledOsxPhotosExecutable() throws -> URL {
     ])
 }
 
+nonisolated private func resolveExternalOsxPhotosExecutable() -> URL? {
+    let fm = FileManager.default
+    var candidates = [
+        "/opt/homebrew/bin/osxphotos",
+        "/usr/local/bin/osxphotos",
+        "/usr/bin/osxphotos",
+        NSHomeDirectory() + "/.local/bin/osxphotos"
+    ].map(URL.init(fileURLWithPath:))
+
+    if let pathURL = resolveOsxPhotosFromPATH() {
+        candidates.insert(pathURL, at: 0)
+    }
+
+    for url in candidates where fm.isExecutableFile(atPath: url.path) {
+        return url
+    }
+    return nil
+}
+
+nonisolated private func resolveOsxPhotosFromPATH() -> URL? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+    process.arguments = ["osxphotos"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+    do {
+        try process.run()
+    } catch {
+        return nil
+    }
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let path = String(data: data, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+        !path.isEmpty
+    else {
+        return nil
+    }
+    return URL(fileURLWithPath: path)
+}
+
 nonisolated private func archiveRootForExport(_ rootURL: URL) -> URL {
     rootURL.appendingPathComponent("Archive", isDirectory: true)
+}
+
+nonisolated private func withArchiveRootAccess<T>(root: URL, operation: () throws -> T) throws -> T {
+    let didAccess = root.startAccessingSecurityScopedResource()
+    defer {
+        if didAccess {
+            root.stopAccessingSecurityScopedResource()
+        }
+    }
+    return try operation()
 }
 
 nonisolated private func persistExportReportJSON(reportData: Data, runToken: String) -> URL? {

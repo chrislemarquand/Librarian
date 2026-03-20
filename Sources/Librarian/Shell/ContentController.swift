@@ -71,10 +71,6 @@ final class ContentController: NSViewController {
     private var archivedNoticeBarHeightConstraint: NSLayoutConstraint!
     private var scrollTopToArchivedNoticeConstraint: NSLayoutConstraint!
     private var scrollTopToContainerConstraint: NSLayoutConstraint!
-    private var indexingPane: NSView!
-    private var indexingStatusLabel: NSTextField!
-    private var indexingDetailLabel: NSTextField!
-    private var indexingProgressBar: NSProgressIndicator!
     private var logPane: NSView!
     private var logTextView: NSTextView!
     private let logPlaceholderViewModel = GalleryPlaceholderViewModel()
@@ -166,11 +162,6 @@ final class ContentController: NSViewController {
         archivedNoticeBar.isHidden = true
         container.addSubview(archivedNoticeBar)
 
-        indexingPane = buildIndexingPane()
-        indexingPane.translatesAutoresizingMaskIntoConstraints = false
-        indexingPane.isHidden = true
-        container.addSubview(indexingPane)
-
         logPane = buildLogPane()
         logPane.translatesAutoresizingMaskIntoConstraints = false
         logPane.isHidden = true
@@ -196,11 +187,6 @@ final class ContentController: NSViewController {
             screenshotActionBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             screenshotActionBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             screenshotActionBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            indexingPane.topAnchor.constraint(equalTo: container.topAnchor),
-            indexingPane.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            indexingPane.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            indexingPane.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
             logPane.topAnchor.constraint(equalTo: container.topAnchor),
             logPane.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -513,7 +499,6 @@ final class ContentController: NSViewController {
         case .notDetermined:
             showPlaceholder(.loading(title: "Requesting Access", symbolName: "key.fill"))
             collectionView.isHidden = true
-            indexingPane.isHidden = true
             logPane.isHidden = true
         case .denied, .restricted:
             showPlaceholder(.unavailable(
@@ -521,7 +506,6 @@ final class ContentController: NSViewController {
                 symbolName: "lock.fill",
                 description: "Open System Settings to grant Librarian access to your photo library."))
             collectionView.isHidden = true
-            indexingPane.isHidden = true
             logPane.isHidden = true
         case .limited:
             showPlaceholder(.unavailable(
@@ -529,46 +513,37 @@ final class ContentController: NSViewController {
                 symbolName: "lock.trianglebadge.exclamationmark.fill",
                 description: "Librarian requires full access to your photo library. Please update your privacy settings."))
             collectionView.isHidden = true
-            indexingPane.isHidden = true
             logPane.isHidden = true
         case .authorized:
-            if shouldShowIndexingPane(for: sidebarKind) {
+            if sidebarKind == .log {
                 hidePlaceholder()
                 collectionView.isHidden = true
-                indexingPane.isHidden = false
-                logPane.isHidden = true
-                refreshIndexingPane()
-            } else if sidebarKind == .log {
-                hidePlaceholder()
-                collectionView.isHidden = true
-                indexingPane.isHidden = true
                 logPane.isHidden = false
                 refreshLogPane()
-            } else if model.isIndexing, displayAssets.isEmpty {
-                showPlaceholder(.loading(title: "Indexing Library", symbolName: "arrow.triangle.2.circlepath"))
+            } else if sidebarKind == .indexing {
+                showPlaceholder(.loading(title: "Indexing", symbolName: "arrow.triangle.2.circlepath"))
                 collectionView.isHidden = true
-                indexingPane.isHidden = true
+                logPane.isHidden = true
+            } else if model.isIndexing, displayAssets.isEmpty {
+                showPlaceholder(.loading(title: "Indexing", symbolName: "arrow.triangle.2.circlepath"))
+                collectionView.isHidden = true
                 logPane.isHidden = true
             } else if isLoadingAssets, displayAssets.isEmpty {
                 showPlaceholder(.loading(title: "Loading", symbolName: symbolName(for: sidebarKind)))
                 collectionView.isHidden = true
-                indexingPane.isHidden = true
                 logPane.isHidden = true
             } else if !displayAssets.isEmpty {
                 hidePlaceholder()
                 collectionView.isHidden = false
-                indexingPane.isHidden = true
                 logPane.isHidden = true
             } else {
                 showPlaceholder(emptyContent(for: sidebarKind))
                 collectionView.isHidden = true
-                indexingPane.isHidden = true
                 logPane.isHidden = true
             }
             updateScreenshotActionBarState()
         @unknown default:
             hidePlaceholder()
-            indexingPane.isHidden = true
             logPane.isHidden = true
             updateScreenshotActionBarState()
         }
@@ -880,45 +855,6 @@ final class ContentController: NSViewController {
         archivedNoticeDismissButton.isEnabled = !isOrganizingArchivedFiles
     }
 
-    private func buildIndexingPane() -> NSView {
-        let pane = NSView()
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        indexingStatusLabel = NSTextField(labelWithString: "")
-        indexingStatusLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
-        indexingStatusLabel.textColor = .labelColor
-
-        indexingDetailLabel = NSTextField(labelWithString: "")
-        indexingDetailLabel.font = NSFont.systemFont(ofSize: 12)
-        indexingDetailLabel.textColor = .secondaryLabelColor
-        indexingDetailLabel.alignment = .center
-
-        indexingProgressBar = NSProgressIndicator()
-        indexingProgressBar.style = .bar
-        indexingProgressBar.isIndeterminate = false
-        indexingProgressBar.minValue = 0
-        indexingProgressBar.maxValue = 1
-        indexingProgressBar.doubleValue = 0
-        indexingProgressBar.controlSize = .regular
-        indexingProgressBar.translatesAutoresizingMaskIntoConstraints = false
-        indexingProgressBar.widthAnchor.constraint(equalToConstant: 320).isActive = true
-
-        [indexingStatusLabel, indexingProgressBar, indexingDetailLabel].forEach { stack.addArrangedSubview($0) }
-        pane.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: pane.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: pane.centerYAnchor),
-        ])
-
-        return pane
-    }
-
     private func buildLogPane() -> NSView {
         let pane = NSView()
 
@@ -966,19 +902,8 @@ final class ContentController: NSViewController {
     }
 
     private func refreshTaskAndLogPanes() {
-        refreshIndexingPane()
         if selectedSidebarKind() == .log {
             refreshLogPane()
-        }
-    }
-
-    private func refreshIndexingPane() {
-        indexingStatusLabel.stringValue = model.indexingProgress.statusText
-        indexingDetailLabel.stringValue = "Indexed assets: \(model.indexedAssetCount.formatted())"
-        if let fraction = model.indexingProgress.fractionComplete {
-            indexingProgressBar.doubleValue = fraction
-        } else {
-            indexingProgressBar.doubleValue = model.isIndexing ? 0 : 1
         }
     }
 
@@ -993,19 +918,6 @@ final class ContentController: NSViewController {
             title: "No Log Entries",
             symbolName: "list.bullet.rectangle",
             description: "Activity will appear here.") : nil
-    }
-
-    private func shouldShowIndexingPane(for sidebarKind: SidebarItem.Kind) -> Bool {
-        if sidebarKind == .indexing {
-            return true
-        }
-        if sidebarKind == .allPhotos, model.isIndexing {
-            return true
-        }
-        if sidebarKind == .allPhotos, displayAssets.isEmpty, (isLoadingAssets || model.indexedAssetCount == 0) {
-            return true
-        }
-        return false
     }
 
     func openSelectionInPhotos() {

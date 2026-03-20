@@ -2,6 +2,44 @@
 
 All notable changes to Librarian are tracked here.
 
+## 2026-03-20
+
+### Added
+- App branding surface wiring and shared About panel integration via SharedUI menu/about helpers.
+- Architecture guide documenting app shell and service boundaries (`docs/ARCHITECTURE.md`).
+
+### Changed
+- Bundle/project structure finalized for current app identifier and entitlements layout.
+- Swift 6 baseline adopted in project/build settings; remaining strict-concurrency blockers cleaned up.
+- Main window and shell wiring further aligned with SharedUI conventions (toolbar + key handling polish).
+- Release tooling parity added (`archive`, `notarize`, `dmg`, release gates/check script updates).
+- Replaced `ROADMAP.md` phase/backlog format with a versioned release roadmap (`v1.0` to `v2.0`).
+- Updated roadmap scope to reflect implementation audit results (moved already-shipped capabilities to baseline status).
+- Added explicit roadmap decision log entries for approved, delayed, and rejected items (including reject reasons).
+- Added a dedicated `SharedUI Work` section in roadmap for cross-repo extraction items:
+  - Quick Look coordinator
+  - gallery context-menu selection infrastructure
+  - three-pane keyboard focus utility
+
+### Fixed
+- Restored app icon asset mapping after source/project structure moves.
+- Restored gallery header fade styling regression.
+
+## 2026-03-19
+
+### Added
+- Inspector rework with richer metadata sections.
+
+### Changed
+- Three-pane shell now inherits SharedUI `ThreePaneSplitViewController`.
+- Sidebar migrated to SharedUI `AppKitSidebarController`.
+- Placeholder, inspector/settings scaffolding, toolbar setup, window sizing, menu builders, key-code utilities, and alert helpers migrated to SharedUI infrastructure.
+
+### Fixed
+- Sidebar selection/inactive text color consistency.
+- App menu/service wiring + toolbar identifier/restorable-state regressions during SharedUI migration.
+- Initial inspector visibility corrected to start collapsed.
+
 ## 2026-03-17
 
 ### Added

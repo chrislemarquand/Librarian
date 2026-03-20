@@ -10,11 +10,18 @@
 Run in order:
 
 ```bash
+./scripts/deps/verify_shared_ui_pin.sh
 xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Librarian
 ./scripts/release/release_check.sh
 ```
 
 Release checks must pass with no Swift warnings.
+
+For SharedUI updates, use:
+
+```bash
+./scripts/deps/bump_sharedui.sh <version>
+```
 
 ## 3. Git and Tag
 

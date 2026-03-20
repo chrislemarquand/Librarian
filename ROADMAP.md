@@ -1,216 +1,172 @@
 # Roadmap
 
-## Immediate — Phase 4 Hardening
+Last updated: 2026-03-20
 
-These are correctness issues identified during a codebase review on 2026-03-17. They should be
-resolved before building further UX on top of the archive pipeline.
+## Planning Principles
 
-### 1) Fix Export Flags vs Spec
+- Version scope is capability-based, not date-based.
+- v1.0 is distribution-ready (not dev-only).
+- The archive pipeline is the trust boundary; reliability items there take priority over new UX.
+- Do not plan already-shipped features as new work.
 
-`AppModel.runOsxPhotosExportBatch` currently passes `--skip-original-if-edited` and `--skip-live`.
-Both contradict spec decisions already locked in CLAUDE.md:
+## Implemented Baseline (Do Not Re-Plan)
 
-- `--skip-original-if-edited` → spec says export **both** original and edited versions.
-- `--skip-live` → spec says Live Photos are supported in v1 (all five media types).
+These are already present in code and should be treated as shipped baseline:
 
-Either remove both flags (to honour the spec) or document a deliberate divergence in CLAUDE.md
-before proceeding.
+- Core queue set currently implemented: `Screenshots`, `Duplicates`, `Low Quality`, `Documents`, plus archive `Set Aside`.
+- Library analysis pipeline (osxphotos query + Vision pass + import of scores/labels/fingerprints/file size/person counts).
+- Create New Archive flow with preflight scan, dedupe, import summary, and archive-root switch.
+- Multi-selection inspector placeholder (`X Photos Selected`).
 
-### 2) Reset Stale `exporting` Rows at Startup
+## Decision Log (Approved / Rejected / Delayed)
 
-If the app crashes or is force-quit during an archive send, rows remain in `exporting` state
-permanently. They won't appear in the retry path and won't drain from the Set Aside queue.
+### Approved
 
-Fix: in `AppModel.setup()`, after the database opens, reset any `archive_candidate` rows still
-in `exporting` status to `failed` with an explanatory error string
-(e.g. "Export interrupted — app was quit or crashed").
+- Reset stale `exporting` archive rows at startup to recover from interrupted runs.
+- Add an export progress sheet with clear completion counts and log access.
+- Move osxphotos process boundary to XPC for distribution readiness.
+- Add Quick Look (`Space`) for selected items.
+- Add gallery context menus with auto-select-on-right-click behavior.
+- Add sidebar badges for at-a-glance counts.
+- Add keyboard parity bundle:
+  - `Cmd+A` select visible
+  - put-back shortcut
+  - Tab pane cycling
+- Add archive trust-boundary automated test baseline.
 
-### 3) Export Progress Sheet (Ledger-style)
+### Approved with Custom Direction
 
-Currently the user sees only a toolbar spinner during an archive send, then an alert on
-completion. For large batches this blocks UI silently for minutes.
+- Export flags behavior (`--skip-original-if-edited`, `--skip-live`):
+  - keep behavior behind explicit user-approved export toggles in Settings.
+  - default behavior and copy must be explicit and reversible.
 
-Add a sheet on the main window visually aligned with Ledger's import sheet:
-- Header + live status line (e.g. "Exporting 47 items…").
-- Indeterminate progress indicator (osxphotos doesn't emit incremental progress).
-- On completion: final counts (exported / failed / deleted).
-- Actions: `Done`, `View Log`; optional `Cancel` only if cancellation can be safely wired.
-- Keep SwiftUI content fully wrapped in AppKit sheet presentation (matching inspector pattern).
+### Delayed
 
-Backed by the existing job record in the database.
+- Queue keep-reset empty-state UX (replace Settings-only reset controls).
 
----
+### Rejected
 
-## Near Term
+- `Review Later` queue.
+  - Reason: overlaps existing queues.
+- Subtitle-only success feedback for archive completion.
+  - Reason: explicit modal success confirmation is preferred.
 
-### 4) Queue Keep Decisions — Reset UX
+## Release Plan
 
-Queue keep decisions (items dismissed from a queue via Keep) are currently reset per-queue via
-buttons in the Settings window. The intended final UX is:
+## v1.0 — Trusted Core + Distribution Readiness
 
-- When a queue is **empty** (all items either kept or set aside), show a contextual message in
-  the empty state: "All items reviewed. Reset keep decisions to review again." with a direct
-  action button.
-- Remove the per-queue reset buttons from Settings once the empty-state UX is in place.
+Goal: stable daily-driver release with safe archive trust boundary and release-safe process model.
 
-The Settings buttons remain as the mechanism while queues are actively being developed and
-debugged.
+### In
 
-### 5) Archive UX Hardening
+- Archive pipeline hardening:
+  - startup reset of stale `exporting` rows
+  - retry-safe failure handling and clearer per-item failure visibility
+  - improved partial-success summaries
+- Export UX:
+  - progress sheet (indeterminate + status line + completion summary + log access)
+- osxphotos boundary:
+  - replace direct subprocess usage with XPC service path for export and analysis invocations
+- Export behavior controls:
+  - add user-visible toggles for edited/live export handling (the approved flags decision)
+- Runtime dependency hardening:
+  - bundle and validate ExifTool at app runtime so export behavior is not dependent on user machine installs
+- Interaction baseline:
+  - Quick Look (`Space`)
+  - gallery context menus
+  - keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
+- Sidebar visibility:
+  - item badges wired through `badgeText` + repository counts
+- Trust-boundary test gate:
+  - state transitions
+  - mixed export outcomes
+  - deletion reconciliation
+  - interrupted-run recovery
+- External archive robustness baseline:
+  - archive control folder (`.librarian`) with schema/version metadata and stable archive ID
+  - archive relink flow for moved archives (internal ↔ external), with archive ID validation
+  - startup/offline handling when archive volume is unavailable
+  - write-access and free-space preflight before archive export/import
+  - crash/disconnect-safe control-file writes (atomic writes for archive metadata and run artifacts)
 
-- Improve per-item failure visibility in the Set Aside view — show an inline error badge or
-  message for `failed` status items, not just in the log.
-- Add explicit retry action for failed archive items (reset `failed → pending`, then re-run).
-- Show clearer end-state summaries for partial success (exported vs failed vs deleted counts).
+### Out
 
-### 6) Inspector Enhancements
+- Queue keep-reset empty-state UX
+- broader smart-view expansion and integrity tooling
+- restore UI
+- workflow automation hooks
 
-- Continue visual alignment with Ledger where appropriate.
-- Ensure archive metadata/error fields remain clear and non-editable.
-- Add compact formatting for long identifiers/paths while preserving full-value access.
+## v1.1 — Stabilization + UX Hardening
 
-### 7) Settings Expansion
+Goal: remove rough edges from 1.0 and improve review speed without widening domain scope.
 
-- Add user-configurable export template settings (future-safe for folder/file naming rules).
-- Persist and expose export-related toggles that currently live in code defaults.
+### In
 
----
+- Queue keep-reset empty-state UX and cleanup of temporary Settings reset surface.
+- Inspector polish and readability improvements for long archive/error fields.
+- Additional archive UX hardening discovered during 1.0 use (non-breaking).
+- SharedUI extraction follow-through for interaction primitives introduced in 1.0.
+- External archive robustness follow-through:
+  - volume identity tracking (same path, different disk safeguards)
+  - operation journal + reconciliation pass for interrupted archive runs
+  - read-only mount and permission-drift handling polish
+  - slow-disk/network-volume behavior tuning (batching, responsiveness)
 
-## Medium Term
+## v1.2 — Analysis and View Model Expansion
 
-### 8) Library Analysis Pass
+Goal: strengthen analysis lifecycle and scale query-driven views.
 
-A user-initiated action (not a background process) that runs osxphotos in query mode, imports
-enriched metadata into GRDB, and unlocks score-dependent queues and inspector fields.
+### In
 
-**What it imports** (specific columns on `asset` table, no full JSON blob):
-- Quality scores: overall aesthetic + component scores (noise, exposure, sharpness, etc.)
-- `fileSizeBytes` — not available cheaply from PhotoKit; immediately useful for size-sorted curation
-- `hasNamedPerson` bool + `namedPersonCount` int — photos with recognised people are higher value
-- `labels` JSON string — Apple ML scene/object labels (e.g. "receipt", "document", "sunset")
-- `perceptualFingerprint` — for exact duplicate detection
+- Analysis lifecycle improvements:
+  - rerun policy
+  - "last analysed" state visibility
+  - refresh recommendations when library growth warrants it
+- Smart/query view expansion beyond current queue set.
+- Incremental indexing and integrity/reconciliation tooling.
 
-**UUID join:** osxphotos returns bare UUIDs; strip the `/L0/001` suffix from `localIdentifier`
-before joining. Same logic already exists in the export batch path.
+## v1.3 — Workflow Expansion
 
-**UX:**
-- Offered via a non-modal prompt after initial index completes ("Librarian can analyse your
-  library for quality signals. This takes a few minutes and runs once.") with `Analyse` and
-  `Not Now` options. Never a blocking setup step.
-- Progress sheet (same pattern as export) — indeterminate indicator, status line, `Done` /
-  `View Log` on completion.
-- "Last analysed: [date]" shown in Settings. Refresh offered if asset count has grown
-  significantly but not pushed aggressively.
-- The Low Quality queue (and any other score-dependent views) are hidden until at least one
-  analysis pass has completed. If the user somehow navigates to where they will appear, show
-  a one-line explanation with a direct link to run analysis.
+Goal: deepen curation workflows built on stable 1.0–1.2 foundations.
 
-### 9) XPC Service for osxphotos
+### In
 
-The spec (CLAUDE.md) requires the osxphotos helper to run in an XPC service, not as a direct
-`Process()` subprocess. The current approach works in development but will hit sandboxing
-entitlement checks at distribution. Covers both the export and analysis pass invocations.
+- Context-review style curation flows (day/event/trip-oriented review).
+- Archive pipeline extension work directly supporting richer review workflows.
 
-The isolation boundary is already architecturally correct (osxphotos is user-initiated only,
-never a passive reader). The work is formalising the process boundary into an XPC service and
-updating entitlements.
+## v2.0 — Intelligence + Workflow Platform
 
-### 10) Smart Views + Archive-Oriented Views
+Goal: first materially new generation beyond incremental queue and UX work.
 
-- Expand smart/sidebar views using query model rather than one-off hardcoded filters.
-- Ensure queued-for-archive visibility rules remain central and reusable across future views.
+### In
 
-### 11) Incremental Indexing and Data Integrity
+- Mature explainability/meaningfulness stack.
+- Stronger context-aware recommendation workflows.
+- Durable job orchestration and audit/replay/recovery improvements.
+- Extensibility hooks for downstream archive workflows.
+- Restore capability promoted toward user-facing product surface (if quality bar is met).
 
-- Continue reducing full rebuild scenarios.
-- Add explicit integrity/reconciliation tools and diagnostics for edge cases (recovered photos,
-  missing assets, external changes).
+## SharedUI Work
 
-### 12) Test Coverage
+These are cross-repo items discovered from Ledger/SharedUI audit and should be tracked as SharedUI-scoped work even when driven by Librarian needs.
 
-Priority targets for the archive pipeline (the trust boundary):
-- Archive state machine transitions (`pending → exporting → exported → deleted`, all failure paths).
-- Mixed export outcomes (partial success batch).
-- Deletion reconciliation (exported but not deleted case).
-- Photo library change deltas and delta accumulation.
+- **[SharedUI] Quick Look Coordinator**
+  - Extract Ledger Quick Look controller patterns into SharedUI so Librarian consumes a shared coordinator.
+  - Source reference: `Ledger/Sources/Ledger/AppModel+Preview.swift`.
 
-### 13) Ledger UI Parity — Keyboard & Selection
+- **[SharedUI] Gallery Context-Menu Selection Infrastructure**
+  - Extend `SharedGalleryCollectionView` with reusable right-click target normalization (auto-select clicked item before menu generation).
+  - Keep app-specific menu item actions local to each app.
+  - Source reference: `Ledger/Sources/Ledger/BrowserGalleryView.swift`.
 
-Patterns present in Ledger that would make the apps feel consistent:
+- **[SharedUI] Three-Pane Keyboard Focus Utility**
+  - Add reusable pane focus-cycling utilities for sidebar/content/inspector.
+  - Source reference: `Ledger/Sources/Ledger/MainContentView.swift`.
 
-- **Cmd+A** — select all currently visible assets in the gallery.
-- **Cmd+D** — deselect all (or map to Escape, which already clears selection).
-- **Keyboard shortcut for Put Back** — the Set Aside view has no keyboard shortcut to
-  put back selected items; batch review currently requires mouse.
-- **Tab key cycling** — Tab to move focus between sidebar → gallery → inspector, matching
-  Ledger's pane-cycling behaviour.
-- **Multi-selection feedback in inspector** — when 2+ photos are selected, inspector should
-  show "X photos selected" rather than the empty "No Selection" state.
+## Open Items / Parking Lot
 
-### 14) Ledger UI Parity — Quick Look
-
-Space bar should open Quick Look (`QLPreviewPanel`) for the currently selected photo(s).
-Standard macOS behaviour for any image-browsing app; essential for evaluating whether a
-photo is worth keeping before deciding to archive it. One of the highest-value missing
-interactions relative to the workflow.
-
-### 15) Ledger UI Parity — Gallery Context Menus
-
-Right-click on a gallery item should show a context menu. Minimum useful set:
-- **Set Aside** (primary action, all library/queue views)
-- **Keep** (queue views only — dismisses from that queue)
-- **Put Back** (Set Aside view only)
-- Separator
-- **Open in Photos**
-
-Right-clicking an unselected item should auto-select it first (Ledger pattern).
-Disabled items for inapplicable actions should be shown but inactive, not hidden.
-
-### 16) Ledger UI Parity — Sidebar Badges
-
-Show item counts as badges next to each sidebar item, giving at-a-glance visibility
-across all views simultaneously. Particularly useful for queue views (how many screenshots,
-duplicates, low-quality items remain). Uses `countForSidebarKind()` already in
-`AssetRepository`. SwiftUI `.badge()` modifier in the sidebar cell view.
-
-### 17) Ledger UI Parity — Subtitle Feedback for Archive Results
-
-Ledger uses the window subtitle for non-critical operation feedback rather than modal
-alerts. A clean full-success archive send currently shows an NSAlert; the subtitle pattern
-is less disruptive. NSAlert remains appropriate for partial failures (items that couldn't
-be exported or deleted), but clean success should use subtitle feedback:
-e.g. "Archived 47 photos."
-
----
-
-## Later
-
-### 18) Archive Pipeline Extensions
-
-- Optional export profiles/presets.
-- Better post-export auditing and reporting UI.
-- Optional automation hooks for downstream archive workflows.
-
-### 19) Create New Archive Workflow
-
-Add a first-class flow to create a new active archive (single-archive model):
-
-- User picks a new archive destination (becomes both export destination and Archived-view source).
-- User selects one or more existing folders to import from.
-- App scans selected folders, imports files into the archive's fixed `YYYY/MM/DD` structure, and
-  deduplicates before writing.
-- New archive remains separate from PhotoKit-managed library files.
-
-Required checks:
-
-- Deduplicate within selected source folders (no duplicates copied into archive).
-- Compare candidate files against current PhotoKit library and avoid importing files that already
-  exist there (target: no image duplicated between archive and PhotoKit).
-- Preserve safety guarantees: no destructive action on source folders unless explicitly user-requested.
-
-Implementation notes:
-
-- Reuse archive organizer + archive indexer pipeline where possible.
-- Add a staged import report before finalizing (copied / skipped-duplicate / skipped-in-PhotoKit /
-  failed).
-- Keep this behind an explicit user-initiated workflow (Settings action), not automatic background ingest.
+- Archive pipeline extensions:
+  - export profiles/presets
+  - richer post-export auditing/reporting
+  - optional automation hooks
+- Any future queue taxonomy changes should be additive and justified by measurable workflow gain.

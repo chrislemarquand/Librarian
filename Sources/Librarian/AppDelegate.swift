@@ -26,10 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var appModel: AppModel? { mainWindowController?.appModel }
 
     func showAboutPanel() {
-        SharedUI.showAboutPanel(
+        presentAboutPanel(
             purpose: "Curate and archive your Apple Photos library.",
             credits: [
-                AboutPanelCredit(text: "Uses osxphotos by Rhet Turnbull", linkURL: "https://github.com/RhetTbull/osxphotos"),
+                .init(text: "Uses osxphotos by Rhet Turnbull", linkURL: "https://github.com/RhetTbull/osxphotos"),
             ],
             copyright: "© 2026 Chris Le Marquand"
         )
@@ -195,4 +195,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController?.showWindowAndActivate()
     }
 
+}
+
+private struct AboutCredit {
+    let text: String
+    let linkURL: String?
+}
+
+@MainActor
+private func presentAboutPanel(
+    purpose: String,
+    credits: [AboutCredit] = [],
+    copyright: String? = nil
+) {
+    let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    let color = NSColor.secondaryLabelColor
+    let centered = NSMutableParagraphStyle()
+    centered.alignment = .center
+    let baseAttributes: [NSAttributedString.Key: Any] = [
+        .font: font,
+        .foregroundColor: color,
+        .paragraphStyle: centered,
+    ]
+
+    let body = NSMutableAttributedString(string: purpose, attributes: baseAttributes)
+    for credit in credits {
+        body.append(NSAttributedString(string: "\n\n\(credit.text)", attributes: baseAttributes))
+        if let linkURL = credit.linkURL {
+            body.append(NSAttributedString(string: "\n", attributes: baseAttributes))
+            let range = NSRange(location: body.length, length: (linkURL as NSString).length)
+            body.append(NSAttributedString(string: linkURL, attributes: baseAttributes))
+            body.addAttributes(
+                [
+                    .link: linkURL,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                ],
+                range: range
+            )
+        }
+    }
+
+    let bundle = Bundle.main
+    let appName = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+        ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+        ?? ProcessInfo.processInfo.processName
+    let shortVersion = (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0"
+
+    var options: [NSApplication.AboutPanelOptionKey: Any] = [
+        .applicationName: appName,
+        .applicationVersion: shortVersion,
+        .credits: body,
+    ]
+    if let copyright {
+        options[NSApplication.AboutPanelOptionKey(rawValue: "Copyright")] = copyright
+    }
+
+    NSApp.orderFrontStandardAboutPanel(options: options)
+    NSApp.activate(ignoringOtherApps: true)
 }

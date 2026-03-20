@@ -132,6 +132,12 @@ final class PhotosLibraryService {
             foundIdentifiers.append(asset.localIdentifier)
         }
 
+        try await Self.performDeletion(fetchResult: fetchResult)
+
+        return foundIdentifiers
+    }
+
+    private static func performDeletion(fetchResult: PHFetchResult<PHAsset>) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             PHPhotoLibrary.shared().performChanges({
                 PHAssetChangeRequest.deleteAssets(fetchResult)
@@ -149,8 +155,6 @@ final class PhotosLibraryService {
                 }
             }
         }
-
-        return foundIdentifiers
     }
 
     private func makeThumbnailOptions(deliveryMode: PHImageRequestOptionsDeliveryMode) -> PHImageRequestOptions {

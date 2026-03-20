@@ -27,7 +27,11 @@ struct GalleryPlaceholderView: View {
             case let .unavailable(title, symbolName, description):
                 PlaceholderView(symbolName: symbolName, title: title, description: description)
             case let .loading(title, symbolName):
-                PlaceholderView(symbolName: symbolName, title: title, isLoading: true)
+                PlaceholderView(
+                    symbolName: symbolName,
+                    title: title,
+                    isLoading: true
+                )
             }
         }
     }
