@@ -54,8 +54,8 @@ final class ContentController: NSViewController {
 
     private let galleryPageSize = 600
     private let loadMoreRemainingThreshold: CGFloat = 1800
-    private var collectionView: AppKitGalleryCollectionView!
-    private let galleryLayout = AppKitGalleryLayout()
+    private var collectionView: SharedGalleryCollectionView!
+    private let galleryLayout = SharedGalleryLayout(showsSupplementaryDetail: false)
     private var scrollView: NSScrollView!
     private let placeholderViewModel = GalleryPlaceholderViewModel()
     private var placeholderHostingView: NSView?
@@ -69,6 +69,8 @@ final class ContentController: NSViewController {
     private var archivedNoticeActionButton: NSButton!
     private var archivedNoticeDismissButton: NSButton!
     private var archivedNoticeBarHeightConstraint: NSLayoutConstraint!
+    private var scrollTopToArchivedNoticeConstraint: NSLayoutConstraint!
+    private var scrollTopToContainerConstraint: NSLayoutConstraint!
     private var indexingPane: NSView!
     private var indexingStatusLabel: NSTextField!
     private var indexingDetailLabel: NSTextField!
@@ -85,9 +87,7 @@ final class ContentController: NSViewController {
     private var lastLoadedAssetDataVersion = -1
     private var lastLoadedSidebarKind: SidebarItem.Kind?
     private var zoomRestoreToken = 0
-    private var pinchAccumulator: CGFloat = 0
-    private var lastMagnification: CGFloat = 0
-    private let pinchThreshold: CGFloat = 0.14
+    private let pinchZoomAccumulator = PinchZoomAccumulator()
     private var selectionAnchorIndex: Int?
     private let archivedIndexer: ArchiveIndexer
     private let archiveOrganizer = ArchiveOrganizer()
@@ -108,7 +108,7 @@ final class ContentController: NSViewController {
     override func loadView() {
         let container = NSView()
 
-        collectionView = AppKitGalleryCollectionView()
+        collectionView = SharedGalleryCollectionView()
         galleryLayout.columnCount = model.galleryColumnCount
         collectionView.collectionViewLayout = galleryLayout
         collectionView.backgroundColors = [.clear]
@@ -134,11 +134,15 @@ final class ContentController: NSViewController {
         collectionView.onMoveSelection = { [weak self] (direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) in
             self?.moveSelection(direction, extendingSelection: extendingSelection)
         }
+        collectionView.allowsShiftExtendedMovement = true
+        collectionView.handlesActivateOnReturn = false
 
         scrollView = NSScrollView()
         scrollView.documentView = collectionView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
@@ -172,8 +176,10 @@ final class ContentController: NSViewController {
         logPane.isHidden = true
         container.addSubview(logPane)
 
+        scrollTopToArchivedNoticeConstraint = scrollView.topAnchor.constraint(equalTo: archivedNoticeBar.bottomAnchor)
+        scrollTopToContainerConstraint = scrollView.topAnchor.constraint(equalTo: container.topAnchor)
+
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: archivedNoticeBar.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: screenshotActionBar.topAnchor),
@@ -205,6 +211,7 @@ final class ContentController: NSViewController {
         screenshotActionBarHeightConstraint.isActive = true
         archivedNoticeBarHeightConstraint = archivedNoticeBar.heightAnchor.constraint(equalToConstant: 0)
         archivedNoticeBarHeightConstraint.isActive = true
+        scrollTopToContainerConstraint.isActive = true
 
         view = container
     }
@@ -714,26 +721,14 @@ final class ContentController: NSViewController {
 
     @objc
     private func handleMagnification(_ gesture: NSMagnificationGestureRecognizer) {
-        switch gesture.state {
-        case .began:
-            pinchAccumulator = 0
-            lastMagnification = 0
-        case .changed:
-            let delta = gesture.magnification - lastMagnification
-            lastMagnification = gesture.magnification
-            pinchAccumulator += delta
-
-            while pinchAccumulator >= pinchThreshold {
-                model.adjustGalleryGridLevel(by: -1)
-                pinchAccumulator -= pinchThreshold
+        pinchZoomAccumulator.handle(gesture) { [weak self] step in
+            guard let self else { return }
+            switch step {
+            case .zoomIn:
+                self.model.adjustGalleryGridLevel(by: -1)
+            case .zoomOut:
+                self.model.adjustGalleryGridLevel(by: 1)
             }
-            while pinchAccumulator <= -pinchThreshold {
-                model.adjustGalleryGridLevel(by: 1)
-                pinchAccumulator += pinchThreshold
-            }
-        default:
-            pinchAccumulator = 0
-            lastMagnification = 0
         }
     }
 
@@ -871,6 +866,8 @@ final class ContentController: NSViewController {
             && !archivedBannerDismissedForLaunch
         archivedNoticeBar.isHidden = !shouldShow
         archivedNoticeBarHeightConstraint.constant = shouldShow ? 40 : 0
+        scrollTopToArchivedNoticeConstraint.isActive = shouldShow
+        scrollTopToContainerConstraint.isActive = !shouldShow
 
         guard shouldShow else { return }
         archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) file(s) are outside YYYY/MM/DD. Organize archive now?"
@@ -1293,104 +1290,6 @@ extension ContentController {
     }
 }
 
-private final class AppKitGalleryLayout: NSCollectionViewFlowLayout {
-    var columnCount: Int = 4 {
-        didSet {
-            if oldValue != columnCount {
-                invalidateLayout()
-            }
-        }
-    }
-
-    private let defaultInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
-    private let horizontalSpacing: CGFloat = 14
-    private let verticalSpacing: CGFloat = 16
-
-    var tileSide: CGFloat {
-        max(40, floor(itemSize.width))
-    }
-
-    override init() {
-        super.init()
-        sectionInset = defaultInsets
-        minimumInteritemSpacing = horizontalSpacing
-        minimumLineSpacing = verticalSpacing
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func prepare() {
-        super.prepare()
-        guard let collectionView else { return }
-
-        let columns = max(columnCount, 1)
-        let usableWidth = max(
-            collectionView.bounds.width - sectionInset.left - sectionInset.right - CGFloat(columns - 1) * minimumInteritemSpacing,
-            1
-        )
-        let side = max(1, floor(usableWidth / CGFloat(columns)))
-        itemSize = NSSize(width: side, height: side)
-    }
-
-    override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
-        true
-    }
-}
-
-private final class AppKitGalleryCollectionView: NSCollectionView {
-    var onBackgroundClick: (() -> Void)?
-    var onMoveSelection: ((SharedUI.MoveCommandDirection, Bool) -> Void)?
-    var onModifiedItemClick: ((IndexPath, NSEvent.ModifierFlags) -> Void)?
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        guard let indexPath = indexPathForItem(at: point) else {
-            deselectAll(nil)
-            onBackgroundClick?()
-            return
-        }
-
-        let selectionModifiers = event.modifierFlags.intersection([.command, .shift])
-        if !selectionModifiers.isEmpty {
-            onModifiedItemClick?(indexPath, selectionModifiers)
-            return
-        }
-
-        super.mouseDown(with: event)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
-           event.keyCode == KeyCode.escape {
-            deselectAll(nil)
-            onBackgroundClick?()
-            return
-        }
-
-        let movementModifiers = event.modifierFlags.intersection([.shift, .command, .control, .option, .function])
-        if movementModifiers.subtracting([.shift]).isEmpty {
-            let extendingSelection = movementModifiers.contains(.shift)
-            let direction: SharedUI.MoveCommandDirection?
-            switch event.keyCode {
-            case KeyCode.leftArrow: direction = .left
-            case KeyCode.rightArrow: direction = .right
-            case KeyCode.downArrow: direction = .down
-            case KeyCode.upArrow: direction = .up
-            default: direction = nil
-            }
-            if let direction {
-                onMoveSelection?(direction, extendingSelection)
-                return
-            }
-        }
-
-        super.keyDown(with: event)
-    }
-}
-
 // MARK: - Item identifier
 
 private extension NSUserInterfaceItemIdentifier {
@@ -1403,8 +1302,8 @@ private final class AssetGridItem: NSCollectionViewItem {
 
     private let fallback = NSImageView()
     private let selectionBackgroundView = NSView()
-    private let thumbnailCornerRadius: CGFloat = 8
-    private let imageInset: CGFloat = 4
+    private let thumbnailCornerRadius: CGFloat = GalleryMetrics.default.thumbnailCornerRadius
+    private let imageInset: CGFloat = GalleryMetrics.default.imageInset
     private var representedLocalIdentifier: String?
     private var preferredAspectRatio: CGFloat?
     private var currentTileSide: CGFloat = 160
