@@ -112,6 +112,12 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             name: .librarianArchiveQueueChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(contentDataChanged),
+            name: .librarianContentDataChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
@@ -128,6 +134,11 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         refreshWindowTitle()
         refreshWindowSubtitle()
         toolbarDelegate.refresh(model: model)
+    }
+
+    @objc private func contentDataChanged() {
+        refreshSidebarItemsWithBadges()
+        refreshWindowSubtitle()
     }
 
     // MARK: - Keyboard

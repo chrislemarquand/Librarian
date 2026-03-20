@@ -446,6 +446,9 @@ final class ContentController: NSViewController {
                 self.lastLoadedAssetDataVersion = self.model.assetDataVersion
                 self.lastLoadedSidebarKind = sidebarKind
                 self.isLoadingAssets = false
+                if sidebarKind == .archived, replaceExisting {
+                    NotificationCenter.default.post(name: .librarianContentDataChanged, object: nil)
+                }
                 self.updateOverlay()
                 self.updateScreenshotActionBarState()
                 self.updateArchivedNoticeBarState()
