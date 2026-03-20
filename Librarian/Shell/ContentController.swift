@@ -131,7 +131,7 @@ final class ContentController: NSViewController {
         collectionView.onModifiedItemClick = { [weak self] indexPath, modifiers in
             self?.handleModifiedItemClick(indexPath: indexPath, modifiers: modifiers)
         }
-        collectionView.onMoveSelection = { [weak self] direction, extendingSelection in
+        collectionView.onMoveSelection = { [weak self] (direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) in
             self?.moveSelection(direction, extendingSelection: extendingSelection)
         }
 
@@ -844,8 +844,9 @@ final class ContentController: NSViewController {
             self.isOrganizingArchivedFiles = true
             self.updateArchivedNoticeBarState()
             do {
+                let organizer = self.archiveOrganizer
                 let summary = try await Task.detached(priority: .utility) {
-                    try self.archiveOrganizer.organizeArchiveTree(in: archiveTreeRoot)
+                    try organizer.organizeArchiveTree(in: archiveTreeRoot)
                 }.value
                 AppLog.shared.info("Archived view organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
                 self.archivedBannerDismissedForLaunch = false
@@ -1255,7 +1256,7 @@ extension ContentController {
         updateScreenshotActionBarState()
     }
 
-    private func moveSelection(_ direction: MoveCommandDirection, extendingSelection: Bool) {
+    private func moveSelection(_ direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) {
         guard !displayAssets.isEmpty else { return }
         let current = collectionView.selectionIndexPaths.map(\.item).sorted()
         let focus = current.last ?? 0
@@ -1339,16 +1340,9 @@ private final class AppKitGalleryLayout: NSCollectionViewFlowLayout {
     }
 }
 
-private enum MoveCommandDirection {
-    case left
-    case right
-    case up
-    case down
-}
-
 private final class AppKitGalleryCollectionView: NSCollectionView {
     var onBackgroundClick: (() -> Void)?
-    var onMoveSelection: ((MoveCommandDirection, Bool) -> Void)?
+    var onMoveSelection: ((SharedUI.MoveCommandDirection, Bool) -> Void)?
     var onModifiedItemClick: ((IndexPath, NSEvent.ModifierFlags) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
@@ -1379,7 +1373,7 @@ private final class AppKitGalleryCollectionView: NSCollectionView {
         let movementModifiers = event.modifierFlags.intersection([.shift, .command, .control, .option, .function])
         if movementModifiers.subtracting([.shift]).isEmpty {
             let extendingSelection = movementModifiers.contains(.shift)
-            let direction: MoveCommandDirection?
+            let direction: SharedUI.MoveCommandDirection?
             switch event.keyCode {
             case KeyCode.leftArrow: direction = .left
             case KeyCode.rightArrow: direction = .right

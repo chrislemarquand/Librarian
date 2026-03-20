@@ -94,25 +94,13 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             )
 
         case .librarianIndexingProgress:
-            let spinner = NSProgressIndicator()
-            spinner.style = .spinning
-            spinner.controlSize = .small
-            spinner.isDisplayedWhenStopped = false
-            spinner.translatesAutoresizingMaskIntoConstraints = false
-
-            let container = NSView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
-            container.addSubview(spinner)
-            NSLayoutConstraint.activate([
-                spinner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                spinner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            ])
-
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.view = container
-            item.isBordered = false
-            item.visibilityPriority = .low
-            item.label = "Activity"
-            progressSpinner = spinner
+            let spinnerItem = ToolbarItemFactory.makeSpinnerItem(
+                identifier: itemIdentifier,
+                label: "Activity",
+                paletteLabel: "Activity"
+            )
+            let item = spinnerItem.item
+            progressSpinner = spinnerItem.spinner
 
             if let model = splitVC?.model {
                 updateProgressSpinner(model: model)
@@ -120,14 +108,16 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             return item
 
         case .librarianToggleInspector:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Inspector"
-            item.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Toggle Inspector")
-            item.target = splitVC
-            item.action = #selector(MainSplitViewController.toggleInspector(_:))
-            item.autovalidates = false
+            let label = splitVC?.model.isInspectorCollapsed == true ? "Show Inspector" : "Hide Inspector"
+            let item = ToolbarItemFactory.makeInspectorToggleItem(
+                identifier: itemIdentifier,
+                label: label,
+                target: splitVC,
+                action: #selector(MainSplitViewController.toggleInspector(_:)),
+                toolTip: label,
+                isBordered: true
+            )
             item.isEnabled = true
-            item.isBordered = true
             inspectorToggleItem = item
 
             if let model = splitVC?.model {
@@ -136,14 +126,13 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             return item
 
         case .librarianZoomOut:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Zoom Out"
-            item.paletteLabel = "Zoom Out"
-            item.image = NSImage(systemSymbolName: "minus", accessibilityDescription: "Zoom Out")
-            item.autovalidates = false
-            item.target = splitVC
-            item.action = #selector(MainSplitViewController.zoomOutAction(_:))
-            item.toolTip = "Zoom out"
+            let item = ToolbarItemFactory.makeZoomItem(
+                identifier: itemIdentifier,
+                direction: .zoomOut,
+                target: splitVC,
+                action: #selector(MainSplitViewController.zoomOutAction(_:)),
+                accessibilityDescription: "Zoom Out"
+            )
             zoomOutItem = item
             if let model = splitVC?.model {
                 updateZoomItems(model: model)
@@ -151,14 +140,13 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             return item
 
         case .librarianZoomIn:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Zoom In"
-            item.paletteLabel = "Zoom In"
-            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Zoom In")
-            item.autovalidates = false
-            item.target = splitVC
-            item.action = #selector(MainSplitViewController.zoomInAction(_:))
-            item.toolTip = "Zoom in"
+            let item = ToolbarItemFactory.makeZoomItem(
+                identifier: itemIdentifier,
+                direction: .zoomIn,
+                target: splitVC,
+                action: #selector(MainSplitViewController.zoomInAction(_:)),
+                accessibilityDescription: "Zoom In"
+            )
             zoomInItem = item
             if let model = splitVC?.model {
                 updateZoomItems(model: model)
@@ -228,7 +216,9 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
 
     private func updateInspectorToggle(model: AppModel) {
         guard let item = inspectorToggleItem else { return }
-        item.label = model.isInspectorCollapsed ? "Show Inspector" : "Hide Inspector"
+        let label = model.isInspectorCollapsed ? "Show Inspector" : "Hide Inspector"
+        item.label = label
+        item.toolTip = label
         item.isEnabled = true
     }
 
