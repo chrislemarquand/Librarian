@@ -4,6 +4,31 @@ import Combine
 import SwiftUI
 import SharedUI
 
+enum AppBrand {
+    private static let fallbackDisplayName = "Librarian"
+
+    static var displayName: String {
+        let bundle = Bundle.main
+        if let display = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+           !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return display
+        }
+        if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
+           !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return name
+        }
+        return fallbackDisplayName
+    }
+
+    static var identifierPrefix: String {
+        let cleaned = displayName.unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+        return cleaned.isEmpty ? fallbackDisplayName : cleaned
+    }
+}
+
 enum ArchiveSettings {
     static let bookmarkKey = "com.librarian.app.archiveRootBookmark"
 
@@ -315,7 +340,7 @@ final class AppModel: ObservableObject {
         preflight: ArchiveImportPreflightResult
     ) async throws -> ArchiveImportRunSummary {
         guard !isImportingArchive else {
-            throw NSError(domain: "com.librarian.app.archiveImport", code: 1, userInfo: [
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "An archive import is already in progress."
             ])
         }
@@ -349,7 +374,7 @@ final class AppModel: ObservableObject {
             }
 
             guard let summary = finalSummary else {
-                throw NSError(domain: "com.librarian.app.archiveImport", code: 2, userInfo: [
+                throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 2, userInfo: [
                     NSLocalizedDescriptionKey: "Import produced no result."
                 ])
             }
@@ -438,7 +463,7 @@ final class AppModel: ObservableObject {
             guard !exportedIdentifiers.isEmpty else {
                 try await database.jobRepository.markFailed(job, error: "No items were exported.")
                 refreshArchiveCandidateCount()
-                throw NSError(domain: "com.librarian.app.archive", code: 2, userInfo: [
+                throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 2, userInfo: [
                     NSLocalizedDescriptionKey: "Export failed for \(failedIdentifiers.count) item(s). Nothing was deleted."
                 ])
             }
@@ -465,7 +490,7 @@ final class AppModel: ObservableObject {
                 assetDataVersion &+= 1
                 refreshArchiveCandidateCount()
                 notifyIndexingStateChanged()
-                throw NSError(domain: "com.librarian.app.archive", code: 6, userInfo: [
+                throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 6, userInfo: [
                     NSLocalizedDescriptionKey: "Exported \(exportedIdentifiers.count) item(s), but \(notDeleted.count) could not be removed from Photos. Those items were returned to Set Aside."
                 ])
             }
@@ -477,7 +502,7 @@ final class AppModel: ObservableObject {
                 assetDataVersion &+= 1
                 refreshArchiveCandidateCount()
                 notifyIndexingStateChanged()
-                throw NSError(domain: "com.librarian.app.archive", code: 7, userInfo: [
+                throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 7, userInfo: [
                     NSLocalizedDescriptionKey: message
                 ])
             }
@@ -918,7 +943,7 @@ nonisolated private func resolveBundledOsxPhotosExecutable() throws -> URL {
         }
     }
 
-    throw NSError(domain: "com.librarian.app.archive", code: 5, userInfo: [
+    throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 5, userInfo: [
         NSLocalizedDescriptionKey: "Bundled osxphotos executable not found in app resources."
     ])
 }
@@ -952,7 +977,7 @@ nonisolated private func appSupportDirectory() -> URL {
         create: true
     )
     return (appSupport ?? URL(fileURLWithPath: NSTemporaryDirectory()))
-        .appendingPathComponent("com.librarian.app", isDirectory: true)
+        .appendingPathComponent("com.chrislemarquand.Librarian", isDirectory: true)
 }
 
 nonisolated private func renderShellCommand(arguments: [String]) -> String {
@@ -1030,7 +1055,7 @@ struct IndexingProgress: Equatable {
 final class AppLog: @unchecked Sendable {
     static let shared = AppLog()
 
-    private let queue = DispatchQueue(label: "com.librarian.app.log")
+    private let queue = DispatchQueue(label: "\(AppBrand.identifierPrefix).log")
     private let formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1107,7 +1132,7 @@ final class AppLog: @unchecked Sendable {
             create: true
         )
         let dir = (appSupport ?? URL(fileURLWithPath: NSTemporaryDirectory()))
-            .appendingPathComponent("com.librarian.app", isDirectory: true)
+            .appendingPathComponent("com.chrislemarquand.Librarian", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("librarian.log")
     }

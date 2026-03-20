@@ -129,7 +129,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				7E9F1A2B3C4D5E6F7A8B9C0D /* XCRemoteSwiftPackageReference "GRDB" */,
-				CC1B2C3D4E5F6A7B8C9D0E1F /* XCRemoteSwiftPackageReference "SharedUI" */,
+				CC1B2C3D4E5F6A7B8C9D0E1F /* XCLocalSwiftPackageReference "SharedUI" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 46FDD5D52F699C6D0034D51C /* Products */;
@@ -374,13 +374,9 @@
 				minimumVersion = 6.0.0;
 			};
 		};
-		CC1B2C3D4E5F6A7B8C9D0E1F /* XCRemoteSwiftPackageReference "SharedUI" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/chrislemarquand/SharedUI.git";
-			requirement = {
-				kind = exactVersion;
-				version = 1.0.0;
-			};
+		CC1B2C3D4E5F6A7B8C9D0E1F /* XCLocalSwiftPackageReference "SharedUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../SharedUI;
 		};
 /* End XCRemoteSwiftPackageReference section */
 
@@ -392,7 +388,7 @@
 		};
 		BB1B2C3D4E5F6A7B8C9D0E1F /* SharedUI */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CC1B2C3D4E5F6A7B8C9D0E1F /* XCRemoteSwiftPackageReference "SharedUI" */;
+			package = CC1B2C3D4E5F6A7B8C9D0E1F /* XCLocalSwiftPackageReference "SharedUI" */;
 			productName = SharedUI;
 		};
 /* End XCSwiftPackageProductDependency section */

@@ -31,8 +31,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             sidebar: sc,
             content: cc,
             inspector: ic,
-            mainSplitAutosaveName: "com.librarian.app.MainSplit",
-            contentSplitAutosaveName: "com.librarian.app.InnerSplit",
+            mainSplitAutosaveName: "\(AppBrand.identifierPrefix).MainSplit",
+            contentSplitAutosaveName: "\(AppBrand.identifierPrefix).InnerSplit",
             inspectorStartsVisible: false
         )
 

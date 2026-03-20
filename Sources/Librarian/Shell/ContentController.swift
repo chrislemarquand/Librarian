@@ -1894,7 +1894,7 @@ final class ArchiveIndexer: @unchecked Sendable {
 }
 
 final class ArchivedThumbnailService: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "com.librarian.app.archived-thumbnails", qos: .utility)
+    private let queue = DispatchQueue(label: "\(AppBrand.identifierPrefix).archived-thumbnails", qos: .utility)
     private let cache = NSCache<NSString, NSImage>()
     private let fileManager = FileManager.default
 

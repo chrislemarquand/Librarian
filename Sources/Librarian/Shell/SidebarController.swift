@@ -72,12 +72,13 @@ extension SidebarItem.Kind {
 // MARK: - Notifications
 
 extension Notification.Name {
-    static let librarianIndexingStateChanged = Notification.Name("com.librarian.app.indexingStateChanged")
-    static let librarianSidebarSelectionChanged = Notification.Name("com.librarian.app.sidebarSelectionChanged")
-    static let librarianSelectionChanged = Notification.Name("com.librarian.app.selectionChanged")
-    static let librarianLogUpdated = Notification.Name("com.librarian.app.logUpdated")
-    static let librarianGalleryZoomChanged = Notification.Name("com.librarian.app.galleryZoomChanged")
-    static let librarianArchiveQueueChanged = Notification.Name("com.librarian.app.archiveQueueChanged")
-    static let librarianArchiveRootChanged = Notification.Name("com.librarian.app.archiveRootChanged")
-    static let librarianAnalysisStateChanged = Notification.Name("com.librarian.app.analysisStateChanged")
+    private static var prefix: String { AppBrand.identifierPrefix }
+    static let librarianIndexingStateChanged = Notification.Name("\(prefix).indexingStateChanged")
+    static let librarianSidebarSelectionChanged = Notification.Name("\(prefix).sidebarSelectionChanged")
+    static let librarianSelectionChanged = Notification.Name("\(prefix).selectionChanged")
+    static let librarianLogUpdated = Notification.Name("\(prefix).logUpdated")
+    static let librarianGalleryZoomChanged = Notification.Name("\(prefix).galleryZoomChanged")
+    static let librarianArchiveQueueChanged = Notification.Name("\(prefix).archiveQueueChanged")
+    static let librarianArchiveRootChanged = Notification.Name("\(prefix).archiveRootChanged")
+    static let librarianAnalysisStateChanged = Notification.Name("\(prefix).analysisStateChanged")
 }

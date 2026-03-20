@@ -1,5 +1,5 @@
 {
-  "originHash" : "d8d59b7192fa3d285dfa8e8300c0862d55a772c07b95c905b81113685ce9db93",
+  "originHash" : "45b44318a1c282db52cab459a35dfaa3f3aecdaa0c078f1fe3a2b2afe5ee7f50",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "2cf6c756e1e5ef6901ebae16576a7e4e4b834622",
         "version" : "6.29.3"
-      }
-    },
-    {
-      "identity" : "sharedui",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/chrislemarquand/SharedUI.git",
-      "state" : {
-        "revision" : "f261d5ee7aa6bdd49f301d313b38d20183cbc560",
-        "version" : "1.0.0"
       }
     }
   ],

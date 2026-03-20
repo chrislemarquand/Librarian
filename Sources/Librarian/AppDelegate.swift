@@ -2,52 +2,60 @@ import Cocoa
 import SharedUI
 
 @MainActor
+@main
+enum LibrarianMain {
+    private static var appDelegate: AppDelegate?
+
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        self.appDelegate = delegate
+        app.delegate = delegate
+        app.setActivationPolicy(.regular)
+        app.run()
+    }
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var appModel: AppModel?
-    private var splitController: MainSplitViewController?
-    private var mainWindow: NSWindow?
+    private var mainWindowController: MainWindowController?
     private var settingsWindowController: SettingsWindowController?
-    private var toolbarAppearanceAdapter: ToolbarAppearanceAdapter?
+    private var isShowingTerminateConfirmation = false
+    private var allowImmediateTermination = false
+    var appModel: AppModel? { mainWindowController?.appModel }
+
+    func showAboutPanel() {
+        SharedUI.showAboutPanel(
+            purpose: "Curate and archive your Apple Photos library.",
+            credits: [
+                AboutPanelCredit(text: "Uses osxphotos by Rhet Turnbull", linkURL: "https://github.com/RhetTbull/osxphotos"),
+            ],
+            copyright: "© 2026 Chris Le Marquand"
+        )
+    }
+
+    @objc func showAboutPanelMenuAction(_: Any?) {
+        showAboutPanel()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
         configureApplicationMenu()
 
         let model = AppModel()
-        let splitVC = MainSplitViewController(model: model)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1300, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = splitVC
-        splitVC.loadViewIfNeeded()
-        window.minSize = NSSize(width: 1100, height: 680)
-        configureWindowForToolbar(window)
-        window.title = "Librarian"
-        window.isRestorable = false
-        window.setFrameAutosaveName("com.librarian.app.MainWindow")
-        window.center()
-
-        appModel = model
-        splitController = splitVC
-        installMainToolbar(on: window, resetDelegateState: true)
-        toolbarAppearanceAdapter = ToolbarAppearanceAdapter(window: window) { [weak self] in
-            self?.rebuildToolbarForCurrentAppearance()
-        }
-
-        mainWindow = window
-        window.makeKeyAndOrderFront(nil)
+        settingsWindowController = SettingsWindowController(tabs: [
+            SettingsTabDescriptor(symbolName: "photo.stack", label: "Library",
+                viewController: LibrarySettingsViewController(model: model)),
+            SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
+                viewController: ArchiveSettingsViewController(model: model)),
+        ])
+        let windowController = MainWindowController(model: model)
+        mainWindowController = windowController
+        windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         Task { await model.setup() }
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        toolbarAppearanceAdapter?.invalidate()
-        toolbarAppearanceAdapter = nil
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -55,7 +63,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        false
+        true
+    }
+
+    func applicationShouldSaveApplicationState(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    func applicationShouldRestoreApplicationState(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if allowImmediateTermination {
+            allowImmediateTermination = false
+            return .terminateNow
+        }
+
+        guard let appModel,
+              appModel.isSendingArchive || appModel.isIndexing || appModel.isAnalysing || appModel.isImportingArchive
+        else {
+            return .terminateNow
+        }
+
+        guard !isShowingTerminateConfirmation else {
+            return .terminateCancel
+        }
+        isShowingTerminateConfirmation = true
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "An operation is still in progress."
+        alert.informativeText = "Quit now? The operation will be interrupted."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+
+        let keyWindow = NSApp.keyWindow ?? mainWindowController?.window
+        if let keyWindow {
+            alert.runSheetOrModal(for: keyWindow) { [weak self] response in
+                guard let self else { return }
+                self.isShowingTerminateConfirmation = false
+                if response == .alertFirstButtonReturn {
+                    self.allowImmediateTermination = true
+                    sender.terminate(nil)
+                } else {
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                alert.runSheetOrModal(for: nil) { response in
+                    self.isShowingTerminateConfirmation = false
+                    if response == .alertFirstButtonReturn {
+                        self.allowImmediateTermination = true
+                        sender.terminate(nil)
+                    } else {
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                }
+            }
+        }
+        return .terminateCancel
     }
 
     // MARK: - Menu
@@ -64,9 +133,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mainMenu = NSMenu()
 
         // App menu
-        let appItem = NSMenuItem(title: "Librarian", action: nil, keyEquivalent: "")
+        let appName = AppBrand.displayName
+        let appItem = NSMenuItem(title: appName, action: nil, keyEquivalent: "")
         appItem.submenu = makeStandardAppMenu(
-            appName: "Librarian",
+            appName: appName,
+            aboutAction: #selector(showAboutPanelMenuAction(_:)),
             settingsAction: #selector(showSettingsWindow(_:))
         )
         mainMenu.addItem(appItem)
@@ -124,24 +195,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController?.showWindowAndActivate()
     }
 
-    @MainActor private func installMainToolbar(on window: NSWindow, resetDelegateState: Bool) {
-        guard let splitVC = splitController else { return }
-        if resetDelegateState {
-            splitVC.toolbarDelegate.resetCachedToolbarReferences()
-        }
-
-        let toolbar = NSToolbar(identifier: "com.librarian.app.MainToolbar.v2")
-        toolbar.delegate = splitVC.toolbarDelegate
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        window.toolbar = toolbar
-    }
-
-    @MainActor private func rebuildToolbarForCurrentAppearance() {
-        guard let window = mainWindow, let model = appModel, let splitVC = splitController else { return }
-        installMainToolbar(on: window, resetDelegateState: true)
-        splitVC.toolbarDelegate.refresh(model: model)
-        window.toolbar?.validateVisibleItems()
-    }
 }

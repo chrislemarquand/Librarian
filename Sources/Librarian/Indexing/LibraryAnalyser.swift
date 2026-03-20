@@ -57,7 +57,7 @@ struct LibraryAnalyser {
                         @unknown default:
                             detail = error.localizedDescription
                         }
-                        throw NSError(domain: "com.librarian.app.analysis", code: 6, userInfo: [
+                        throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 6, userInfo: [
                             NSLocalizedDescriptionKey: "JSON decode failed: \(detail)"
                         ])
                     }
@@ -381,7 +381,7 @@ nonisolated private func runOsxPhotosQuery() throws -> Data {
     try? outputHandle.close()
 
     guard osxProcess.terminationStatus == 0 else {
-        throw NSError(domain: "com.librarian.app.analysis", code: 3, userInfo: [
+        throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 3, userInfo: [
             NSLocalizedDescriptionKey: "osxphotos query exited with code \(osxProcess.terminationStatus)."
         ])
     }
@@ -415,14 +415,14 @@ with open(sys.argv[2], "w") as f:
     pyProcess.waitUntilExit()
 
     guard pyProcess.terminationStatus == 0 else {
-        throw NSError(domain: "com.librarian.app.analysis", code: 5, userInfo: [
+        throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 5, userInfo: [
             NSLocalizedDescriptionKey: "Python extraction step failed with code \(pyProcess.terminationStatus)."
         ])
     }
 
     let compactData = (try? Data(contentsOf: compactJSONURL)) ?? Data()
     guard !compactData.isEmpty else {
-        throw NSError(domain: "com.librarian.app.analysis", code: 4, userInfo: [
+        throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 4, userInfo: [
             NSLocalizedDescriptionKey: "Python extraction produced no output."
         ])
     }
@@ -446,7 +446,7 @@ nonisolated private func resolveBundledOsxPhotosExecutableForAnalysis() throws -
         guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
         if fm.isExecutableFile(atPath: url.path) { return url }
     }
-    throw NSError(domain: "com.librarian.app.analysis", code: 5, userInfo: [
+    throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 5, userInfo: [
         NSLocalizedDescriptionKey: "Bundled osxphotos executable not found in app resources."
     ])
 }

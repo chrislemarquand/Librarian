@@ -10,6 +10,8 @@
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <key>CFBundleDisplayName</key>
+    <string>$(APP_DISPLAY_NAME)</string>
     <key>CFBundleName</key>
     <string>$(PRODUCT_NAME)</string>
     <key>CFBundlePackageType</key>
@@ -23,10 +25,8 @@
     <key>NSAccentColorName</key>
     <string>AccentColor</string>
     <key>NSHumanReadableCopyright</key>
-    <string></string>
+    <string>Copyright © $(CURRENT_YEAR) Chris Le Marquand</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Librarian needs access to your photo library to help you curate and archive your photos.</string>
-    <key>NSPrincipalClass</key>
-    <string>NSApplication</string>
 </dict>
 </plist>

@@ -5,7 +5,7 @@ import os.log
 /// Wraps PhotoKit authorization and library access.
 /// All mutations to Photos in v1 are deletion-only and live behind a separate controller (Phase 4).
 final class PhotosLibraryService {
-    private let logger = Logger(subsystem: "com.librarian.app", category: "photos")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Librarian", category: "photos")
     private let imageManager = PHCachingImageManager()
 
     // MARK: - Authorization
@@ -121,7 +121,7 @@ final class PhotosLibraryService {
 
     // MARK: - Deletion
 
-    func deleteAssets(localIdentifiers: [String]) async throws -> [String] {
+    @MainActor func deleteAssets(localIdentifiers: [String]) async throws -> [String] {
         let uniqueIdentifiers = Array(Set(localIdentifiers))
         guard !uniqueIdentifiers.isEmpty else { return [] }
 
@@ -143,7 +143,7 @@ final class PhotosLibraryService {
                 if success {
                     continuation.resume(returning: ())
                 } else {
-                    continuation.resume(throwing: NSError(domain: "com.librarian.app.photos", code: 1, userInfo: [
+                    continuation.resume(throwing: NSError(domain: "\(AppBrand.identifierPrefix).photos", code: 1, userInfo: [
                         NSLocalizedDescriptionKey: "Deletion request failed."
                     ]))
                 }

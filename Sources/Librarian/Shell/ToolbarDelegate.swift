@@ -2,15 +2,16 @@ import Cocoa
 import SharedUI
 
 extension NSToolbarItem.Identifier {
-    static let librarianSidebarSeparator  = NSToolbarItem.Identifier("com.librarian.app.toolbar.sidebarSeparator")
-    static let librarianInspectorSeparator = NSToolbarItem.Identifier("com.librarian.app.toolbar.inspectorSeparator")
-    static let librarianIndexingProgress  = NSToolbarItem.Identifier("com.librarian.app.toolbar.indexingProgress")
-    static let librarianZoomOut           = NSToolbarItem.Identifier("com.librarian.app.toolbar.zoomOut")
-    static let librarianZoomIn            = NSToolbarItem.Identifier("com.librarian.app.toolbar.zoomIn")
-    static let librarianSetAside          = NSToolbarItem.Identifier("com.librarian.app.toolbar.setAside")
-    static let librarianPutBack           = NSToolbarItem.Identifier("com.librarian.app.toolbar.putBack")
-    static let librarianSendToArchive     = NSToolbarItem.Identifier("com.librarian.app.toolbar.sendToArchive")
-    static let librarianToggleInspector   = NSToolbarItem.Identifier("com.librarian.app.toolbar.toggleInspector")
+    private static var prefix: String { "\(AppBrand.identifierPrefix).toolbar" }
+    static let librarianSidebarSeparator  = NSToolbarItem.Identifier("\(prefix).sidebarSeparator")
+    static let librarianInspectorSeparator = NSToolbarItem.Identifier("\(prefix).inspectorSeparator")
+    static let librarianIndexingProgress  = NSToolbarItem.Identifier("\(prefix).indexingProgress")
+    static let librarianZoomOut           = NSToolbarItem.Identifier("\(prefix).zoomOut")
+    static let librarianZoomIn            = NSToolbarItem.Identifier("\(prefix).zoomIn")
+    static let librarianSetAside          = NSToolbarItem.Identifier("\(prefix).setAside")
+    static let librarianPutBack           = NSToolbarItem.Identifier("\(prefix).putBack")
+    static let librarianSendToArchive     = NSToolbarItem.Identifier("\(prefix).sendToArchive")
+    static let librarianToggleInspector   = NSToolbarItem.Identifier("\(prefix).toggleInspector")
 }
 
 @MainActor

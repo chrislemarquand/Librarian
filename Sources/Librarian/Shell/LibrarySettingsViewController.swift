@@ -58,7 +58,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
         rows.append([makeCategoryLabel(title: "Queue keep decisions:"), keepsNote, NSView()])
 
         for (index, queue) in Self.queues.enumerated() {
-            let count = (try? model.database.assetRepository.countKeepDecisions(for: queue.kind)) ?? 0
+            let count = (try? model.database.assetRepository?.countKeepDecisions(for: queue.kind)) ?? 0
             let countLabel = makeDescriptionLabel(count == 0 ? "No items kept" : "\(count) kept")
             let button = makeActionButton(title: "Reset", action: #selector(resetKeepDecisions(_:)))
             button.tag = index
