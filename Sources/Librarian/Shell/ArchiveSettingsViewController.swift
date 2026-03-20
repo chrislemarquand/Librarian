@@ -2,6 +2,12 @@ import AppKit
 import SharedUI
 
 final class ArchiveSettingsViewController: SettingsGridViewController {
+    private enum ArchiveDestinationSelection {
+        case useAsNewArchive
+        case moveExistingArchive
+        case cancel
+    }
+
     private let model: AppModel
     private let archiveOrganizer = ArchiveOrganizer()
     private var isOrganizingArchive = false
@@ -70,8 +76,24 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         let result = panel.runModal()
         guard result == .OK, let url = panel.url else { return }
 
+        let currentRootURL = ArchiveSettings.restoreArchiveRootURL()
         let currentArchiveID = UserDefaults.standard.string(forKey: ArchiveSettings.archiveIDKey)
         let selectedArchiveID = ArchiveSettings.archiveID(for: url)
+        var requiresInitializationConfirmation = true
+
+        if selectedArchiveID == nil,
+           let currentRootURL,
+           currentRootURL.standardizedFileURL != url.standardizedFileURL {
+            switch promptArchiveDestinationSelection(currentRootURL: currentRootURL, newRootURL: url) {
+            case .cancel:
+                return
+            case .moveExistingArchive:
+                showMoveArchiveNotYetAvailable(currentRootURL: currentRootURL, newRootURL: url)
+                return
+            case .useAsNewArchive:
+                requiresInitializationConfirmation = false
+            }
+        }
 
         if let selectedArchiveID,
            let currentArchiveID,
@@ -81,6 +103,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         }
 
         if selectedArchiveID == nil,
+           requiresInitializationConfirmation,
            !ArchiveRootPrompts.confirmInitializeArchive(at: url) {
             return
         }
@@ -90,6 +113,55 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         Task { @MainActor [weak self] in
             await self?.scanArchiveAndPromptToOrganizeIfNeeded()
         }
+    }
+
+    private func promptArchiveDestinationSelection(
+        currentRootURL: URL,
+        newRootURL: URL
+    ) -> ArchiveDestinationSelection {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Set a New Archive Location"
+        alert.informativeText =
+            """
+            Choose how Librarian should handle this destination:
+
+            • Use as New Archive: switch immediately and initialize a fresh archive at:
+              \(newRootURL.path)
+
+            • Move Existing Archive: migrate your current archive from:
+              \(currentRootURL.path)
+            """
+        alert.addButton(withTitle: "Use as New Archive")
+        alert.addButton(withTitle: "Move Existing Archive…")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .useAsNewArchive
+        case .alertSecondButtonReturn:
+            return .moveExistingArchive
+        default:
+            return .cancel
+        }
+    }
+
+    private func showMoveArchiveNotYetAvailable(currentRootURL: URL, newRootURL: URL) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Move Existing Archive Not Yet Available"
+        alert.informativeText =
+            """
+            Librarian currently blocks in-app archive moves to avoid unsafe migrations before external-drive handling is complete.
+
+            Current archive:
+            \(currentRootURL.path)
+
+            Selected destination:
+            \(newRootURL.path)
+            """
+        alert.addButton(withTitle: "OK")
+        _ = alert.runModal()
     }
 
     @objc private func organizeArchiveManually() {
