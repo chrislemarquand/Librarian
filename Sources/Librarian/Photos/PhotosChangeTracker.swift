@@ -12,7 +12,7 @@ enum PhotosLibraryChangeEvent {
 }
 
 /// Registers for PHPhotoLibrary change notifications and triggers incremental sync.
-final class PhotosChangeTracker: NSObject, PHPhotoLibraryChangeObserver {
+final class PhotosChangeTracker: NSObject, PHPhotoLibraryChangeObserver, @unchecked Sendable {
 
     private let onChangesDetected: (PhotosLibraryChangeEvent) -> Void
     private var trackedFetchResult: PHFetchResult<PHAsset>?
@@ -39,7 +39,7 @@ final class PhotosChangeTracker: NSObject, PHPhotoLibraryChangeObserver {
     // MARK: - PHPhotoLibraryChangeObserver
 
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.handlePhotoLibraryChange(changeInstance)
         }
     }

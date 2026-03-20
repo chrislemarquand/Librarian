@@ -224,9 +224,13 @@ final class ContentController: NSViewController {
         observeModel()
     }
 
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        model.photosService.stopAllThumbnailCaching()
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
-        model.photosService.stopAllThumbnailCaching()
     }
 
     private func observeModel() {
