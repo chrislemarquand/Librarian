@@ -193,7 +193,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             item.autovalidates = false
             item.target = splitVC
             item.action = #selector(MainSplitViewController.putBackSelectionAction(_:))
-            item.toolTip = "Remove selected photos from set-aside archive queue"
+            item.toolTip = "Remove selected photos from set-aside archive box"
             putBackItem = item
             if let model = splitVC?.model {
                 updateArchiveItems(model: model)
@@ -243,11 +243,11 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
         let canPutBackFailed = splitVC?.canPutBackFailedItems == true
         putBackItem?.isEnabled = canPutBackSelection || canPutBackFailed
         if canPutBackSelection {
-            putBackItem?.toolTip = "Remove selected photos from set-aside archive queue"
+            putBackItem?.toolTip = "Remove selected photos from set-aside archive box"
         } else if canPutBackFailed {
-            putBackItem?.toolTip = "Remove all failed items from set-aside archive queue"
+            putBackItem?.toolTip = "Remove all failed items from set-aside archive box"
         } else {
-            putBackItem?.toolTip = "Remove selected photos from set-aside archive queue"
+            putBackItem?.toolTip = "Remove selected photos from set-aside archive box"
         }
         let hasQueuedItems = model.pendingArchiveCandidateCount > 0
         sendToArchiveItem?.isEnabled = hasQueuedItems && !model.isSendingArchive

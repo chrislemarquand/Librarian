@@ -651,7 +651,7 @@ final class AppModel: ObservableObject {
             }
 
             if !notDeleted.isEmpty {
-                let errorText = "Delete step did not remove \(notDeleted.count) item(s) from Photos. Returned to archive queue."
+                let errorText = "Delete step did not remove \(notDeleted.count) item(s) from Photos. Returned to archive box."
                 try database.assetRepository.markArchiveCandidatesFailed(identifiers: notDeleted, error: errorText)
                 failures.append(contentsOf: notDeleted.map { ArchiveExportFailure(identifier: $0, message: errorText) })
                 try await database.jobRepository.markFailed(job, error: errorText)

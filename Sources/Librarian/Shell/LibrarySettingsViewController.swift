@@ -54,8 +54,8 @@ final class LibrarySettingsViewController: SettingsGridViewController {
             [makeCategoryLabel(title: "Library analysis:"), analyseStatusLabel,  analyseButton],
         ]
 
-        let keepsNote = makeDescriptionLabel("Reset which items have been marked Keep in each queue.")
-        rows.append([makeCategoryLabel(title: "Queue keep decisions:"), keepsNote, NSView()])
+        let keepsNote = makeDescriptionLabel("Reset which items have been marked Keep in each box.")
+        rows.append([makeCategoryLabel(title: "Box keep decisions:"), keepsNote, NSView()])
 
         for (index, queue) in Self.queues.enumerated() {
             let count = (try? model.database.assetRepository?.countKeepDecisions(for: queue.kind)) ?? 0
