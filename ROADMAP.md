@@ -74,7 +74,7 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 - Export behavior controls:
   - [Done] add user-visible toggles for edited/live export handling (the approved flags decision)
 - Runtime dependency hardening:
-  - [Planned] bundle and validate ExifTool at app runtime so export behavior is not dependent on user machine installs
+  - [Done] bundle and validate ExifTool at app runtime so export behavior is not dependent on user machine installs
 - Interaction baseline:
   - [Done] Quick Look (`Space`)
   - [Done] gallery context menus with view-aware actions and right-click target normalization
@@ -108,7 +108,6 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 
 ### Remaining Priority To Reach v1.0
 
-- Bundle ExifTool with runtime validation/fallback path.
 - Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
 - Implement WhatsApp Box classification + indexing + view wiring.
 - Expand trust-boundary tests for mixed outcomes and deletion reconciliation.
@@ -191,7 +190,7 @@ These are cross-repo items discovered from Ledger/SharedUI audit and should be t
 
 ## Open Items / Parking Lot
 
-- **Multiple library handling** — Librarian currently fetches the active Photos library URL once at launch (via AppleScript) and caches it for the session. If the user switches libraries in Photos.app while Librarian is running, the cached URL becomes stale and the existing index no longer matches the active library. A full solution requires: detecting the library switch (possibly via `PHPhotoLibraryChangeObserver` or periodic AppleScript polling), prompting the user to re-index, and deciding whether to maintain separate GRDB databases per library or wipe and rebuild. This is a non-trivial UX and data-model problem; parked until the core pipeline is solid.
+- **Multiple library handling follow-through** — Librarian now detects system library changes, updates UI state, and gates archive writes with archive-library binding prompts. Remaining design work is around long-term data model strategy: whether to maintain separate GRDB databases per Photos library or keep a single database with stronger reconciliation/migration rules when the active library changes.
 
 - **FSEvents archive folder watching** — Currently the ArchiveIndexer only runs when the Archive view is opened (passive detection). If the user places files in the archive folder via Finder, they won't appear until the view is next opened and there's no badge update. A full solution requires: installing an FSEvents watcher on the archive root folder, triggering a re-index when changes are detected, updating the sidebar badge, and optionally auto-triggering the organize pass if unorganized files are detected. Parked in favour of passive detection for now.
 
