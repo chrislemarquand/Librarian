@@ -899,7 +899,7 @@ final class ContentController: NSViewController {
     @objc
     private func reviewArchivedImportNow() {
         guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
-        guard let splitVC = parent as? MainSplitViewController else { return }
+        guard let splitVC = resolveMainSplitViewController() else { return }
         splitVC.presentArchiveImportSheet(mode: .pathBDetected(candidates: [archiveTreeRoot]))
         archivedBannerDismissedForLaunch = true
         updateArchivedNoticeBarState()
@@ -1380,8 +1380,19 @@ final class ContentController: NSViewController {
         guard selectedSidebarKind() == .setAsideForArchive else { return }
         let identifiers = contextMenuPhotoIdentifiers()
         guard !identifiers.isEmpty else { return }
-        guard let splitVC = parent as? MainSplitViewController else { return }
+        guard let splitVC = resolveMainSplitViewController() else { return }
         splitVC.sendSelectedToArchive(localIdentifiers: identifiers)
+    }
+
+    private func resolveMainSplitViewController() -> MainSplitViewController? {
+        var node: NSViewController? = self
+        while let current = node {
+            if let split = current as? MainSplitViewController {
+                return split
+            }
+            node = current.parent
+        }
+        return view.window?.contentViewController as? MainSplitViewController
     }
 
     func refreshDisplayedAssets() {
