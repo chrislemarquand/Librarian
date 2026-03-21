@@ -152,7 +152,9 @@ struct ArchiveExportSheetView: View {
                 }
             }
 
-            if let banner = activeBanner {
+            if session.isBusy {
+                WorkflowInlineMessageBanner(messages: [sheetProgressText])
+            } else if let banner = activeBanner {
                 WorkflowInlineMessageBanner(messages: banner)
             }
 
@@ -211,6 +213,11 @@ struct ArchiveExportSheetView: View {
         return [
             "\(outcome.exportedCount) exported and \(outcome.deletedCount) removed from Photos."
         ]
+    }
+
+    private var sheetProgressText: String {
+        let text = model.archiveSendStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "Sending to Archive…" : text
     }
 
     private func performExport() {

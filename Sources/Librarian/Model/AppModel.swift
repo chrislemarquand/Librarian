@@ -532,6 +532,7 @@ final class AppModel: ObservableObject {
     @Published var isInspectorCollapsed = false
     @Published var isIndexing = false
     @Published var isSendingArchive = false
+    @Published var archiveSendStatusText: String = ""
     @Published var isAnalysing = false
     @Published var analysisStatusText: String = ""
     @Published var isImportingArchive = false
@@ -1001,13 +1002,18 @@ final class AppModel: ObservableObject {
         }
 
         isSendingArchive = true
-        defer { isSendingArchive = false }
+        archiveSendStatusText = "Preparing archive export…"
+        defer {
+            isSendingArchive = false
+            archiveSendStatusText = ""
+        }
 
         let job = try await database.jobRepository.create(type: .archiveExport)
         try await database.jobRepository.markRunning(job)
 
         do {
             try database.assetRepository.markArchiveCandidatesExporting(identifiers: identifiers)
+            archiveSendStatusText = "Exporting \(identifiers.count.formatted()) item(s)…"
             refreshArchiveCandidateCount()
             let exportTargets = [
                 ArchiveExportTarget(
@@ -1051,7 +1057,9 @@ final class AppModel: ObservableObject {
                 try database.assetRepository.markArchiveCandidatesExported(identifiers: group.localIdentifiers, archivePath: group.destinationPath)
             }
             // Re-index as soon as export writes complete so Archive sidebar count updates immediately.
+            archiveSendStatusText = "Refreshing archive index…"
             refreshArchivedIndexAsync()
+            archiveSendStatusText = "Deleting exported photos from Photos…"
             suppressChangeSync(for: 20, reason: "archiveDelete")
             let deletedIdentifiers = try await photosService.deleteAssets(localIdentifiers: exportedIdentifiers)
             let deletedSet = Set(deletedIdentifiers)
@@ -1099,6 +1107,7 @@ final class AppModel: ObservableObject {
             }
 
             try await database.jobRepository.markCompleted(job)
+            archiveSendStatusText = "Archive send complete."
             AppLog.shared.info("Archive send completed. Exported \(exportedIdentifiers.count) and deleted \(deletedIdentifiers.count) from Photos.")
             indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
             assetDataVersion &+= 1

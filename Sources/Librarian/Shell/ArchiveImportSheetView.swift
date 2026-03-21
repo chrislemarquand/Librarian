@@ -163,10 +163,12 @@ final class ArchiveImportSession: ObservableObject {
     private func runPathA(model: AppModel) async {
         guard !sourceFolders.isEmpty else {
             runError = "Choose at least one source folder."
+            model.setStatusMessage(runError ?? "Archive import failed.")
             return
         }
         guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else {
             runError = "No archive root is configured."
+            model.setStatusMessage(runError ?? "Archive import failed.")
             return
         }
 
@@ -183,11 +185,20 @@ final class ArchiveImportSession: ObservableObject {
             }.value
             self.preflight = preflight
 
-            guard preflight.toImport > 0 else { return }
+            guard preflight.toImport > 0 else {
+                model.setStatusMessage("Archive import: no files to import after duplicate checks.", autoClearAfterSuccess: true)
+                return
+            }
             let summary = try await model.runArchiveImport(sourceFolders: sourceFolders, preflight: preflight)
             self.summary = summary
+            if summary.failed > 0 {
+                model.setStatusMessage("Archive import completed with \(summary.failed.formatted()) failure(s).")
+            } else {
+                model.setStatusMessage("Archive import complete: \(summary.imported.formatted()) file(s).", autoClearAfterSuccess: true)
+            }
         } catch {
             runError = error.localizedDescription
+            model.setStatusMessage("Archive import failed. \(error.localizedDescription)")
         }
     }
 
@@ -200,6 +211,7 @@ final class ArchiveImportSession: ObservableObject {
     private func runPathB(model: AppModel) async {
         guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
             runError = "Archive folder is unavailable."
+            model.setStatusMessage(runError ?? "Archive import failed.")
             return
         }
 
@@ -211,6 +223,7 @@ final class ArchiveImportSession: ObservableObject {
             }.value
         } catch {
             runError = error.localizedDescription
+            model.setStatusMessage("Archive import review failed. \(error.localizedDescription)")
             return
         }
 
@@ -223,6 +236,7 @@ final class ArchiveImportSession: ObservableObject {
         )
 
         guard !plan.allCandidates.isEmpty else {
+            model.setStatusMessage("Archive import: no unorganized files found.", autoClearAfterSuccess: true)
             return
         }
 
@@ -236,9 +250,18 @@ final class ArchiveImportSession: ObservableObject {
             }.value
         } catch {
             runError = error.localizedDescription
+            model.setStatusMessage("Archive import review failed. \(error.localizedDescription)")
             return
         }
         summary = execution
+        if execution.failed > 0 {
+            model.setStatusMessage("Archive import review completed with \(execution.failed.formatted()) failure(s).")
+        } else {
+            model.setStatusMessage(
+                "Archive import review complete: \(execution.imported.formatted()) organized, \(execution.skippedExistsInPhotoKit.formatted()) already in Photo Library.",
+                autoClearAfterSuccess: true
+            )
+        }
 
         // Re-index archive after in-place dedupe/organize so archive view and badges update.
         let db = model.database

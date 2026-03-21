@@ -359,10 +359,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
                 let removed = try model.unqueueFailedArchiveAssets()
                 if removed > 0 {
                     model.setStatusMessage("Put Back Failed: \(removed) item(s).", autoClearAfterSuccess: true)
-                    showArchiveAlert(
-                        title: "Put Back Failed Items",
-                        message: "Removed \(removed) failed item(s) from Set Aside."
-                    )
                 }
                 contentController.refreshDisplayedAssets()
             } catch {
@@ -532,9 +528,7 @@ enum LibrarianWindowSubtitlePriority {
         archiveBindingState: ArchiveLibraryBindingState?,
         statusMessage: String
     ) -> String? {
-        if isSendingArchive {
-            return "Sending to Archive…"
-        }
+        _ = isSendingArchive
 
         if isImportingArchive {
             let message = importStatusText.trimmingCharacters(in: .whitespacesAndNewlines)

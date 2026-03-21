@@ -463,7 +463,7 @@ import Foundation
         archiveBindingState: .mismatch,
         statusMessage: "Set Aside: 3 photo(s)."
     )
-    #expect(subtitle == "Sending to Archive…")
+    #expect(subtitle == "Importing 2 / 10…")
 }
 
 @Test func windowSubtitlePriorityFallsBackToArchiveAndStatusStates() {
