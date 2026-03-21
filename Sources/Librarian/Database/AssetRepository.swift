@@ -104,6 +104,13 @@ struct ArchivedItemSignature {
     let fileModificationDate: Date
 }
 
+struct PhotoLibraryHashCandidate {
+    let localIdentifier: String
+    let fileSizeBytes: Int?
+    let creationDate: Date?
+    let contentHashSHA256: String?
+}
+
 // MARK: - AssetRepository
 
 final class AssetRepository: @unchecked Sendable {
@@ -877,6 +884,92 @@ final class AssetRepository: @unchecked Sendable {
                 index.insert(formatter.string(from: date))
             }
             return index
+        }
+    }
+
+    func fetchPhotoLibraryContentHash(localIdentifier: String) throws -> String? {
+        try db.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT contentHashSHA256
+                    FROM asset
+                    WHERE localIdentifier = ?
+                    LIMIT 1
+                """,
+                arguments: [localIdentifier]
+            )
+            return row?["contentHashSHA256"] as String?
+        }
+    }
+
+    func updatePhotoLibraryContentHash(localIdentifier: String, hashHex: String?) throws {
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE asset
+                    SET contentHashSHA256 = ?
+                    WHERE localIdentifier = ?
+                """,
+                arguments: [hashHex, localIdentifier]
+            )
+        }
+    }
+
+    /// Prefilter candidates for exact dedupe checks. Uses cheap key matching against
+    /// indexed PhotoKit metadata before any expensive byte hashing.
+    /// - Parameters:
+    ///   - fileSizeBytes: Incoming file size, if known.
+    ///   - creationDate: Incoming best-effort capture date, if known.
+    ///   - maxResults: Safety cap to avoid unbounded scans from weak prefilters.
+    func fetchPhotoLibraryHashCandidates(
+        fileSizeBytes: Int?,
+        creationDate: Date?,
+        maxResults: Int = 500
+    ) throws -> [PhotoLibraryHashCandidate] {
+        guard fileSizeBytes != nil || creationDate != nil else { return [] }
+
+        var clauses: [String] = [
+            "isDeletedFromPhotos = 0",
+            "mediaType = 1"
+        ]
+        var arguments = StatementArguments()
+
+        if let fileSizeBytes {
+            clauses.append("fileSizeBytes = ?")
+            arguments += [fileSizeBytes]
+        }
+        if let creationDate {
+            // Keep this strict for deterministic candidate narrowing.
+            clauses.append("creationDate = ?")
+            arguments += [creationDate]
+        }
+
+        let whereClause = clauses.joined(separator: " AND ")
+        arguments += [maxResults]
+
+        return try db.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT localIdentifier, fileSizeBytes, creationDate, contentHashSHA256
+                    FROM asset
+                    WHERE \(whereClause)
+                    ORDER BY creationDate DESC, localIdentifier DESC
+                    LIMIT ?
+                """,
+                arguments: arguments
+            )
+
+            return rows.compactMap { row in
+                guard let localIdentifier: String = row["localIdentifier"] else { return nil }
+                return PhotoLibraryHashCandidate(
+                    localIdentifier: localIdentifier,
+                    fileSizeBytes: row["fileSizeBytes"],
+                    creationDate: row["creationDate"],
+                    contentHashSHA256: row["contentHashSHA256"]
+                )
+            }
         }
     }
 

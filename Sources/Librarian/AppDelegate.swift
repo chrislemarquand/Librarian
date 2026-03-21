@@ -172,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sendToArchiveItem = NSMenuItem(title: "Send to Archive", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "a")
         sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
         fileMenu.addItem(sendToArchiveItem)
-        fileMenu.addItem(NSMenuItem(title: "Add Photos to Archive…", action: #selector(MainSplitViewController.addPhotosToArchiveAction(_:)), keyEquivalent: ""))
+        fileMenu.addItem(NSMenuItem(title: "Import Photos into Archive…", action: #selector(MainSplitViewController.addPhotosToArchiveAction(_:)), keyEquivalent: ""))
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o"))
         let quickLookItem = NSMenuItem(title: "Quick Look", action: #selector(MainSplitViewController.quickLookSelectionAction(_:)), keyEquivalent: "y")

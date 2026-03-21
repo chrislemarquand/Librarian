@@ -6,6 +6,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
     private let model: AppModel
     private let archiveOrganizer = ArchiveOrganizer()
+    private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
     private var isOrganizingArchive = false
     private var isMovingArchive = false
 
@@ -47,6 +48,16 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        if archiveImportSheetPresenter == nil {
+            archiveImportSheetPresenter = ArchiveImportSheetPresenter(
+                model: model,
+                parentWindowProvider: { [weak self] in self?.view.window },
+                onDismiss: { [weak self] in
+                    guard let self else { return }
+                    self.refreshAddPhotosButtonState()
+                }
+            )
+        }
         refreshArchivePath()
         refreshNewButtonState()
         refreshMoveButtonState()
@@ -173,11 +184,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     }
 
     @objc private func addPhotosToArchive() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await runAddPhotosToArchiveFlow(model: model, presentingWindow: view.window)
-            refreshAddPhotosButtonState()
-        }
+        archiveImportSheetPresenter?.present(mode: .pathAUserPick)
     }
 
     // MARK: - Notification handler

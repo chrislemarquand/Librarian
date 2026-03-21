@@ -36,12 +36,13 @@ func runAddPhotosToArchiveFlow(model: AppModel, presentingWindow: NSWindow?) asy
     let coordinator = ArchiveImportCoordinator(
         archiveRoot: archiveRoot,
         sourceFolders: sourceFolders,
-        database: model.database
+        database: model.database,
+        photosService: model.photosService
     )
     let preflight: ArchiveImportPreflightResult
     do {
         preflight = try await Task.detached(priority: .utility) {
-            try coordinator.runPreflight()
+            try await coordinator.runPreflight()
         }.value
     } catch {
         let alert = NSAlert()

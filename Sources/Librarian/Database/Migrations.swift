@@ -221,5 +221,15 @@ enum LibrarianMigrations {
             }
             try db.create(index: "asset_isWhatsApp", on: "asset", columns: ["isWhatsApp"])
         }
+
+        migrator.registerMigration("v14_add_asset_content_hash") { db in
+            try db.alter(table: "asset") { t in
+                // Lazy cache for exact dedupe against PhotoKit originals.
+                // Stored as lowercase SHA-256 hex (64 chars) when available.
+                t.add(column: "contentHashSHA256", .text)
+            }
+            try db.create(index: "asset_contentHashSHA256", on: "asset", columns: ["contentHashSHA256"])
+            try db.create(index: "asset_fileSizeBytes_creationDate", on: "asset", columns: ["fileSizeBytes", "creationDate"])
+        }
     }
 }

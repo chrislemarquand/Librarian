@@ -14,6 +14,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     private var inspectorKeyMonitor: Any?
     private var archiveExportSheetWindow: NSWindow?
+    private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
 
     init(model: AppModel) {
         self.model = model
@@ -74,6 +75,17 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        if archiveImportSheetPresenter == nil {
+            archiveImportSheetPresenter = ArchiveImportSheetPresenter(
+                model: model,
+                parentWindowProvider: { [weak self] in self?.view.window },
+                onDismiss: { [weak self] in
+                    guard let self else { return }
+                    self.contentController.refreshDisplayedAssets()
+                    self.toolbarDelegate.refresh(model: self.model)
+                }
+            )
+        }
         refreshWindowTitle()
         refreshWindowSubtitle()
     }
@@ -256,10 +268,11 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     @objc func addPhotosToArchiveAction(_ sender: Any?) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await runAddPhotosToArchiveFlow(model: model, presentingWindow: view.window)
-        }
+        archiveImportSheetPresenter?.present(mode: .pathAUserPick)
+    }
+
+    func presentArchiveImportSheet(mode: ArchiveImportSheetMode) {
+        archiveImportSheetPresenter?.present(mode: mode)
     }
 
     @objc func sendToArchiveAction(_ sender: Any?) {

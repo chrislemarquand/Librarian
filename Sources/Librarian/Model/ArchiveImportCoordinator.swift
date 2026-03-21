@@ -33,21 +33,30 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
     private let archiveRoot: URL
     private let sourceFolders: [URL]
     private let database: DatabaseManager
+    private let exactDedupeClassifier: ArchiveExactDedupeClassifying?
     private let fileManager = FileManager.default
 
     private static let supportedExtensions: Set<String> = [
         "jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"
     ]
 
-    init(archiveRoot: URL, sourceFolders: [URL], database: DatabaseManager) {
+    init(
+        archiveRoot: URL,
+        sourceFolders: [URL],
+        database: DatabaseManager,
+        photosService: PhotosLibraryService? = nil,
+        exactDedupeClassifier: ArchiveExactDedupeClassifying? = nil
+    ) {
         self.archiveRoot = archiveRoot
         self.sourceFolders = sourceFolders
         self.database = database
+        self.exactDedupeClassifier = exactDedupeClassifier
+            ?? photosService.map { ArchiveExactDedupeService(database: database, photosService: $0) }
     }
 
     // MARK: - Preflight (blocking — call on a background thread)
 
-    func runPreflight() throws -> ArchiveImportPreflightResult {
+    func runPreflight() async throws -> ArchiveImportPreflightResult {
         // Enumerate eligible files from all source folders (read-only).
         var allFiles: [URL] = []
         for sourceFolder in sourceFolders {
@@ -72,17 +81,23 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
             }
         }
 
-        // Check deduplicated files against the PhotoKit asset index.
-        // Matches on EXIF capture timestamp at second precision against asset.creationDate.
-        // creationDate is always indexed from PHAsset — no library analysis required.
-        let photoKitIndex = try database.assetRepository.fetchAssetDateSecondIndex()
-        var candidateURLs: [URL] = []
+        var candidateURLs = deduplicatedFiles
         var existsInPhotoKit = 0
-        for fileURL in deduplicatedFiles {
-            if matchesPhotoKit(fileURL: fileURL, index: photoKitIndex) {
-                existsInPhotoKit += 1
-            } else {
-                candidateURLs.append(fileURL)
+        if let exactDedupeClassifier {
+            let results = await exactDedupeClassifier.classifyFiles(deduplicatedFiles, allowNetworkAccess: false)
+            let partition = Self.partitionAfterExactDedupe(deduplicatedFiles: deduplicatedFiles, results: results)
+            candidateURLs = partition.candidateURLs
+            existsInPhotoKit = partition.existsInPhotoKit
+        } else {
+            // Fallback for callers that don't provide PhotosLibraryService yet.
+            let photoKitIndex = try database.assetRepository.fetchAssetDateSecondIndex()
+            candidateURLs.removeAll(keepingCapacity: true)
+            for fileURL in deduplicatedFiles {
+                if matchesPhotoKit(fileURL: fileURL, index: photoKitIndex) {
+                    existsInPhotoKit += 1
+                } else {
+                    candidateURLs.append(fileURL)
+                }
             }
         }
 
@@ -93,6 +108,27 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
             toImport: candidateURLs.count,
             candidateURLs: candidateURLs
         )
+    }
+
+    nonisolated static func partitionAfterExactDedupe(
+        deduplicatedFiles: [URL],
+        results: [ArchiveExactDedupeResult]
+    ) -> (candidateURLs: [URL], existsInPhotoKit: Int) {
+        let outcomeByURL = Dictionary(
+            uniqueKeysWithValues: results.map { ($0.fileURL.standardizedFileURL, $0.outcome) }
+        )
+        var candidateURLs: [URL] = []
+        candidateURLs.reserveCapacity(deduplicatedFiles.count)
+        var existsInPhotoKit = 0
+        for fileURL in deduplicatedFiles {
+            switch outcomeByURL[fileURL.standardizedFileURL] {
+            case .exactMatch:
+                existsInPhotoKit += 1
+            case .none, .noMatch, .indeterminate:
+                candidateURLs.append(fileURL)
+            }
+        }
+        return (candidateURLs, existsInPhotoKit)
     }
 
     // MARK: - Import

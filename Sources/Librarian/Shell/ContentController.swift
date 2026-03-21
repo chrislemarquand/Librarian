@@ -867,7 +867,7 @@ final class ContentController: NSViewController {
         archivedNoticeLabel.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(archivedNoticeLabel)
 
-        archivedNoticeActionButton = NSButton(title: "Organize Now", target: self, action: #selector(organizeArchivedFilesNow))
+        archivedNoticeActionButton = NSButton(title: "Review Import…", target: self, action: #selector(reviewArchivedImportNow))
         archivedNoticeActionButton.bezelStyle = .rounded
         archivedNoticeActionButton.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(archivedNoticeActionButton)
@@ -897,27 +897,12 @@ final class ContentController: NSViewController {
     }
 
     @objc
-    private func organizeArchivedFilesNow() {
-        guard !isOrganizingArchivedFiles else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
-            self.isOrganizingArchivedFiles = true
-            self.updateArchivedNoticeBarState()
-            do {
-                let organizer = self.archiveOrganizer
-                let summary = try await Task.detached(priority: .utility) {
-                    try organizer.organizeArchiveTree(in: archiveTreeRoot)
-                }.value
-                AppLog.shared.info("Archive view organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
-                self.archivedBannerDismissedForLaunch = false
-                NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
-            } catch {
-                AppLog.shared.error("Archive view organization failed: \(error.localizedDescription)")
-            }
-            self.isOrganizingArchivedFiles = false
-            self.updateArchivedNoticeBarState()
-        }
+    private func reviewArchivedImportNow() {
+        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
+        guard let splitVC = parent as? MainSplitViewController else { return }
+        splitVC.presentArchiveImportSheet(mode: .pathBDetected(candidates: [archiveTreeRoot]))
+        archivedBannerDismissedForLaunch = true
+        updateArchivedNoticeBarState()
     }
 
     @objc
@@ -943,9 +928,9 @@ final class ContentController: NSViewController {
         ])
 
         guard shouldShow else { return }
-        archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) file(s) are outside YYYY/MM/DD. Organize archive now?"
+        archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) file(s) need review for organize/dedupe."
         archivedNoticeActionButton.isEnabled = !isOrganizingArchivedFiles
-        archivedNoticeActionButton.title = isOrganizingArchivedFiles ? "Organizing…" : "Organize Now"
+        archivedNoticeActionButton.title = isOrganizingArchivedFiles ? "Working…" : "Review Import…"
         archivedNoticeDismissButton.isEnabled = !isOrganizingArchivedFiles
     }
 
@@ -1950,6 +1935,7 @@ final class ArchiveOrganizer: @unchecked Sendable {
             let relativeComponents = Array(fileComponents.dropFirst(rootComponents.count))
             guard !relativeComponents.isEmpty else { continue }
             guard relativeComponents.first != ".librarian-thumbnails" else { continue }
+            guard relativeComponents.first != "Already in Photo Library" else { continue }
 
             let values = try fileURL.resourceValues(forKeys: keys)
             guard values.isRegularFile == true else { continue }
