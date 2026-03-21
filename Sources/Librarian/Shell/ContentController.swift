@@ -5,6 +5,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import SharedUI
 import CryptoKit
+import Quartz
 
 private enum DisplayAsset {
     case photos(IndexedAsset)
@@ -79,6 +80,11 @@ final class ContentController: NSViewController {
     private var scrollTopToArchivedNoticeConstraint: NSLayoutConstraint!
     private var scrollTopToContainerConstraint: NSLayoutConstraint!
     private var contextMenuTargetIndices: [Int] = []
+    private let quickLookCoordinator = QuickLookPanelCoordinator<String>()
+    private var quickLookSourceFrames: [String: NSRect] = [:]
+    private var quickLookTempDirectoryURL: URL?
+    private var quickLookDisplayURLByID: [String: URL] = [:]
+    private var quickLookUnavailableIDs: Set<String> = []
     private var logPane: NSView!
     private var logTextView: NSTextView!
     private let logPlaceholderViewModel = GalleryPlaceholderViewModel()
@@ -224,6 +230,7 @@ final class ContentController: NSViewController {
     override func viewWillDisappear() {
         super.viewWillDisappear()
         model.photosService.stopAllThumbnailCaching()
+        cleanupQuickLookSession()
     }
 
     deinit {
@@ -409,6 +416,12 @@ final class ContentController: NSViewController {
             case .receiptsAndDocuments:
                 let rows = (try? database.assetRepository.fetchReceiptsAndDocumentsForGrid(limit: pageSize, offset: offset)) ?? []
                 assets = rows.map { .photos($0) }
+            case .whatsapp:
+                let rows = (try? database.assetRepository.fetchWhatsAppForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
+            case .accidental:
+                let rows = (try? database.assetRepository.fetchAccidentalForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             case .indexing, .log:
                 assets = []
             }
@@ -582,9 +595,11 @@ final class ContentController: NSViewController {
         case .screenshots: return "camera.viewfinder"
         case .setAsideForArchive: return "tray.full"
         case .archived: return "archivebox"
-        case .duplicates: return "doc.on.doc"
+        case .duplicates: return "photo.on.rectangle"
         case .lowQuality: return "wand.and.stars.inverse"
         case .receiptsAndDocuments: return "doc.text"
+        case .whatsapp: return "message"
+        case .accidental: return "photo.badge.exclamationmark"
         case .log: return "list.bullet.rectangle"
         case .indexing: return "arrow.triangle.2.circlepath"
         }
@@ -625,11 +640,15 @@ final class ContentController: NSViewController {
             }
             return .unavailable(title: "No Archive Photos", symbolName: "archivebox", description: "Archive photos will appear here after export.")
         case .duplicates:
-            return .unavailable(title: "No Duplicates", symbolName: "doc.on.doc", description: "No duplicate or near-duplicate photos found.")
+            return .unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "No duplicate or near-duplicate photos found.")
         case .lowQuality:
             return .unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "No photos with a low quality score found.")
         case .receiptsAndDocuments:
             return .unavailable(title: "No Documents", symbolName: "doc.text", description: "No document-focused photos found.")
+        case .whatsapp:
+            return .unavailable(title: "No WhatsApp Media", symbolName: "message", description: "No WhatsApp media found.")
+        case .accidental:
+            return .unavailable(title: "No Accidental Captures", symbolName: "photo.badge.exclamationmark", description: "No accidental captures found.")
         case .log, .indexing:
             return .unavailable(title: "No Log Entries", symbolName: "list.bullet.rectangle", description: "Activity will appear here.")
         }
@@ -966,6 +985,140 @@ final class ContentController: NSViewController {
         model.photosService.openInPhotos(localIdentifier: localIdentifier)
     }
 
+    func quickLookSelection() {
+        let selectedIndices = collectionView.selectionIndexPaths
+            .map(\.item)
+            .filter { $0 >= 0 && $0 < displayAssets.count }
+            .sorted()
+        guard !selectedIndices.isEmpty else { return }
+
+        let selectedAssets = selectedIndices.map { displayAssets[$0] }
+        let sourceIDs = selectedAssets.map(\.id)
+        let focusedID = selectedAssets.first?.id
+        updateQuickLookArtifacts()
+
+        var availableCount = 0
+        for asset in selectedAssets {
+            if quickLookDisplayURL(for: asset) != nil {
+                availableCount += 1
+            }
+        }
+        guard availableCount > 0 else {
+            showQuickLookUnavailableAlert()
+            return
+        }
+
+        quickLookCoordinator.present(
+            sourceItems: sourceIDs,
+            focusedItem: focusedID,
+            displayURLForSource: { [weak self] sourceID in
+                guard let self,
+                      let index = self.displayAssets.firstIndex(where: { $0.id == sourceID })
+                else { return nil }
+                return self.quickLookDisplayURL(for: self.displayAssets[index])
+            },
+            sourceFrameForSource: { [weak self] sourceID in
+                self?.quickLookSourceFrames[sourceID]
+            },
+            onWillClose: { [weak self] in
+                self?.cleanupQuickLookSession()
+            }
+        )
+    }
+
+    private func quickLookDisplayURL(for asset: DisplayAsset) -> URL? {
+        if let cached = quickLookDisplayURLByID[asset.id], FileManager.default.fileExists(atPath: cached.path) {
+            return cached
+        }
+        let resolved: URL?
+        switch asset {
+        case .archived(let item):
+            let url = URL(fileURLWithPath: item.absolutePath)
+            resolved = FileManager.default.fileExists(atPath: url.path) ? url : nil
+        case .photos(let indexed):
+            if quickLookUnavailableIDs.contains(indexed.localIdentifier) {
+                resolved = nil
+            } else {
+                resolved = materializePhotoAssetForQuickLook(localIdentifier: indexed.localIdentifier)
+                if resolved == nil {
+                    quickLookUnavailableIDs.insert(indexed.localIdentifier)
+                }
+            }
+        }
+        if let resolved {
+            quickLookDisplayURLByID[asset.id] = resolved
+        }
+        return resolved
+    }
+
+    private func materializePhotoAssetForQuickLook(localIdentifier: String) -> URL? {
+        guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else { return nil }
+        if asset.mediaType != .image { return nil }
+        let options = PHImageRequestOptions()
+        options.isSynchronous = true
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .none
+        options.isNetworkAccessAllowed = false
+
+        var resultData: Data?
+        var resultUTI: String?
+        PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, dataUTI, _, info in
+            if let isInCloud = info?[PHImageResultIsInCloudKey] as? Bool, isInCloud, data == nil {
+                resultData = nil
+                return
+            }
+            resultData = data
+            resultUTI = dataUTI
+        }
+
+        guard let data = resultData, !data.isEmpty else { return nil }
+        let fileManager = FileManager.default
+        let directoryURL: URL
+        if let existing = quickLookTempDirectoryURL {
+            directoryURL = existing
+        } else {
+            let created = fileManager.temporaryDirectory
+                .appendingPathComponent("librarian-quicklook", isDirectory: true)
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try? fileManager.createDirectory(at: created, withIntermediateDirectories: true)
+            quickLookTempDirectoryURL = created
+            directoryURL = created
+        }
+
+        let ext: String = {
+            if let uti = resultUTI, let type = UTType(uti), let preferred = type.preferredFilenameExtension {
+                return preferred
+            }
+            return "jpg"
+        }()
+        let outputURL = directoryURL.appendingPathComponent("\(UUID().uuidString).\(ext)", isDirectory: false)
+        do {
+            try data.write(to: outputURL, options: .atomic)
+            return outputURL
+        } catch {
+            AppLog.shared.error("Failed to materialize Quick Look file: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func cleanupQuickLookSession() {
+        quickLookDisplayURLByID.removeAll()
+        quickLookUnavailableIDs.removeAll()
+        if let dir = quickLookTempDirectoryURL {
+            try? FileManager.default.removeItem(at: dir)
+        }
+        quickLookTempDirectoryURL = nil
+    }
+
+    private func showQuickLookUnavailableAlert() {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Quick Look Unavailable"
+        alert.informativeText = "Selected items are not available locally. Download iCloud-only photos first."
+        alert.addButton(withTitle: "OK")
+        alert.runSheetOrModal(for: view.window) { _ in }
+    }
+
     @objc private func markScreenshotsKeep() {
         let kind = selectedSidebarKind()
         let identifiers = selectedAssetIdentifiers()
@@ -1120,7 +1273,7 @@ final class ContentController: NSViewController {
                 isEnabled: hasArchiveTargets
             ))
 
-        case .allPhotos, .recents, .favourites, .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments:
+        case .allPhotos, .recents, .favourites, .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
             menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Set Aside",
                 action: #selector(setAsideFromContextMenu(_:)),
@@ -1310,11 +1463,13 @@ extension ContentController {
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
         syncModelSelectionFromCollection()
         updateScreenshotActionBarState()
+        updateQuickLookArtifacts()
     }
 
     func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
         syncModelSelectionFromCollection()
         updateScreenshotActionBarState()
+        updateQuickLookArtifacts()
     }
 
     private func syncModelSelectionFromCollection() {
@@ -1332,6 +1487,21 @@ extension ContentController {
         } else {
             model.setSelectedAsset(nil, count: 0)
         }
+    }
+
+    private func updateQuickLookArtifacts() {
+        guard let window = collectionView.window else { return }
+        var updatedFrames: [String: NSRect] = [:]
+        for indexPath in collectionView.selectionIndexPaths {
+            guard indexPath.item >= 0, indexPath.item < displayAssets.count else { continue }
+            guard let item = collectionView.item(at: indexPath) as? AssetGridItem else { continue }
+            let imageView = item.thumbnailImageView
+            let rectInCollection = imageView.convert(imageView.bounds, to: collectionView)
+            let rectInWindow = collectionView.convert(rectInCollection, to: nil)
+            let rectOnScreen = window.convertToScreen(rectInWindow)
+            updatedFrames[displayAssets[indexPath.item].id] = rectOnScreen
+        }
+        quickLookSourceFrames = updatedFrames
     }
 
     private func handleModifiedItemClick(indexPath: IndexPath, modifiers: NSEvent.ModifierFlags) {
@@ -1365,6 +1535,7 @@ extension ContentController {
         collectionView.scrollToItems(at: [IndexPath(item: clicked, section: 0)], scrollPosition: .nearestVerticalEdge)
         syncModelSelectionFromCollection()
         updateScreenshotActionBarState()
+        updateQuickLookArtifacts()
     }
 
     private func moveSelection(_ direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) {
@@ -1401,6 +1572,7 @@ extension ContentController {
         collectionView.scrollToItems(at: [IndexPath(item: next, section: 0)], scrollPosition: .nearestVerticalEdge)
         syncModelSelectionFromCollection()
         updateScreenshotActionBarState()
+        updateQuickLookArtifacts()
     }
 }
 
@@ -1424,6 +1596,10 @@ private final class AssetGridItem: NSCollectionViewItem {
     private var imageWidthConstraint: NSLayoutConstraint?
     private var imageHeightConstraint: NSLayoutConstraint?
     private var sharedLibraryBadgeView: NSImageView?
+
+    var thumbnailImageView: NSView {
+        imageView ?? view
+    }
 
     override func loadView() {
         view = NSView()

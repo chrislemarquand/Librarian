@@ -51,6 +51,22 @@ struct AssetIndexer {
                         continuation.yield(IndexingProgressUpdate(completed: completed, total: total))
                     }
 
+                    // Catch WhatsApp assets whose filenames don't match the pattern
+                    // (e.g. forwarded media) by scanning the WhatsApp album directly.
+                    let waOptions = PHFetchOptions()
+                    waOptions.predicate = NSPredicate(format: "localizedTitle == %@", "WhatsApp")
+                    let waCollections = PHAssetCollection.fetchAssetCollections(
+                        with: .album, subtype: .any, options: waOptions
+                    )
+                    if let waAlbum = waCollections.firstObject {
+                        let waAssets = PHAsset.fetchAssets(in: waAlbum, options: nil)
+                        var waIdentifiers: [String] = []
+                        waAssets.enumerateObjects { asset, _, _ in waIdentifiers.append(asset.localIdentifier) }
+                        if !waIdentifiers.isEmpty {
+                            try self.database.assetRepository.markWhatsAppFromAlbum(identifiers: waIdentifiers)
+                        }
+                    }
+
                     try await self.database.jobRepository.markCompleted(job)
                     continuation.finish()
                 } catch {
@@ -58,6 +74,10 @@ struct AssetIndexer {
                 }
             }
         }
+    }
+
+    nonisolated static func isWhatsAppFilename(_ filename: String) -> Bool {
+        filename.hasPrefix("WhatsApp Image ") || filename.hasPrefix("WhatsApp Video ")
     }
 
     private nonisolated static func fetchOptions() -> PHFetchOptions {
@@ -77,7 +97,15 @@ extension IndexedAsset {
         let subtypes = asset.mediaSubtypes
         let isScreenshot = subtypes.contains(.photoScreenshot)
         let isCloudShared = asset.isSharedLibraryItem
-        let isCloudOnly = !asset.isLocallyAvailable
+
+        let resources = PHAssetResource.assetResources(for: asset)
+        let locallyAvailable = resources.contains { resource in
+            let value = resource.value(forKey: "locallyAvailable")
+            if let boolValue = value as? Bool { return boolValue }
+            return true
+        }
+        let primaryFilename = resources.first?.originalFilename ?? ""
+        let isWhatsApp = AssetIndexer.isWhatsAppFilename(primaryFilename)
 
         self.init(
             localIdentifier: asset.localIdentifier,
@@ -92,10 +120,11 @@ extension IndexedAsset {
             isHidden: asset.isHidden,
             isScreenshot: isScreenshot,
             isCloudShared: isCloudShared,
-            isCloudOnly: isCloudOnly,
+            isWhatsApp: isWhatsApp,
+            isCloudOnly: !locallyAvailable,
             hasLocalThumbnail: true, // thumbnails are always locally cached by Photos
-            hasLocalOriginal: asset.isLocallyAvailable,
-            iCloudDownloadState: isCloudOnly ? "pending" : "notRequired",
+            hasLocalOriginal: locallyAvailable,
+            iCloudDownloadState: locallyAvailable ? "notRequired" : "pending",
             analysisVersion: 0,
             lastSeenInLibraryAt: lastSeenAt,
             isDeletedFromPhotos: false
@@ -119,14 +148,4 @@ private extension PHAsset {
         return false
     }
 
-    /// True when the original resource is present on disk (not cloud-only).
-    var isLocallyAvailable: Bool {
-        let resources = PHAssetResource.assetResources(for: self)
-        return resources.contains { resource in
-            let key = "locallyAvailable" as NSString
-            let value = resource.value(forKey: key as String)
-            if let boolValue = value as? Bool { return boolValue }
-            return true // Assume local if key unavailable
-        }
-    }
 }

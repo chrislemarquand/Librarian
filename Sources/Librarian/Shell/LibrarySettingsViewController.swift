@@ -10,6 +10,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
     private lazy var rebuildStatusLabel = makeDescriptionLabel("Runs a full library scan and refreshes the local index.")
     private lazy var analyseButton = makeActionButton(title: "Analyse Library", action: #selector(analyseLibrary))
     private lazy var analyseStatusLabel = makeDescriptionLabel("Imports quality scores, file sizes, labels, and duplicate fingerprints.")
+    private lazy var showInFinderButton = makeActionButton(title: "Show in Finder", action: #selector(showLibraryInFinder))
 
     private static let queues: [(title: String, kind: String)] = [
         ("Screenshots", "screenshots"),
@@ -49,7 +50,14 @@ final class LibrarySettingsViewController: SettingsGridViewController {
     }
 
     override func makeRows() -> [[NSView]] {
-        var rows: [[NSView]] = [
+        var rows: [[NSView]] = []
+
+        if let libraryURL = Self.findPhotosLibraryURL() {
+            rows.append([makeCategoryLabel(title: "Library Location:"), makePathControl(url: libraryURL), NSView()])
+            rows.append([NSView(), showInFinderButton, NSView()])
+        }
+
+        rows += [
             [makeCategoryLabel(title: "Index:"),            rebuildStatusLabel,  rebuildButton],
             [makeCategoryLabel(title: "Library analysis:"), analyseStatusLabel,  analyseButton],
         ]
@@ -69,7 +77,22 @@ final class LibrarySettingsViewController: SettingsGridViewController {
         return rows
     }
 
+    // MARK: - Library location
+
+    private static func findPhotosLibraryURL() -> URL? {
+        guard let picturesURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first,
+              let contents = try? FileManager.default.contentsOfDirectory(
+                at: picturesURL, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+              ) else { return nil }
+        return contents.first { $0.pathExtension == "photoslibrary" }
+    }
+
     // MARK: - Actions
+
+    @objc private func showLibraryInFinder() {
+        guard let url = Self.findPhotosLibraryURL() else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
 
     @objc private func rebuildIndex() {
         refreshRebuildButtonState()

@@ -227,7 +227,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
         let isGalleryContext: Bool
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
         case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
-             .duplicates, .lowQuality, .receiptsAndDocuments:
+             .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
             isGalleryContext = true
         case .indexing, .log:
             isGalleryContext = false

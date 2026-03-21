@@ -2,6 +2,32 @@
 
 All notable changes to Librarian are tracked here.
 
+## 2026-03-21
+
+### Added
+- Quick Look (`Space`) now works reliably in gallery and archive views, with behaviour identical to Ledger: single press opens, single press closes, no flash, no beep.
+
+### Changed
+- Spacebar → Quick Look keyboard handling extracted from Ledger into `SharedUI.ThreePaneSplitViewController` as `installContentKeyboardMonitor`. Root cause of Librarian's Quick Look bug (async dispatch creating a double-trigger race, and an overly broad focus guard) is eliminated by the shared implementation, which uses a synchronous call with a strict `contentView`-subtree focus check. Both apps now route through the same code path.
+- `MainSplitViewController` keyboard handling reduced to a minimal `⌘⌃I` inspector-toggle monitor; all spacebar/Quick Look logic removed from app-specific code.
+
+### Added
+- Gallery context menus with view-aware actions:
+  - PhotoKit-backed views: `Set Aside`, `Open in Photos`
+  - Set Aside view: `Put Back`, `Open in Photos`, `Send Selected to Archive`
+  - Archive view: `Reveal in Finder`
+- Selection-scoped archive export path (`Send Selected to Archive`) using the same export sheet flow as bulk export.
+
+### Changed
+- Shared dependency synchronization advanced to SharedUI `v1.0.3` (local-path lockstep workflow).
+- `Send to Archive` toolbar icon changed to `archivebox`.
+- `Put Back` removed from toolbar; action remains available through contextual paths.
+- Inspector item titles now display without file extensions for both PhotoKit and Archive selections.
+
+### Fixed
+- `Set Aside` toolbar enablement now stays disabled while browsing the `Set Aside` view.
+- Shared-library badge placement adjusted to `6pt` top / `6pt` trailing inset for consistent thumbnail alignment.
+
 ## 2026-03-20
 
 ### Added

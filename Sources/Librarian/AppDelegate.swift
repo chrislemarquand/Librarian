@@ -157,6 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(sendToArchiveItem)
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o"))
+        let quickLookItem = NSMenuItem(title: "Quick Look", action: #selector(MainSplitViewController.quickLookSelectionAction(_:)), keyEquivalent: "y")
+        quickLookItem.keyEquivalentModifierMask = .command
+        fileMenu.addItem(quickLookItem)
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
 

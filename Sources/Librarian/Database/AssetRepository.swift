@@ -18,6 +18,7 @@ struct IndexedAsset: Codable, FetchableRecord, PersistableRecord {
     var isHidden: Bool
     var isScreenshot: Bool
     var isCloudShared: Bool
+    var isWhatsApp: Bool
     var isCloudOnly: Bool
     var hasLocalThumbnail: Bool
     var hasLocalOriginal: Bool
@@ -319,6 +320,23 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func markWhatsAppFromAlbum(identifiers: [String]) throws {
+        guard !identifiers.isEmpty else { return }
+        let chunkSize = 500
+        var offset = 0
+        while offset < identifiers.count {
+            let chunk = Array(identifiers[offset ..< min(offset + chunkSize, identifiers.count)])
+            let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
+            try db.write { db in
+                try db.execute(
+                    sql: "UPDATE asset SET isWhatsApp = 1 WHERE localIdentifier IN (\(placeholders))",
+                    arguments: StatementArguments(chunk)
+                )
+            }
+            offset += chunkSize
+        }
+    }
+
     func setScreenshotDecision(identifiers: [String], decision: ScreenshotReviewDecision, at date: Date = Date()) throws {
         guard !identifiers.isEmpty else { return }
         try db.write { db in
@@ -570,6 +588,46 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func fetchAccidentalForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try db.read { db in
+            let request = SQLRequest<IndexedAsset>(
+                sql: """
+                    SELECT a.*
+                    FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'accidental'
+                    WHERE a.visionSaliencyScore IS NOT NULL
+                      AND a.visionSaliencyScore < 0.05
+                      AND a.isFavorite = 0
+                      AND qk.assetLocalIdentifier IS NULL
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
+                    LIMIT ? OFFSET ?
+                """,
+                arguments: [limit, offset]
+            )
+            return try request.fetchAll(db)
+        }
+    }
+
+    func fetchWhatsAppForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try db.read { db in
+            let request = SQLRequest<IndexedAsset>(
+                sql: """
+                    SELECT a.*
+                    FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'whatsapp'
+                    WHERE a.isWhatsApp = 1
+                      AND qk.assetLocalIdentifier IS NULL
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
+                    LIMIT ? OFFSET ?
+                """,
+                arguments: [limit, offset]
+            )
+            return try request.fetchAll(db)
+        }
+    }
+
     func countForSidebarKind(_ kind: SidebarItem.Kind) throws -> Int {
         let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
         return try db.read { db in
@@ -647,6 +705,23 @@ final class AssetRepository: @unchecked Sendable {
                     )
                       AND qk.assetLocalIdentifier IS NULL
                 """, arguments: [minimumDocumentOCRCharacters]) ?? 0
+            case .whatsapp:
+                return try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'whatsapp'
+                    WHERE a.isWhatsApp = 1 AND qk.assetLocalIdentifier IS NULL
+                """) ?? 0
+            case .accidental:
+                return try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM asset_active a
+                    LEFT JOIN queue_keep_decision qk
+                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'accidental'
+                    WHERE a.visionSaliencyScore IS NOT NULL
+                      AND a.visionSaliencyScore < 0.05
+                      AND a.isFavorite = 0
+                      AND qk.assetLocalIdentifier IS NULL
+                """) ?? 0
             case .setAsideForArchive:
                 return try Int.fetchOne(db, sql: """
                     SELECT COUNT(*) FROM archive_candidate

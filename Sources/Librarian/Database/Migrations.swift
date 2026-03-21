@@ -214,5 +214,12 @@ enum LibrarianMigrations {
             }
             try db.create(index: "asset_isCloudShared", on: "asset", columns: ["isCloudShared"])
         }
+
+        migrator.registerMigration("v13_add_isWhatsApp") { db in
+            try db.alter(table: "asset") { t in
+                t.add(column: "isWhatsApp", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(index: "asset_isWhatsApp", on: "asset", columns: ["isWhatsApp"])
+        }
     }
 }

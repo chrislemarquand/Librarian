@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-03-20
+Last updated: 2026-03-21
 
 ## Planning Principles
 
@@ -75,9 +75,12 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 - Runtime dependency hardening:
   - [Planned] bundle and validate ExifTool at app runtime so export behavior is not dependent on user machine installs
 - Interaction baseline:
-  - [Planned] Quick Look (`Space`)
-  - [Planned] gallery context menus
+  - [Done] Quick Look (`Space`)
+  - [Done] gallery context menus with view-aware actions and right-click target normalization
   - [Partial] keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
+- Vision tuning:
+  - [Planned] Duplicates box: tune Vision-based perceptual similarity thresholds and signals to improve precision/recall
+  - [Planned] Documents box: tune Vision/OCR-based document classifier to reduce false positives and improve coverage
 - Box expansion:
   - [Planned] WhatsApp Box (smart view) with confidence-based classification:
     - album signal (`WhatsApp` album membership)
@@ -85,7 +88,7 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
     - optional public metadata signal where available
   - [Planned] persist `isWhatsApp` classification at index time with tests for classifier + sidebar counts + box fetch path
 - Inspector completeness:
-  - [Planned] finalise Inspector fields, including Archive-view-specific metadata coverage
+  - [Done] finalise Inspector fields, including Archive-view-specific metadata coverage
 - Sidebar visibility:
   - [Done] item badges wired through `badgeText` + repository counts
 - Trust-boundary test gate:
@@ -106,11 +109,11 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 
 - Move osxphotos execution to an XPC boundary.
 - Bundle ExifTool with runtime validation/fallback path.
-- Implement Quick Look and gallery context menus.
 - Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
 - Implement WhatsApp Box classification + indexing + view wiring.
 - Expand trust-boundary tests for mixed outcomes and deletion reconciliation.
 - Complete external archive robustness follow-through (full relink and free-space preflight coverage across export/import paths).
+- Tune Vision classifiers for Duplicates and Documents boxes (precision/recall and false-positive reduction).
 
 ### Out
 
@@ -173,20 +176,22 @@ Goal: first materially new generation beyond incremental queue and UX work.
 
 These are cross-repo items discovered from Ledger/SharedUI audit and should be tracked as SharedUI-scoped work even when driven by Librarian needs.
 
-- **[SharedUI] Quick Look Coordinator**
-  - Extract Ledger Quick Look controller patterns into SharedUI so Librarian consumes a shared coordinator.
-  - Source reference: `Ledger/Sources/Ledger/AppModel+Preview.swift`.
+- **[SharedUI] Quick Look Coordinator** — [Done]
+  - Spacebar → Quick Look keyboard monitor extracted from Ledger into `ThreePaneSplitViewController.installContentKeyboardMonitor`. Both apps now use the shared implementation; `QuickLookPanelCoordinator` was already in SharedUI.
 
 - **[SharedUI] Gallery Context-Menu Selection Infrastructure**
-  - Extend `SharedGalleryCollectionView` with reusable right-click target normalization (auto-select clicked item before menu generation).
-  - Keep app-specific menu item actions local to each app.
+  - [Done] Extracted reusable right-click target normalization and shared menu-item helpers into SharedUI (`ContextMenuSupport`), then consumed from Ledger and Librarian.
+  - Keep app-specific menu item actions local to each app (implemented).
   - Source reference: `Ledger/Sources/Ledger/BrowserGalleryView.swift`.
 
 - **[SharedUI] Three-Pane Keyboard Focus Utility**
-  - Add reusable pane focus-cycling utilities for sidebar/content/inspector.
+  - [Done] Spacebar → Quick Look routing extracted as `installContentKeyboardMonitor` in `ThreePaneSplitViewController`.
+  - [Planned] Tab pane focus-cycling (sidebar ↔ content) — still app-specific in Ledger, not yet implemented in Librarian.
   - Source reference: `Ledger/Sources/Ledger/MainContentView.swift`.
 
 ## Open Items / Parking Lot
+
+- **Multiple library handling** — Librarian currently fetches the active Photos library URL once at launch (via AppleScript) and caches it for the session. If the user switches libraries in Photos.app while Librarian is running, the cached URL becomes stale and the existing index no longer matches the active library. A full solution requires: detecting the library switch (possibly via `PHPhotoLibraryChangeObserver` or periodic AppleScript polling), prompting the user to re-index, and deciding whether to maintain separate GRDB databases per library or wipe and rebuild. This is a non-trivial UX and data-model problem; parked until the core pipeline is solid.
 
 - Archive pipeline extensions:
   - export profiles/presets

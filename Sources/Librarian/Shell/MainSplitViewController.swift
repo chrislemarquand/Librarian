@@ -12,7 +12,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private let contentController: ContentController
     private let inspectorController: InspectorController
 
-    private var keyEventMonitor: Any?
+    private var inspectorKeyMonitor: Any?
     private var archiveExportSheetWindow: NSWindow?
 
     init(model: AppModel) {
@@ -58,7 +58,17 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         super.viewDidLoad()
         toolbarDelegate.configure(splitVC: self)
         observeModelState()
-        installKeyEventMonitor()
+        installContentKeyboardMonitor(contentView: contentController.view) { [weak self] in
+            guard let self, self.isGallerySidebarSelection else { return }
+            self.quickLookSelectionAction(nil)
+        }
+        inspectorKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 34, modifiers == [.command, .control] else { return event } // ⌘⌃I
+            self.toggleInspector(nil)
+            return nil
+        }
         toolbarDelegate.refresh(model: model)
     }
 
@@ -70,7 +80,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        removeKeyEventMonitor()
+        if let m = inspectorKeyMonitor { NSEvent.removeMonitor(m); inspectorKeyMonitor = nil }
     }
 
     // MARK: - Model observation
@@ -141,31 +151,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         refreshWindowSubtitle()
     }
 
-    // MARK: - Keyboard
-
-    private func installKeyEventMonitor() {
-        removeKeyEventMonitor()
-        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyDown(event) ?? event
-        }
-    }
-
-    private func removeKeyEventMonitor() {
-        if let monitor = keyEventMonitor {
-            NSEvent.removeMonitor(monitor)
-            keyEventMonitor = nil
-        }
-    }
-
-    private func handleKeyDown(_ event: NSEvent) -> NSEvent? {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.keyCode == 34, modifiers == [.command, .control] { // ⌘⌃I
-            toggleInspector(nil)
-            return nil
-        }
-        return event
-    }
-
     private func refreshWindowTitle() {
         let itemTitle = model.selectedSidebarItem?.title ?? "Librarian"
         view.window?.title = itemTitle
@@ -218,7 +203,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         switch kind {
         case .log, .indexing:
             text = ""
-        case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots:
+        case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots, .whatsapp, .accidental:
             text = count == 1 ? "1 item" : "\(count.formatted()) items"
         case .allPhotos, .recents, .favourites:
             text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
@@ -234,6 +219,10 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     @objc func openSelectionInPhotos(_ sender: Any?) {
         contentController.openSelectionInPhotos()
+    }
+
+    @objc func quickLookSelectionAction(_ sender: Any?) {
+        contentController.quickLookSelection()
     }
 
     @objc func refreshCurrentViewAction(_ sender: Any?) {
@@ -293,7 +282,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var isGallerySidebarSelection: Bool {
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
         case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
-             .duplicates, .lowQuality, .receiptsAndDocuments:
+             .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
             return true
         case .indexing, .log:
             return false
