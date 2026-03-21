@@ -1200,6 +1200,9 @@ final class AppModel: ObservableObject {
                 message: "This archive is linked to a different photo library. Resolve the archive-library pairing in Settings before you can \(operation.displayName)."
             )
         case .unbound:
+            if tryAutoBindArchiveToCurrentLibrary(rootURL: archiveRoot) {
+                return evaluateArchiveWriteGate(for: operation, preferredRootURL: archiveRoot)
+            }
             return ArchiveWriteGateDecision(
                 status: .requiresResolution,
                 rootURL: archiveRoot,
@@ -1214,6 +1217,34 @@ final class AppModel: ObservableObject {
                 message: "Librarian couldn’t verify the active photo library. Resolve this in Settings before you can \(operation.displayName)."
             )
         }
+    }
+
+    private func tryAutoBindArchiveToCurrentLibrary(rootURL: URL) -> Bool {
+        guard let library = try? ArchiveSettings.currentPhotoLibraryFingerprint() else { return false }
+        let didUpdate = ArchiveSettings.updateControlConfig(at: rootURL) { config in
+            guard config.photoLibraryBinding == nil else { return }
+            config.photoLibraryBinding = ArchiveSettings.ArchiveControlConfig.PhotoLibraryBinding(
+                libraryFingerprint: library.fingerprint,
+                libraryIDSource: library.source,
+                libraryPathHint: library.pathHint,
+                boundAt: Date(),
+                bindingMode: .strict,
+                lastSeenMatchAt: Date()
+            )
+            if config.schemaVersion < ArchiveSettings.configSchemaVersion {
+                config.schemaVersion = ArchiveSettings.configSchemaVersion
+            }
+        }
+        if didUpdate {
+            ArchiveLibraryCouplingRegistry.upsert(
+                libraryFingerprint: library.fingerprint,
+                archiveRootURL: rootURL,
+                archiveID: ArchiveSettings.archiveID(for: rootURL),
+                libraryPathHint: library.pathHint
+            )
+            scheduleSystemPhotoLibraryRefresh(reason: "autoBindCurrentLibrary", debounceMilliseconds: 0)
+        }
+        return didUpdate
     }
 
     func knownCouplingForCurrentSystemLibrary() -> ArchiveLibraryCouplingEntry? {

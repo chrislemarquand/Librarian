@@ -185,6 +185,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         let gate = model.evaluateArchiveWriteGate(for: .importIntoArchive)
         guard gate.status != .allowed else { return }
         guard let evaluation = gate.evaluation else { return }
+        guard evaluation.state == .mismatch else { return }
 
         let signature = [
             evaluation.state.rawValue,

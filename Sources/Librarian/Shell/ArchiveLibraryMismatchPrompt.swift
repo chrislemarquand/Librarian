@@ -98,37 +98,77 @@ enum ArchiveLibraryMismatchPrompt {
         parentWindow: NSWindow?
     ) async -> Bool {
         let evaluation = model.latestArchiveLibraryBindingEvaluation
-        let bound = evaluation?.boundLibraryPathHint ?? "previous library"
-        let current = model.currentSystemPhotoLibraryURL?.path ?? "current system library"
+        let boundName = displayLibraryName(fromPath: evaluation?.boundLibraryPathHint) ?? "Linked Photo Library"
+        let currentName = displayLibraryName(fromPath: model.currentSystemPhotoLibraryURL?.path) ?? "Current System Library"
+        let archiveName = displayArchiveName(model: model) ?? "Current Archive"
 
         let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Archive Linked to Different Photo Library"
-        alert.informativeText = """
-        This archive is linked to:
-        \(bound)
+        switch evaluation?.state {
+        case .mismatch:
+            alert.alertStyle = .warning
+            alert.messageText = "Archive Linked to Different Photo Library"
+            alert.informativeText = """
+            \(archiveName) is currently linked to:
+            \(boundName)
 
-        Current system library:
-        \(current)
+            Current system photo library:
+            \(currentName)
 
-        \(operation.displayName.capitalized) is paused to prevent incorrect duplicate handling.
-        """
-        alert.addButton(withTitle: "Rebind Archive to Current Library")
-        alert.addButton(withTitle: "Choose Different Archive")
-        alert.addButton(withTitle: "Cancel")
+            \(operation.displayName.capitalized) is paused to prevent incorrect duplicate handling.
+            """
+            alert.addButton(withTitle: "Rebind Archive to Current Library")
+            alert.addButton(withTitle: "Choose Different Archive")
+            alert.addButton(withTitle: "Cancel")
 
-        let response = await alert.runSheetOrModal(for: parentWindow)
-        switch response {
-        case .alertFirstButtonReturn:
-            return rebindCurrentArchiveToCurrentLibrary(model: model)
-        case .alertSecondButtonReturn:
-            guard let selected = promptForArchiveRoot(
-                title: "Choose Archive",
-                message: "Choose the archive location to use with the current photo library.",
-                prompt: "Use Archive"
-            ) else { return false }
-            guard model.updateArchiveRoot(selected) else { return false }
-            return rebindCurrentArchiveToCurrentLibrary(model: model)
+            let response = await alert.runSheetOrModal(for: parentWindow)
+            switch response {
+            case .alertFirstButtonReturn:
+                return rebindCurrentArchiveToCurrentLibrary(model: model)
+            case .alertSecondButtonReturn:
+                guard let selected = promptForArchiveRoot(
+                    title: "Choose Archive",
+                    message: "Choose the archive location to use with the current photo library.",
+                    prompt: "Use Archive"
+                ) else { return false }
+                guard model.updateArchiveRoot(selected) else { return false }
+                return rebindCurrentArchiveToCurrentLibrary(model: model)
+            default:
+                return false
+            }
+        case .unbound:
+            alert.alertStyle = .informational
+            alert.messageText = "Link Archive to This Photo Library"
+            alert.informativeText = """
+            \(archiveName) is not yet linked to a photo library.
+
+            Current system photo library:
+            \(currentName)
+            """
+            alert.addButton(withTitle: "Link Now")
+            alert.addButton(withTitle: "Choose Different Archive")
+            alert.addButton(withTitle: "Cancel")
+            let response = await alert.runSheetOrModal(for: parentWindow)
+            switch response {
+            case .alertFirstButtonReturn:
+                return rebindCurrentArchiveToCurrentLibrary(model: model)
+            case .alertSecondButtonReturn:
+                guard let selected = promptForArchiveRoot(
+                    title: "Choose Archive",
+                    message: "Choose the archive location to use with the current photo library.",
+                    prompt: "Use Archive"
+                ) else { return false }
+                guard model.updateArchiveRoot(selected) else { return false }
+                return rebindCurrentArchiveToCurrentLibrary(model: model)
+            default:
+                return false
+            }
+        case .unknown:
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn’t Verify Active Photo Library"
+            alert.informativeText = "Librarian couldn’t verify the active system photo library. \(operation.displayName.capitalized) is paused until this is resolved."
+            alert.addButton(withTitle: "OK")
+            _ = await alert.runSheetOrModal(for: parentWindow)
+            return false
         default:
             return false
         }
@@ -177,5 +217,19 @@ enum ArchiveLibraryMismatchPrompt {
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
         guard panel.runModal() == .OK else { return nil }
         return panel.url?.standardizedFileURL
+    }
+
+    private static func displayLibraryName(fromPath path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    private static func displayArchiveName(model: AppModel) -> String? {
+        if let root = ArchiveSettings.restoreArchiveRootURL() {
+            let base = root.lastPathComponent
+            if !base.isEmpty { return base }
+        }
+        return ArchiveSettings.currentArchiveTreeRootURL()?.lastPathComponent
     }
 }
