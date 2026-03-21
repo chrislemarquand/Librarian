@@ -370,19 +370,18 @@ nonisolated private func runOsxPhotosQuery() throws -> Data {
     }
 
     // Step 1: run osxphotos query --json and write full output to a temp file.
-    fm.createFile(atPath: fullJSONURL.path, contents: nil)
-    let outputHandle = try FileHandle(forWritingTo: fullJSONURL)
-    let osxProcess = Process()
-    osxProcess.executableURL = try resolveBundledOsxPhotosExecutableForAnalysis()
-    osxProcess.arguments = ["query", "--json"]
-    osxProcess.standardOutput = outputHandle
-    try osxProcess.run()
-    osxProcess.waitUntilExit()
-    try? outputHandle.close()
-
-    guard osxProcess.terminationStatus == 0 else {
+    let runResult = OsxPhotosRunner().run(
+        arguments: ["query", "--json"],
+        captureStdoutToFile: fullJSONURL,
+        includeExifToolEnvironment: false
+    )
+    guard runResult.exitCode == 0 else {
+        let detail = runResult.outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = detail.isEmpty
+            ? "The library scan process ended unexpectedly (code \(runResult.exitCode))."
+            : "The library scan process failed: \(detail)"
         throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 3, userInfo: [
-            NSLocalizedDescriptionKey: "The library scan process ended unexpectedly (code \(osxProcess.terminationStatus))."
+            NSLocalizedDescriptionKey: message
         ])
     }
 
@@ -428,27 +427,6 @@ with open(sys.argv[2], "w") as f:
     }
 
     return compactData
-}
-
-nonisolated private func resolveBundledOsxPhotosExecutableForAnalysis() throws -> URL {
-    let fm = FileManager.default
-    let bundle = Bundle.main
-    var candidates: [URL] = []
-    if let auxiliary = bundle.url(forAuxiliaryExecutable: "osxphotos") {
-        candidates.append(auxiliary)
-    }
-    if let resourceRoot = bundle.resourceURL {
-        candidates.append(resourceRoot.appendingPathComponent("Tools/osxphotos"))
-        candidates.append(resourceRoot.appendingPathComponent("osxphotos"))
-    }
-    for url in candidates {
-        var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
-        if fm.isExecutableFile(atPath: url.path) { return url }
-    }
-    throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 5, userInfo: [
-        NSLocalizedDescriptionKey: "Required library scan components are missing from the app."
-    ])
 }
 
 // MARK: - Decodable record

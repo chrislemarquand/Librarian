@@ -1736,6 +1736,7 @@ nonisolated private func runOsxPhotosExportBatch(
     targets: [ArchiveExportTarget],
     options: ArchiveExportOptions
 ) throws -> ArchiveExportBatchResult {
+    let osxPhotosRunner = OsxPhotosRunner()
     var exportedGroups: [ArchiveExportGroupResult] = []
     var failures: [ArchiveExportFailure] = []
 
@@ -1780,7 +1781,7 @@ nonisolated private func runOsxPhotosExportBatch(
         }
         logInfoAsync("osxphotos command: \(renderShellCommand(arguments: args))")
 
-        var result = runOsxPhotos(arguments: args)
+        var result = osxPhotosRunner.run(arguments: args, includeExifToolEnvironment: true)
         logInfoAsync("osxphotos exit code: \(result.exitCode)")
         if !result.outputText.isEmpty {
             logInfoMultilineAsync(prefix: "osxphotos output", text: result.outputText)
@@ -1788,7 +1789,7 @@ nonisolated private func runOsxPhotosExportBatch(
         if result.exitCode != 0, shouldRetryWithoutExifTool(outputText: result.outputText) {
             args = args.filter { $0 != "--exiftool" }
             logInfoAsync("Retrying osxphotos export without --exiftool")
-            result = runOsxPhotos(arguments: args)
+            result = osxPhotosRunner.run(arguments: args, includeExifToolEnvironment: false)
             logInfoAsync("osxphotos retry exit code: \(result.exitCode)")
             if !result.outputText.isEmpty {
                 logInfoMultilineAsync(prefix: "osxphotos retry output", text: result.outputText)
@@ -1887,199 +1888,6 @@ nonisolated private func shouldRetryWithoutExifTool(outputText: String) -> Bool 
     return lower.contains("not found")
         || lower.contains("no such file")
         || lower.contains("could not find")
-}
-
-nonisolated private func runOsxPhotos(arguments: [String]) -> (exitCode: Int32, outputText: String) {
-    let bundledExifTool = try? resolveBundledExifToolExecutable()
-    let processEnvironment = makeOsxPhotosEnvironment(exiftoolExecutableURL: bundledExifTool)
-
-    if let bundledExecutable = try? resolveBundledOsxPhotosExecutable() {
-        let bundledResult = runProcess(
-            executableURL: bundledExecutable,
-            arguments: arguments,
-            environment: processEnvironment
-        )
-        if bundledResult.exitCode != 0,
-           isPyInstallerSemaphoreError(outputText: bundledResult.outputText),
-           let externalExecutable = resolveExternalOsxPhotosExecutable() {
-            logInfoAsync("Bundled osxphotos failed with sandboxed PyInstaller semaphore error. Retrying with external osxphotos at \(externalExecutable.path)")
-            return runProcess(
-                executableURL: externalExecutable,
-                arguments: arguments,
-                environment: processEnvironment
-            )
-        }
-        return bundledResult
-    }
-
-    if let externalExecutable = resolveExternalOsxPhotosExecutable() {
-        logInfoAsync("Bundled osxphotos executable not found. Using external osxphotos at \(externalExecutable.path)")
-        return runProcess(
-            executableURL: externalExecutable,
-            arguments: arguments,
-            environment: processEnvironment
-        )
-    }
-
-    return (1, "Required export components are missing.")
-}
-
-nonisolated private func runProcess(
-    executableURL: URL,
-    arguments: [String],
-    environment: [String: String]? = nil
-) -> (exitCode: Int32, outputText: String) {
-    let process = Process()
-    process.executableURL = executableURL
-    process.arguments = arguments
-    process.environment = environment
-    let fileManager = FileManager.default
-    let logURL = fileManager.temporaryDirectory
-        .appendingPathComponent("librarian-osxphotos-\(UUID().uuidString).log", isDirectory: false)
-    fileManager.createFile(atPath: logURL.path, contents: nil)
-    let outputHandle: FileHandle
-    do {
-        outputHandle = try FileHandle(forWritingTo: logURL)
-    } catch {
-        return (1, "Failed to create osxphotos output capture file.")
-    }
-    process.standardError = outputHandle
-    process.standardOutput = outputHandle
-
-    do {
-        try process.run()
-    } catch {
-        try? outputHandle.close()
-        try? fileManager.removeItem(at: logURL)
-        return (1, "Failed to launch bundled osxphotos executable.")
-    }
-    process.waitUntilExit()
-    try? outputHandle.close()
-    let outputData = (try? Data(contentsOf: logURL)) ?? Data()
-    try? fileManager.removeItem(at: logURL)
-    let outputText = String(data: outputData, encoding: .utf8)?
-        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return (process.terminationStatus, outputText)
-}
-
-nonisolated private func isPyInstallerSemaphoreError(outputText: String) -> Bool {
-    let lower = outputText.lowercased()
-    return lower.contains("failed to initialize sync semaphore")
-        || (lower.contains("pyi-") && lower.contains("semctl") && lower.contains("operation not permitted"))
-}
-
-nonisolated private func resolveBundledOsxPhotosExecutable() throws -> URL {
-    let fm = FileManager.default
-    let bundle = Bundle.main
-
-    var candidates: [URL] = []
-    if let auxiliary = bundle.url(forAuxiliaryExecutable: "osxphotos") {
-        candidates.append(auxiliary)
-    }
-    if let resourceRoot = bundle.resourceURL {
-        candidates.append(resourceRoot.appendingPathComponent("Tools/osxphotos", isDirectory: false))
-        candidates.append(resourceRoot.appendingPathComponent("osxphotos", isDirectory: false))
-    }
-
-    for url in candidates {
-        var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
-            continue
-        }
-        if fm.isExecutableFile(atPath: url.path) {
-            return url
-        }
-    }
-
-    throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 5, userInfo: [
-        NSLocalizedDescriptionKey: "Required export components are missing."
-    ])
-}
-
-nonisolated private func resolveBundledExifToolExecutable() throws -> URL {
-    let fm = FileManager.default
-    let bundle = Bundle.main
-
-    var candidates: [URL] = []
-    if let resourceRoot = bundle.resourceURL {
-        candidates.append(resourceRoot.appendingPathComponent("Tools/exiftool.bundle/bin/exiftool", isDirectory: false))
-        candidates.append(resourceRoot.appendingPathComponent("exiftool.bundle/bin/exiftool", isDirectory: false))
-        candidates.append(resourceRoot.appendingPathComponent("Tools/exiftool/bin/exiftool", isDirectory: false))
-        candidates.append(resourceRoot.appendingPathComponent("exiftool/bin/exiftool", isDirectory: false))
-    }
-
-    for url in candidates where fm.isExecutableFile(atPath: url.path) {
-        return url
-    }
-
-    throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 6, userInfo: [
-        NSLocalizedDescriptionKey: "Bundled exiftool executable not found in app resources."
-    ])
-}
-
-nonisolated private func makeOsxPhotosEnvironment(exiftoolExecutableURL: URL?) -> [String: String] {
-    var environment = ProcessInfo.processInfo.environment
-    guard let exiftoolExecutableURL else {
-        return environment
-    }
-
-    environment["EXIFTOOL_PATH"] = exiftoolExecutableURL.path
-
-    // Bundled exiftool is a Perl script that expects Image::ExifTool modules
-    // under a sibling "lib" folder.
-    let bundledLibPath = exiftoolExecutableURL
-        .deletingLastPathComponent()
-        .appendingPathComponent("lib", isDirectory: true)
-        .path
-    if FileManager.default.fileExists(atPath: bundledLibPath) {
-        let existing = environment["PERL5LIB"] ?? ""
-        environment["PERL5LIB"] = existing.isEmpty ? bundledLibPath : "\(bundledLibPath):\(existing)"
-    }
-
-    return environment
-}
-
-nonisolated private func resolveExternalOsxPhotosExecutable() -> URL? {
-    let fm = FileManager.default
-    var candidates = [
-        "/opt/homebrew/bin/osxphotos",
-        "/usr/local/bin/osxphotos",
-        "/usr/bin/osxphotos",
-        NSHomeDirectory() + "/.local/bin/osxphotos"
-    ].map(URL.init(fileURLWithPath:))
-
-    if let pathURL = resolveOsxPhotosFromPATH() {
-        candidates.insert(pathURL, at: 0)
-    }
-
-    for url in candidates where fm.isExecutableFile(atPath: url.path) {
-        return url
-    }
-    return nil
-}
-
-nonisolated private func resolveOsxPhotosFromPATH() -> URL? {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-    process.arguments = ["osxphotos"]
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = Pipe()
-    do {
-        try process.run()
-    } catch {
-        return nil
-    }
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else { return nil }
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let path = String(data: data, encoding: .utf8)?
-        .trimmingCharacters(in: .whitespacesAndNewlines),
-        !path.isEmpty
-    else {
-        return nil
-    }
-    return URL(fileURLWithPath: path)
 }
 
 nonisolated private func archiveRootForExport(_ rootURL: URL) -> URL {

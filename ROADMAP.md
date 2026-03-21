@@ -79,15 +79,18 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
   - [Done] Quick Look (`Space`)
   - [Done] gallery context menus with view-aware actions and right-click target normalization
   - [Partial] keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
-- Vision tuning:
-  - [Planned] Duplicates box: tune Vision-based perceptual similarity thresholds and signals to improve precision/recall
-  - [Planned] Documents box: tune Vision/OCR-based document classifier to reduce false positives and improve coverage
-- Box expansion:
-  - [Planned] WhatsApp Box (smart view) with confidence-based classification:
-    - album signal (`WhatsApp` album membership)
-    - filename-pattern signal (WhatsApp export naming conventions)
-    - optional public metadata signal where available
-  - [Planned] persist `isWhatsApp` classification at index time with tests for classifier + sidebar counts + box fetch path
+- Boxes quality pass (v1.0):
+  - [Planned] run a single quality sweep across all box views before release, including existing boxes and WhatsApp.
+  - [Planned] establish one shared quality bar per box:
+    - classifier/input signals (precision/recall targets by box type)
+    - fetch-query correctness and sidebar count consistency
+    - empty-state copy, actions, and inspector consistency
+    - test minimums (classifier + repository query/count + UI count wiring)
+  - [Planned] deliver in slices by box family, with WhatsApp implemented within the same pass (not as a one-off):
+    - Duplicates tuning (Vision/perceptual thresholds)
+    - Documents tuning (Vision/OCR false-positive reduction)
+    - Low Quality / Screenshots / Accidental consistency checks
+    - WhatsApp classification + indexing + view wiring + tests
 - Inspector completeness:
   - [Done] finalise Inspector fields, including Archive-view-specific metadata coverage
 - Sidebar visibility:
@@ -109,8 +112,7 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 ### Remaining Priority To Reach v1.0
 
 - Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
-- Implement WhatsApp Box classification + indexing + view wiring.
-- Tune Vision classifiers for Duplicates and Documents boxes (precision/recall and false-positive reduction).
+- Execute the v1.0 Boxes quality pass across all box views (including WhatsApp) and close agreed quality-bar test gates.
 
 ### Out
 
