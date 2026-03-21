@@ -524,6 +524,7 @@ final class AppModel: ObservableObject {
 
     let photosService: PhotosLibraryService
     let database: DatabaseManager
+    let systemNotifications: SystemNotificationService
 
     // MARK: - Published state
 
@@ -570,6 +571,7 @@ final class AppModel: ObservableObject {
     private var pendingLibraryIdentityCheckTask: Task<Void, Never>?
     private var libraryMonitorTimer: Timer?
     private var didNotifyArchiveNeedsRelinkForCurrentOutage = false
+    private var didNotifyArchiveUnavailableSystemNotificationForCurrentOutage = false
     private var statusResetTask: Task<Void, Never>?
     private var suppressChangeSyncUntil: Date = .distantPast
     private var suppressChangeSyncReason: String?
@@ -585,6 +587,7 @@ final class AppModel: ObservableObject {
     init() {
         self.photosService = PhotosLibraryService()
         self.database = DatabaseManager()
+        self.systemNotifications = .shared
         let defaults = UserDefaults.standard
         let storedLevel = defaults.integer(forKey: Self.galleryGridLevelKey)
         if storedLevel == 0 {
@@ -598,6 +601,7 @@ final class AppModel: ObservableObject {
     // MARK: - Setup
 
     func setup() async {
+        systemNotifications.prepare()
         do {
             try database.open()
         } catch {
@@ -713,9 +717,23 @@ final class AppModel: ObservableObject {
                 indexingProgress = .idle
             }
             AppLog.shared.info("Indexing completed (\(reason))")
+            if reason == "manualRebuild" {
+                systemNotifications.postIfBackground(
+                    title: "Rebuild Index Complete",
+                    body: "Librarian finished rebuilding the library index.",
+                    identifier: "rebuild-index-complete"
+                )
+            }
         } catch {
             indexingProgress = .failed(error.localizedDescription)
             AppLog.shared.error("Indexing failed (\(reason)): \(error.localizedDescription)")
+            if reason == "manualRebuild" {
+                systemNotifications.postIfBackground(
+                    title: "Rebuild Index Failed",
+                    body: error.localizedDescription,
+                    identifier: "rebuild-index-failed"
+                )
+            }
         }
 
         isIndexing = false
@@ -824,8 +842,17 @@ final class AppModel: ObservableObject {
                 didNotifyArchiveNeedsRelinkForCurrentOutage = true
                 NotificationCenter.default.post(name: .librarianArchiveNeedsRelink, object: nil)
             }
+            if !didNotifyArchiveUnavailableSystemNotificationForCurrentOutage {
+                didNotifyArchiveUnavailableSystemNotificationForCurrentOutage = true
+                systemNotifications.postIfBackground(
+                    title: "Archive Not Available",
+                    body: "Librarian can’t find your archive. Open the app to relink it or create a new archive.",
+                    identifier: "archive-unavailable"
+                )
+            }
         } else {
             didNotifyArchiveNeedsRelinkForCurrentOutage = false
+            didNotifyArchiveUnavailableSystemNotificationForCurrentOutage = false
         }
         return current
     }
@@ -844,9 +871,19 @@ final class AppModel: ObservableObject {
             }
             analysisStatusText = ""
             assetDataVersion &+= 1
+            systemNotifications.postIfBackground(
+                title: "Library Analysis Complete",
+                body: "Librarian finished analyzing your photo library.",
+                identifier: "analysis-complete"
+            )
         } catch {
             analysisStatusText = "Failed: \(error.localizedDescription)"
             AppLog.shared.error("Library analysis failed: \(error.localizedDescription)")
+            systemNotifications.postIfBackground(
+                title: "Library Analysis Failed",
+                body: error.localizedDescription,
+                identifier: "analysis-failed"
+            )
         }
 
         isAnalysing = false
@@ -926,12 +963,28 @@ final class AppModel: ObservableObject {
                 "skippedExistsInPhotoKit=\(summary.skippedExistsInPhotoKit), " +
                 "failed=\(summary.failed)"
             )
+            let body: String
+            if summary.failed > 0 {
+                body = "Imported \(summary.imported) photos. \(summary.failed) failed."
+            } else {
+                body = "Imported \(summary.imported) photos."
+            }
+            systemNotifications.postIfBackground(
+                title: "Archive Import Complete",
+                body: body,
+                identifier: "archive-import-complete"
+            )
             return summary
 
         } catch {
             try? await database.jobRepository.markFailed(job, error: error.localizedDescription)
             importStatusText = "Import failed: \(error.localizedDescription)"
             AppLog.shared.error("Archive import failed: \(error.localizedDescription)")
+            systemNotifications.postIfBackground(
+                title: "Archive Import Failed",
+                body: error.localizedDescription,
+                identifier: "archive-import-failed"
+            )
             throw error
         }
     }
@@ -1044,6 +1097,11 @@ final class AppModel: ObservableObject {
             guard !exportedIdentifiers.isEmpty else {
                 try await database.jobRepository.markFailed(job, error: "No items were exported.")
                 refreshArchiveCandidateCount()
+                systemNotifications.postIfBackground(
+                    title: "Archive Export Failed",
+                    body: "No photos were exported.",
+                    identifier: "archive-export-failed"
+                )
                 return ArchiveSendOutcome(
                     exportedCount: 0,
                     deletedCount: 0,
@@ -1081,6 +1139,11 @@ final class AppModel: ObservableObject {
                 assetDataVersion &+= 1
                 refreshArchiveCandidateCount()
                 notifyIndexingStateChanged()
+                systemNotifications.postIfBackground(
+                    title: "Archive Export Needs Attention",
+                    body: "Exported \(exportedIdentifiers.count) photos, but \(notDeleted.count) couldn’t be removed from Photos.",
+                    identifier: "archive-export-not-deleted"
+                )
                 return ArchiveSendOutcome(
                     exportedCount: exportedIdentifiers.count,
                     deletedCount: deletedIdentifiers.count,
@@ -1097,6 +1160,11 @@ final class AppModel: ObservableObject {
                 assetDataVersion &+= 1
                 refreshArchiveCandidateCount()
                 notifyIndexingStateChanged()
+                systemNotifications.postIfBackground(
+                    title: "Archive Export Partly Failed",
+                    body: "Exported \(exportedIdentifiers.count) photos. \(failedIdentifiers.count) failed and remain in Set Aside.",
+                    identifier: "archive-export-partial-failure"
+                )
                 return ArchiveSendOutcome(
                     exportedCount: exportedIdentifiers.count,
                     deletedCount: deletedIdentifiers.count,
@@ -1113,6 +1181,11 @@ final class AppModel: ObservableObject {
             assetDataVersion &+= 1
             refreshArchiveCandidateCount()
             notifyIndexingStateChanged()
+            systemNotifications.postIfBackground(
+                title: "Archive Export Complete",
+                body: "Exported \(exportedIdentifiers.count) photos and removed them from Photos.",
+                identifier: "archive-export-complete"
+            )
             return ArchiveSendOutcome(
                 exportedCount: exportedIdentifiers.count,
                 deletedCount: deletedIdentifiers.count,
@@ -1129,6 +1202,11 @@ final class AppModel: ObservableObject {
             try? await database.jobRepository.markFailed(job, error: error.localizedDescription)
             refreshArchiveCandidateCount()
             AppLog.shared.error("Archive send failed: \(error.localizedDescription)")
+            systemNotifications.postIfBackground(
+                title: "Archive Export Failed",
+                body: error.localizedDescription,
+                identifier: "archive-export-failed-error"
+            )
             throw error
         }
     }

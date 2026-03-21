@@ -315,11 +315,11 @@
 				CODE_SIGN_ENTITLEMENTS = Config/Librarian.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-					CURRENT_PROJECT_VERSION = 1;
-					ENABLE_APP_SANDBOX = NO;
-					ENABLE_USER_SCRIPT_SANDBOXING = NO;
-					GENERATE_INFOPLIST_FILE = NO;
-					INFOPLIST_FILE = "Config/Librarian-Info.plist";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/Librarian-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -346,11 +346,11 @@
 				CODE_SIGN_ENTITLEMENTS = Config/Librarian.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-					CURRENT_PROJECT_VERSION = 1;
-					ENABLE_APP_SANDBOX = NO;
-					ENABLE_USER_SCRIPT_SANDBOXING = NO;
-					GENERATE_INFOPLIST_FILE = NO;
-					INFOPLIST_FILE = "Config/Librarian-Info.plist";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/Librarian-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
