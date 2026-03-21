@@ -170,15 +170,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
         fileItem.submenu = fileMenu
-        fileMenu.addItem(NSMenuItem(title: "Import Photos into Archive…", action: #selector(MainSplitViewController.addPhotosToArchiveAction(_:)), keyEquivalent: ""))
-        fileMenu.addItem(NSMenuItem(title: "Set Archive Location…", action: #selector(MainSplitViewController.setArchiveLocationAction(_:)), keyEquivalent: ""))
+        let importItem = NSMenuItem(title: "Import Photos into Archive…", action: #selector(MainSplitViewController.addPhotosToArchiveAction(_:)), keyEquivalent: "")
+        importItem.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
+        fileMenu.addItem(importItem)
+        let archiveLocationItem = NSMenuItem(title: "Set Archive Location…", action: #selector(MainSplitViewController.setArchiveLocationAction(_:)), keyEquivalent: "")
+        archiveLocationItem.image = NSImage(systemSymbolName: "folder.badge.gear", accessibilityDescription: nil)
+        fileMenu.addItem(archiveLocationItem)
         fileMenu.addItem(.separator())
-        fileMenu.addItem(NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o"))
+        let openInPhotosItem = NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o")
+        openInPhotosItem.image = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)
+        fileMenu.addItem(openInPhotosItem)
         let revealItem = NSMenuItem(title: "Reveal in Finder", action: #selector(MainSplitViewController.revealSelectionInFinderAction(_:)), keyEquivalent: "r")
         revealItem.keyEquivalentModifierMask = [.command, .option]
+        revealItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
         fileMenu.addItem(revealItem)
         let quickLookItem = NSMenuItem(title: "Quick Look", action: #selector(MainSplitViewController.quickLookSelectionAction(_:)), keyEquivalent: "y")
         quickLookItem.keyEquivalentModifierMask = .command
+        quickLookItem.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)
         fileMenu.addItem(quickLookItem)
 
         // Edit menu
@@ -186,9 +194,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
         editItem.submenu = editMenu
-        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector("undo:"), keyEquivalent: "z"))
+        let undoItem = NSMenuItem(title: "Undo", action: Selector("undo:"), keyEquivalent: "z")
+        undoItem.image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)
+        editMenu.addItem(undoItem)
         let redoItem = NSMenuItem(title: "Redo", action: Selector("redo:"), keyEquivalent: "z")
         redoItem.keyEquivalentModifierMask = [.command, .shift]
+        redoItem.image = NSImage(systemSymbolName: "arrow.uturn.forward", accessibilityDescription: nil)
         editMenu.addItem(redoItem)
         editMenu.addItem(.separator())
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a"))
@@ -198,18 +209,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(photoItem)
         let photoMenu = NSMenu(title: "Photo")
         photoItem.submenu = photoMenu
-        photoMenu.addItem(NSMenuItem(title: "Keep", action: #selector(MainSplitViewController.keepSelectionAction(_:)), keyEquivalent: "k"))
+        let keepItem = NSMenuItem(title: "Keep", action: #selector(MainSplitViewController.keepSelectionAction(_:)), keyEquivalent: "k")
+        keepItem.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: nil)
+        photoMenu.addItem(keepItem)
         let setAsideItem = NSMenuItem(title: "Set Aside", action: #selector(MainSplitViewController.setAsideSelectionAction(_:)), keyEquivalent: "d")
+        setAsideItem.image = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: nil)
         photoMenu.addItem(setAsideItem)
         let putBackItem = NSMenuItem(title: "Put Back", action: #selector(MainSplitViewController.putBackSelectionAction(_:)), keyEquivalent: "d")
         putBackItem.keyEquivalentModifierMask = [.command, .option]
+        putBackItem.image = NSImage(systemSymbolName: "arrow.uturn.left.circle", accessibilityDescription: nil)
         photoMenu.addItem(putBackItem)
         let resetItem = NSMenuItem(title: "Reset Decision", action: #selector(MainSplitViewController.resetDecisionAction(_:)), keyEquivalent: "\u{8}")
         resetItem.keyEquivalentModifierMask = .command
+        resetItem.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
         photoMenu.addItem(resetItem)
         photoMenu.addItem(.separator())
         let sendToArchiveItem = NSMenuItem(title: "Send Selected to Archive…", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "s")
         sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        sendToArchiveItem.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: nil)
         photoMenu.addItem(sendToArchiveItem)
 
         // View menu
@@ -219,16 +236,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewItem.submenu = viewMenu
         let zoomInItem = NSMenuItem(title: "Zoom In", action: #selector(MainSplitViewController.zoomInAction(_:)), keyEquivalent: "+")
         zoomInItem.keyEquivalentModifierMask = .command
+        zoomInItem.image = NSImage(systemSymbolName: "plus.magnifyingglass", accessibilityDescription: nil)
         viewMenu.addItem(zoomInItem)
         let zoomOutItem = NSMenuItem(title: "Zoom Out", action: #selector(MainSplitViewController.zoomOutAction(_:)), keyEquivalent: "-")
         zoomOutItem.keyEquivalentModifierMask = .command
+        zoomOutItem.image = NSImage(systemSymbolName: "minus.magnifyingglass", accessibilityDescription: nil)
         viewMenu.addItem(zoomOutItem)
         viewMenu.addItem(.separator())
         let toggleSidebarItem = NSMenuItem(title: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
         toggleSidebarItem.keyEquivalentModifierMask = [.command, .option]
+        toggleSidebarItem.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)
         viewMenu.addItem(toggleSidebarItem)
         let toggleInspectorItem = NSMenuItem(title: "Toggle Inspector", action: #selector(MainSplitViewController.toggleInspector(_:)), keyEquivalent: "i")
         toggleInspectorItem.keyEquivalentModifierMask = [.command, .option]
+        toggleInspectorItem.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: nil)
         viewMenu.addItem(toggleInspectorItem)
 
         // Window menu

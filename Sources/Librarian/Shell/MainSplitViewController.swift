@@ -424,6 +424,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             resetItem.representedObject = keepKind
             resetItem.target = self
             resetItem.isEnabled = true
+            resetItem.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
             menu.addItem(resetItem)
             return menu
 
@@ -438,6 +439,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             )
             sendItem.target = self
             sendItem.isEnabled = hasCandidates && !model.isSendingArchive
+            sendItem.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: nil)
             menu.addItem(sendItem)
             let clearItem = NSMenuItem(
                 title: "Clear Set Aside…",
@@ -446,6 +448,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             )
             clearItem.target = self
             clearItem.isEnabled = hasCandidates && !model.isSendingArchive
+            clearItem.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
             menu.addItem(clearItem)
             return menu
 
@@ -459,6 +462,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             )
             revealItem.target = self
             revealItem.isEnabled = model.archiveRootURL != nil
+            revealItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             menu.addItem(revealItem)
             return menu
         }
