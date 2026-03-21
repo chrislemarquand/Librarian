@@ -24,7 +24,8 @@ These are already present in code and should be treated as shipped baseline:
 
 - Reset stale `exporting` archive rows at startup to recover from interrupted runs.
 - Add an export progress sheet with clear completion counts and log access.
-- Move osxphotos process boundary to XPC for distribution readiness.
+- Keep direct notarized distribution as the release target (not App Store / sandbox track for v1.0).
+- Keep osxphotos process-boundary hardening (XPC or equivalent) as reliability architecture work, not a distribution gate.
 - Add Quick Look (`Space`) for selected items.
 - Add gallery context menus with auto-select-on-right-click behavior.
 - Add sidebar badges for at-a-glance counts.
@@ -69,7 +70,7 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 - Export UX:
   - [Done] progress sheet (indeterminate + status line + completion summary + log access)
 - osxphotos boundary:
-  - [Planned] replace direct subprocess usage with XPC service path for export and analysis invocations
+  - [Planned] consolidate export and analysis subprocess launching behind a single internal runner boundary (XPC optional)
 - Export behavior controls:
   - [Done] add user-visible toggles for edited/live export handling (the approved flags decision)
 - Runtime dependency hardening:
@@ -107,7 +108,6 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 
 ### Remaining Priority To Reach v1.0
 
-- Move osxphotos execution to an XPC boundary.
 - Bundle ExifTool with runtime validation/fallback path.
 - Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
 - Implement WhatsApp Box classification + indexing + view wiring.
@@ -195,7 +195,7 @@ These are cross-repo items discovered from Ledger/SharedUI audit and should be t
 
 - **FSEvents archive folder watching** — Currently the ArchiveIndexer only runs when the Archive view is opened (passive detection). If the user places files in the archive folder via Finder, they won't appear until the view is next opened and there's no badge update. A full solution requires: installing an FSEvents watcher on the archive root folder, triggering a re-index when changes are detected, updating the sidebar badge, and optionally auto-triggering the organize pass if unorganized files are detected. Parked in favour of passive detection for now.
 
-- **Archive export routing (Type then Date layout)** — When the "Type then date" folder layout is selected, the export pipeline (Set Aside → osxphotos export) should route files into the correct top-level subfolder based on content type rather than dumping everything into a flat date structure. The routing logic needs to be defined — the original spec used a queue-based rule (Duplicates → `Photos/`, Screenshots/junk → `Other/`) but this no longer reflects the intended model. The correct routing rules should be agreed before implementation. This is currently blocked on the osxphotos XPC migration (required for distribution) and requires that routing logic be expressed in the osxphotos export template or as a post-export move pass. In the meantime the organizer (`ArchiveOrganizer`) falls back to routing everything to `Photos/` with a comment.
+- **Archive export routing (Type then Date layout)** — When the "Type then date" folder layout is selected, the export pipeline (Set Aside → osxphotos export) should route files into the correct top-level subfolder based on content type rather than dumping everything into a flat date structure. The routing logic needs to be defined — the original spec used a queue-based rule (Duplicates → `Photos/`, Screenshots/junk → `Other/`) but this no longer reflects the intended model. The correct routing rules should be agreed before implementation. This is blocked on export-pipeline routing design, not on App Store sandboxing. In the meantime the organizer (`ArchiveOrganizer`) falls back to routing everything to `Photos/` with a comment.
 
 - Archive pipeline extensions:
   - export profiles/presets

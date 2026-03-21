@@ -66,7 +66,8 @@ It does **not** write metadata, keywords, captions, or albums back into Photos i
 - Assume **Apple silicon** as the primary target
 - Personal-use / direct distribution / notarized app is acceptable
 - No requirement for App Store distribution
-- **Sandboxed with entitlements** — cleaner long-term even though more complex to set up
+- **Primary release model:** Developer ID signed + notarized direct distribution (DMG/zip)
+- **No App Sandbox requirement for v1** (future App Store track is optional, separate scope)
 
 ## 7. Technical architecture
 
@@ -116,23 +117,24 @@ PhotoKit is the main runtime interface for browsing, selection, thumbnails, meta
 - how failures are logged and surfaced
 - how long-running export tasks are monitored and cancelled
 
-Because the app is sandboxed, the bundled Python environment and osxphotos binary must be provisioned within the app's sandbox container and invoked via an appropriate entitlement or XPC helper. This must be designed explicitly — do not assume direct subprocess spawning will work without entitlement work.
+For direct distribution, bundled tools must be shipped, code-signed, and runtime-validated as part of the app. XPC is an optional isolation mechanism, not a mandatory distribution requirement.
 
-### 7.5 App sandbox and entitlements
+### 7.5 Runtime security posture
 
-The app is **sandboxed**. Required entitlements include at minimum:
+The release target is **notarized direct distribution**. Security requirements include:
 
-- `com.apple.security.personal-information.photos-library` — PhotoKit access
-- File access entitlements for the user-chosen archive root (via security-scoped bookmarks)
-- Entitlements to support the bundled osxphotos helper process (XPC service or equivalent)
+- Hardened Runtime enabled for release builds
+- Developer ID code signing for app and bundled helper executables
+- Notarization + stapling for shipped artifacts
+- Security-scoped bookmarks for persistent archive-root access across launches
 
-Security-scoped bookmarks must be used for persistent access to the archive root across launches.
+App Sandbox/App Store entitlements are explicitly out of scope for v1.
 
 ### 7.6 Process model
 
 - Main macOS app process in Swift/AppKit
 - Background worker(s) for indexing and analysis
-- XPC helper or task runner process for `osxphotos` jobs
+- Internal task runner process boundary for `osxphotos` jobs (direct subprocess or XPC service)
 - Job queue persisted in GRDB/SQLite
 
 Do not block the UI on full-library scans or export tasks.
@@ -602,8 +604,8 @@ Clear invalidation rules when the Photos library changes outside Librarian.
 ### 22.5 Deletion safety
 Frozen candidate list, verification gate, partial failure handling, immutable in-flight sets.
 
-### 22.6 Sandboxed osxphotos
-The bundled Python/osxphotos environment must be designed to work within the app sandbox. Use an XPC service or equivalent. Do not assume direct subprocess spawning without entitlement design.
+### 22.6 Bundled toolchain integrity
+The bundled osxphotos/exiftool toolchain must be deterministic and self-contained: pinned versions, valid signatures, predictable runtime environment, and explicit launch diagnostics.
 
 ### 22.7 Archive model
 Policy is locked: export both original and edited for edited assets; suffix on collision; migration job on archive root change; two-folder structure (`Photos/` and `Other/`) with queue-driven routing; deterministic paths within each.
@@ -655,7 +657,7 @@ Grid browser, thumbnail loading/caching (preview strategy per section 13), selec
 Screenshots only. Get one queue working end-to-end before adding more.
 
 ### Phase 4 — archive pipeline
-Archive queue view (editable). iCloud download-on-demand with retry. Bundled osxphotos (sandboxed XPC). Naming collision handling. Export verification. Delete only after success.
+Archive queue view (editable). iCloud download-on-demand with retry. Bundled osxphotos tool runner. Naming collision handling. Export verification. Delete only after success.
 
 ### Phase 5 — additional review queues
 Duplicates, likely bad photos, review later.
@@ -692,4 +694,4 @@ Librarian succeeds if a user can safely:
 
 ## 27. One-sentence brief
 
-**Build a sandboxed native AppKit macOS companion app called Librarian that reuses Ledger's shell, uses PhotoKit for live Apple Photos access (full access required, download-on-demand with retry for iCloud assets), GRDB/SQLite for local indexing and state with sequential migrations, Apple-native ML and Foundation Models for local analysis and explanation generation, and a bundled pinned osxphotos via XPC for verified archival export of both originals and edited versions, with a strict rule that nothing is deleted from Photos until it has been safely archived and verified.**
+**Build a native AppKit macOS companion app called Librarian for direct signed/notarized distribution, reusing Ledger's shell, using PhotoKit for live Apple Photos access (full access required, download-on-demand with retry for iCloud assets), GRDB/SQLite for local indexing and state with sequential migrations, Apple-native ML and Foundation Models for local analysis and explanation generation, and a bundled pinned osxphotos toolchain for verified archival export of both originals and edited versions, with a strict rule that nothing is deleted from Photos until it has been safely archived and verified.**

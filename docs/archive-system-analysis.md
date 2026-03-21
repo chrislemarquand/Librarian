@@ -59,7 +59,7 @@ These are substantial utilities (~500 lines combined) sitting inside the view co
 
 - `--skip-original-if-edited` is passed to osxphotos — exports edited version only, not both.
 - `--skip-live` is passed — drops the video component of Live Photos.
-- osxphotos runs as a direct subprocess (`Process()`), not an XPC service — breaks at distribution.
+- osxphotos runs as a direct subprocess (`Process()`), not an isolated runner/XPC service — acceptable for direct notarized distribution, but still architecture debt.
 
 These are documented in `CLAUDE.md` as known bugs, not design choices.
 
@@ -93,7 +93,7 @@ If the user moves the archive folder on disk outside the app (e.g., Finder drag 
 | Issue | Severity | Location |
 |---|---|---|
 | Export flags hardcoded, contradicting UI toggles | Critical | `AppModel.runOsxPhotosExportBatch` |
-| osxphotos as direct subprocess, not XPC | Critical (distribution) | `AppModel.runOsxPhotos` |
+| osxphotos as direct subprocess, not isolated runner/XPC | Medium (architecture hardening) | `AppModel.runOsxPhotos` |
 | Archive folder structure ignores queue category | Design gap | `ArchiveImportCoordinator`, export batch |
 | ArchiveOrganizer/Indexer/Thumbnails in ContentController | Architecture debt | `ContentController.swift` |
 | No relink flow for externally moved archives | Missing feature | `ArchiveSettings`, Settings UI |

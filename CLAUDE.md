@@ -19,7 +19,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 - **AppKit** for the app shell — not SwiftUI (SwiftUI in strict islands only if necessary)
 - **PhotoKit** for all live Photos access — not osxphotos for live reads
 - **GRDB** as the SQLite layer — use its built-in migration system for all schema changes
-- **osxphotos** bundled at a pinned version — invoked via XPC helper, not direct subprocess
+- **osxphotos** bundled at a pinned version — invoked through an internal tool-runner boundary (XPC optional hardening, not a release blocker)
 - **Foundation Models** for explanation generation where available, heuristic fallback elsewhere
 - **Vision / Core ML** for local analysis
 
@@ -27,7 +27,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 
 1. PhotoKit is the live runtime interface. osxphotos is invoked only for explicit user-initiated actions — never passively, never as a live data source. Never blur this boundary. Currently approved actions: archive export, library analysis pass (see Key decisions).
 2. All schema changes are GRDB migrations — named, sequential, append-only, applied at startup before any database access.
-3. The app is sandboxed. The archive root is accessed via a security-scoped bookmark. The osxphotos helper runs in an XPC service. Design entitlements explicitly.
+3. Distribution target is direct-download notarized macOS app (Developer ID), not App Store. Keep Hardened Runtime on for release, avoid user-machine tool dependencies, and keep archive access through security-scoped bookmarks.
 4. Nothing is deleted from Photos until: iCloud download complete → export succeeded → verification passed → ArchiveRecord written.
 5. The UI unit is always the PHAsset. One asset may produce multiple archive files (AssetResource table handles this).
 
@@ -42,7 +42,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 | Photos access denied/revoked | Locked state UI, preserve local database |
 | Limited Photos access | Refuse — require full access |
 | Archive folder structure | Two top-level folders: `Photos/` and `Other/`. Duplicates → `Photos/YYYY/MM`. Screenshots, Likely Bad, Review Later → `Other/{Category}/YYYY/MM`. |
-| Sandboxing | Sandboxed with entitlements |
+| Distribution posture | Direct distribution with Developer ID signing + notarization; no App Sandbox target for v1 |
 | Media types in v1 | Photos only (PHAssetMediaType.image). Videos excluded from all views and indexing. |
 | Review marking behaviour | Single-press commits to archive queue, no confirmation dialog |
 | Inspector preview | Thumbnail immediately; full-res auto-loads if asset is local; cloud-only assets do not auto-load |
@@ -91,7 +91,7 @@ Do not treat them as design choices — they are bugs to fix.
 |---|---|---|---|
 | Edited photo export | Both original and edited versions | `--skip-original-if-edited` passed to osxphotos — exports edited only | `AppModel.swift` → `runOsxPhotosExportBatch` |
 | Live Photos export | Live Photos should export both image and video component | `--skip-live` passed to osxphotos — drops the video component | `AppModel.swift` → `runOsxPhotosExportBatch` |
-| osxphotos invocation | Runs in XPC service | Direct `Process()` subprocess in main app — works in development but will fail sandbox entitlement checks at distribution | `AppModel.swift` → `runOsxPhotos` |
+| osxphotos invocation boundary | Tool boundary should be isolated and testable | Direct `Process()` subprocess in main app; acceptable for direct distribution, but still architecture debt vs dedicated runner/XPC service | `AppModel.swift` → `runOsxPhotos` |
 | Stale export state | Partial failures visible and recoverable | `exporting` rows survive an app crash and are never retried | `AppModel.swift` → `setup()` (no reset on launch) |
 
 ## The one thing that must not go wrong

@@ -329,7 +329,7 @@ Acceptance:
 
 ## Open Questions
 
-1. What is the most stable library identifier available within app sandbox constraints?
+1. What is the most stable library identifier available in the current direct-distribution runtime constraints?
 2. Should `bindingMode=advisory` be exposed in UI or remain internal only?
 3. Should we support intentional one-off import bypass under mismatch (currently no)?
 

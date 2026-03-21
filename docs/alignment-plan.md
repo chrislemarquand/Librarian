@@ -113,18 +113,18 @@ This can live in `AppDelegate.swift` or a new `LibrarianApp.swift` file.
 ### A4. Consolidate entitlements
 
 **Current state:** Librarian has two entitlements files:
-- `Config/Librarian.entitlements` — sandbox=false (development/override)
-- `Sources/Librarian/Librarian.entitlements` — sandbox=true + photos + files.user-selected.read-write + bookmarks.app-scope (production)
+- `Config/Librarian.entitlements` — currently used by the app target
+- `Sources/Librarian/Librarian.entitlements` — legacy/duplicate path in older layout
 
 Ledger has one: `Config/Ledger.entitlements` (sandbox=false, required for ExifTool).
 
-**Target state:** Single entitlements file at `Config/Librarian.entitlements` containing the production entitlements (sandbox=true + all required permissions). Delete `Sources/Librarian/Librarian.entitlements`. Update pbxproj `CODE_SIGN_ENTITLEMENTS` to point to `Config/Librarian.entitlements`.
+**Target state:** Single entitlements file at `Config/Librarian.entitlements` aligned to the direct-distribution posture (no App Sandbox requirement for v1). Delete `Sources/Librarian/Librarian.entitlements` if still present. Keep only the minimum keys actually required for runtime behavior.
 
 ### A5. Privacy manifest for both apps
 
 **Current state:** Neither app has a `PrivacyInfo.xcprivacy` file.
 
-**Target state:** Both apps include `PrivacyInfo.xcprivacy` declaring any covered API usage (file timestamps, UserDefaults, disk space, etc.). Required since Xcode 15 / macOS 14 for notarisation and App Store submission. Apple documents the required format at the privacy manifest documentation.
+**Target state:** Both apps include `PrivacyInfo.xcprivacy` declaring any covered API usage (file timestamps, UserDefaults, disk space, etc.). Required since Xcode 15 / macOS 14 for notarisation and future App Store submission. Apple documents the required format at the privacy manifest documentation.
 
 **Likely declarations:**
 - Both apps: `NSPrivacyAccessedAPICategoryFileTimestamp` (file metadata reading), `NSPrivacyAccessedAPICategoryUserDefaults` (preferences/state persistence)
