@@ -314,48 +314,18 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     private func windowSubtitlePriorityText() -> String? {
-        if model.isSendingArchive {
-            return "Sending to Archive…"
-        }
-
-        if model.isImportingArchive {
-            let message = model.importStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
-            return message.isEmpty ? "Importing into Archive…" : message
-        }
-
-        if model.isIndexing {
-            return model.indexingProgress.statusText
-        }
-
-        if model.isAnalysing {
-            let message = model.analysisStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
-            return message.isEmpty ? "Analysing Library…" : message
-        }
-
-        let archiveState = model.archiveRootAvailability
-        if archiveState == .unavailable || archiveState == .readOnly || archiveState == .permissionDenied {
-            return archiveState.userVisibleDescription
-        }
-
-        if let eval = model.latestArchiveLibraryBindingEvaluation {
-            switch eval.state {
-            case .mismatch:
-                return "Archive linked to a different photo library."
-            case .unbound:
-                return "Archive is not linked to a photo library."
-            case .unknown:
-                return "Couldn’t verify active photo library."
-            case .match:
-                break
-            }
-        }
-
-        let status = model.statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !status.isEmpty, status != "Ready" {
-            return status
-        }
-
-        return nil
+        LibrarianWindowSubtitlePriority.compute(
+            isSendingArchive: model.isSendingArchive,
+            isImportingArchive: model.isImportingArchive,
+            importStatusText: model.importStatusText,
+            isIndexing: model.isIndexing,
+            indexingStatusText: model.indexingProgress.statusText,
+            isAnalysing: model.isAnalysing,
+            analysisStatusText: model.analysisStatusText,
+            archiveRootAvailability: model.archiveRootAvailability,
+            archiveBindingState: model.latestArchiveLibraryBindingEvaluation?.state,
+            statusMessage: model.statusMessage
+        )
     }
 
     private func setSubtitle(_ text: String) {
@@ -546,6 +516,65 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         archiveExportSheetWindow = nil
         contentController.refreshDisplayedAssets()
         toolbarDelegate.refresh(model: model)
+    }
+}
+
+enum LibrarianWindowSubtitlePriority {
+    static func compute(
+        isSendingArchive: Bool,
+        isImportingArchive: Bool,
+        importStatusText: String,
+        isIndexing: Bool,
+        indexingStatusText: String,
+        isAnalysing: Bool,
+        analysisStatusText: String,
+        archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability,
+        archiveBindingState: ArchiveLibraryBindingState?,
+        statusMessage: String
+    ) -> String? {
+        if isSendingArchive {
+            return "Sending to Archive…"
+        }
+
+        if isImportingArchive {
+            let message = importStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return message.isEmpty ? "Importing into Archive…" : message
+        }
+
+        if isIndexing {
+            return indexingStatusText
+        }
+
+        if isAnalysing {
+            let message = analysisStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return message.isEmpty ? "Analysing Library…" : message
+        }
+
+        if archiveRootAvailability == .unavailable
+            || archiveRootAvailability == .readOnly
+            || archiveRootAvailability == .permissionDenied {
+            return archiveRootAvailability.userVisibleDescription
+        }
+
+        if let archiveBindingState {
+            switch archiveBindingState {
+            case .mismatch:
+                return "Archive linked to a different photo library."
+            case .unbound:
+                return "Archive is not linked to a photo library."
+            case .unknown:
+                return "Couldn’t verify active photo library."
+            case .match:
+                break
+            }
+        }
+
+        let status = statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !status.isEmpty, status != "Ready" {
+            return status
+        }
+
+        return nil
     }
 }
 

@@ -449,3 +449,63 @@ import Foundation
         #expect(message.contains("Resolve") || message.contains("linked") || message.contains("verify"))
     }
 }
+
+@Test func windowSubtitlePriorityPrefersActiveOperationsBeforeStatus() {
+    let subtitle = LibrarianWindowSubtitlePriority.compute(
+        isSendingArchive: true,
+        isImportingArchive: true,
+        importStatusText: "Importing 2 / 10…",
+        isIndexing: true,
+        indexingStatusText: "Running (4 / 12)",
+        isAnalysing: true,
+        analysisStatusText: "Scanning…",
+        archiveRootAvailability: .unavailable,
+        archiveBindingState: .mismatch,
+        statusMessage: "Set Aside: 3 photo(s)."
+    )
+    #expect(subtitle == "Sending to Archive…")
+}
+
+@Test func windowSubtitlePriorityFallsBackToArchiveAndStatusStates() {
+    let archiveUnavailable = LibrarianWindowSubtitlePriority.compute(
+        isSendingArchive: false,
+        isImportingArchive: false,
+        importStatusText: "",
+        isIndexing: false,
+        indexingStatusText: "Idle",
+        isAnalysing: false,
+        analysisStatusText: "",
+        archiveRootAvailability: .unavailable,
+        archiveBindingState: .mismatch,
+        statusMessage: "Set Aside: 3 photo(s)."
+    )
+    #expect(archiveUnavailable == ArchiveSettings.ArchiveRootAvailability.unavailable.userVisibleDescription)
+
+    let bindingMismatch = LibrarianWindowSubtitlePriority.compute(
+        isSendingArchive: false,
+        isImportingArchive: false,
+        importStatusText: "",
+        isIndexing: false,
+        indexingStatusText: "Idle",
+        isAnalysing: false,
+        analysisStatusText: "",
+        archiveRootAvailability: .available,
+        archiveBindingState: .mismatch,
+        statusMessage: "Set Aside: 3 photo(s)."
+    )
+    #expect(bindingMismatch == "Archive linked to a different photo library.")
+
+    let statusMessage = LibrarianWindowSubtitlePriority.compute(
+        isSendingArchive: false,
+        isImportingArchive: false,
+        importStatusText: "",
+        isIndexing: false,
+        indexingStatusText: "Idle",
+        isAnalysing: false,
+        analysisStatusText: "",
+        archiveRootAvailability: .available,
+        archiveBindingState: .match,
+        statusMessage: "Set Aside: 3 photo(s)."
+    )
+    #expect(statusMessage == "Set Aside: 3 photo(s).")
+}
