@@ -35,12 +35,12 @@ enum ArchiveLibraryMismatchPrompt {
         let currentRoot = ArchiveSettings.restoreArchiveRootURL()
         if currentRoot?.standardizedFileURL == coupledRoot.standardizedFileURL { return false }
 
-        let libraryName = model.currentSystemPhotoLibraryURL?.lastPathComponent ?? "Current Library"
+        let libraryName = displayLibraryName(fromURL: model.currentSystemPhotoLibraryURL)
         let archiveName = ArchiveSettings.archiveTreeRootURL(from: coupledRoot).lastPathComponent
 
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Switched to \(libraryName)"
+        alert.messageText = libraryName.map { "Switched to \($0)" } ?? "System Photo Library Changed"
         alert.informativeText = "Librarian found the archive linked to this library: \"\(archiveName)\".\n\nWould you like to switch to it now?"
         alert.addButton(withTitle: "Switch to Linked Archive")
         alert.addButton(withTitle: "Stay on Current Archive")
@@ -59,11 +59,14 @@ enum ArchiveLibraryMismatchPrompt {
         guard model.currentSystemPhotoLibraryFingerprint != nil else { return false }
         guard model.knownCouplingForCurrentSystemLibrary() == nil else { return false }
 
-        let libraryName = model.currentSystemPhotoLibraryURL?.lastPathComponent ?? "Current Library"
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "No Archive Linked to This Photo Library"
-        alert.informativeText = "You switched to \"\(libraryName)\", but no linked archive was found.\n\nChoose how you want to continue."
+        if let libraryName = displayLibraryName(fromURL: model.currentSystemPhotoLibraryURL) {
+            alert.informativeText = "You switched to \"\(libraryName)\", but no linked archive was found.\n\nChoose how you want to continue."
+        } else {
+            alert.informativeText = "No linked archive was found for the active system photo library.\n\nChoose how you want to continue."
+        }
         alert.addButton(withTitle: "Create New Archive")
         alert.addButton(withTitle: "Choose Existing Archive")
         alert.addButton(withTitle: "Cancel")
@@ -105,8 +108,8 @@ enum ArchiveLibraryMismatchPrompt {
         parentWindow: NSWindow?
     ) async -> Bool {
         let evaluation = model.latestArchiveLibraryBindingEvaluation
-        let boundName = displayLibraryName(fromPath: evaluation?.boundLibraryPathHint) ?? "Linked Photo Library"
-        let currentName = displayLibraryName(fromPath: model.currentSystemPhotoLibraryURL?.path) ?? "Current System Library"
+        let boundName = displayLibraryName(fromPath: evaluation?.boundLibraryPathHint)
+        let currentName = displayLibraryName(fromURL: model.currentSystemPhotoLibraryURL)
         let archiveName = displayArchiveName(model: model) ?? "Current Archive"
 
         let alert = NSAlert()
@@ -114,15 +117,12 @@ enum ArchiveLibraryMismatchPrompt {
         case .mismatch:
             alert.alertStyle = .warning
             alert.messageText = "Archive Linked to Different Photo Library"
-            alert.informativeText = """
-            \(archiveName) is currently linked to:
-            \(boundName)
-
-            Current system photo library:
-            \(currentName)
-
-            \(operation.displayName.capitalized) is paused to prevent incorrect duplicate handling.
-            """
+            alert.informativeText = mismatchInformativeText(
+                archiveName: archiveName,
+                boundLibraryName: boundName,
+                currentLibraryName: currentName,
+                operation: operation
+            )
             alert.addButton(withTitle: "Rebind Archive to Current Library")
             alert.addButton(withTitle: "Choose Different Archive")
             alert.addButton(withTitle: "Cancel")
@@ -146,12 +146,11 @@ enum ArchiveLibraryMismatchPrompt {
         case .unbound:
             alert.alertStyle = .informational
             alert.messageText = "Link Archive to This Photo Library"
-            alert.informativeText = """
-            \(archiveName) is not yet linked to a photo library.
-
-            Current system photo library:
-            \(currentName)
-            """
+            if let currentName {
+                alert.informativeText = "\(archiveName) is not yet linked to a photo library.\n\nCurrent system photo library:\n\(currentName)"
+            } else {
+                alert.informativeText = "\(archiveName) is not yet linked to a photo library.\n\nLibrarian could not resolve the current library name."
+            }
             alert.addButton(withTitle: "Link Now")
             alert.addButton(withTitle: "Choose Different Archive")
             alert.addButton(withTitle: "Cancel")
@@ -258,6 +257,34 @@ enum ArchiveLibraryMismatchPrompt {
         guard path.hasPrefix("/") else { return nil }
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         return name.isEmpty ? nil : name
+    }
+
+    private static func displayLibraryName(fromURL url: URL?) -> String? {
+        guard let url else { return nil }
+        return displayLibraryName(fromPath: url.path)
+    }
+
+    private static func mismatchInformativeText(
+        archiveName: String,
+        boundLibraryName: String?,
+        currentLibraryName: String?,
+        operation: ArchiveWriteOperation
+    ) -> String {
+        let bindingLine: String
+        if let boundLibraryName {
+            bindingLine = "\(archiveName) is currently linked to:\n\(boundLibraryName)"
+        } else {
+            bindingLine = "\(archiveName) is linked to a different photo library."
+        }
+
+        let currentLine: String
+        if let currentLibraryName {
+            currentLine = "Current system photo library:\n\(currentLibraryName)"
+        } else {
+            currentLine = "Librarian could not resolve the current system library name."
+        }
+
+        return "\(bindingLine)\n\n\(currentLine)\n\n\(operation.displayName.capitalized) is paused to prevent incorrect duplicate handling."
     }
 
     private static func normalizeRootForNewArchiveSelection(_ selected: URL) -> URL {
