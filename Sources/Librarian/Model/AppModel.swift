@@ -622,9 +622,6 @@ final class AppModel: ObservableObject {
         failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
         AppLog.shared.info("Loaded persisted index count: \(indexedAssetCount)")
         let availability = refreshArchiveRootAvailability()
-        // Always post so the breadcrumb and archive view reflect any bookmark
-        // the OS silently resolved to a new path (e.g. archive moved in Finder).
-        NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
         if availability == .unavailable {
             didNotifyArchiveNeedsRelinkForCurrentOutage = true
         }
@@ -798,8 +795,6 @@ final class AppModel: ObservableObject {
         guard ArchiveSettings.persistArchiveRootURL(url) else { return false }
         ArchiveFolderIcon.apply(to: ArchiveSettings.archiveTreeRootURL(from: url), accessedVia: url)
         refreshArchiveRootAvailability()
-        NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
-        NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
         scheduleSystemPhotoLibraryRefresh(reason: "archiveRootUpdated", debounceMilliseconds: 0)
         return true
     }
@@ -807,12 +802,19 @@ final class AppModel: ObservableObject {
     @discardableResult
     func refreshArchiveRootAvailability() -> ArchiveSettings.ArchiveRootAvailability {
         let previous = archiveRootAvailability
+        let previousURL = archiveRootURL?.standardizedFileURL
         let resolution = ArchiveSettings.currentArchiveRootResolution()
         let current = resolution.availability
         archiveRootAvailability = current
         archiveRootURL = resolution.rootURL
+        let currentURL = archiveRootURL?.standardizedFileURL
         if previous != current {
             AppLog.shared.info("Archive root availability changed: \(String(describing: previous)) -> \(String(describing: current))")
+        }
+        let didChange = previous != current || previousURL != currentURL
+        if didChange {
+            NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
+            NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
         }
         if current == .unavailable {
             if !didNotifyArchiveNeedsRelinkForCurrentOutage {
@@ -1181,6 +1183,10 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshSystemPhotoLibraryState(reason: String) {
+        // Keep archive path/availability synchronized during runtime so
+        // settings and archive UI react when the archive is moved/deleted.
+        refreshArchiveRootAvailability()
+
         let fingerprint: PhotoLibraryFingerprint?
         do {
             fingerprint = try ArchiveSettings.currentPhotoLibraryFingerprint()
