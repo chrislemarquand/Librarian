@@ -24,9 +24,11 @@ final class ArchiveExportSession: ObservableObject {
     @Published var isBusy = false
     @Published var outcome: ArchiveSendOutcome?
     @Published var runError: String?
+    let scopedLocalIdentifiers: [String]?
 
-    init(destinationURL: URL) {
+    init(destinationURL: URL, scopedLocalIdentifiers: [String]?) {
         self.destinationURL = destinationURL
+        self.scopedLocalIdentifiers = scopedLocalIdentifiers
         self.keepOriginalsChoice = .off
         self.keepLivePhotosChoice = .off
     }
@@ -80,9 +82,10 @@ final class ArchiveExportSession: ObservableObject {
         outcome = nil
 
         do {
-            let result = try await model.sendPendingArchiveWithOutcome(
+            let result = try await model.sendArchiveCandidatesWithOutcome(
                 to: destinationURL,
-                options: exportOptions
+                options: exportOptions,
+                localIdentifiers: scopedLocalIdentifiers
             )
             outcome = result
             return true
@@ -100,16 +103,18 @@ struct ArchiveExportSheetView: View {
     @StateObject private var session: ArchiveExportSession
     @State private var showDetails = false
 
-    init(model: AppModel, initialDestinationURL: URL, onClose: @escaping () -> Void) {
+    init(model: AppModel, initialDestinationURL: URL, scopedLocalIdentifiers: [String]? = nil, onClose: @escaping () -> Void) {
         self.model = model
         self.onClose = onClose
-        _session = StateObject(wrappedValue: ArchiveExportSession(destinationURL: initialDestinationURL))
+        _session = StateObject(wrappedValue: ArchiveExportSession(destinationURL: initialDestinationURL, scopedLocalIdentifiers: scopedLocalIdentifiers))
     }
 
     var body: some View {
         WorkflowSheetContainer(
             title: "Send to Archive",
-            infoText: "Exports all photos currently in Set Aside. Failed items remain in Set Aside for follow-up."
+            infoText: session.scopedLocalIdentifiers == nil
+                ? "Exports all photos currently in Set Aside. Failed items remain in Set Aside for follow-up."
+                : "Exports selected photos currently in Set Aside. Failed items remain in Set Aside for follow-up."
         ) {
             HStack {
                 TextField("", text: Binding(

@@ -269,7 +269,13 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     @objc func sendToArchiveAction(_ sender: Any?) {
         guard model.pendingArchiveCandidateCount > 0 else { return }
         guard let archiveRoot = resolveOrPromptArchiveRoot() else { return }
-        presentArchiveExportSheet(initialDestination: archiveRoot)
+        presentArchiveExportSheet(initialDestination: archiveRoot, scopedLocalIdentifiers: nil)
+    }
+
+    func sendSelectedToArchive(localIdentifiers: [String]) {
+        guard !localIdentifiers.isEmpty else { return }
+        guard let archiveRoot = resolveOrPromptArchiveRoot() else { return }
+        presentArchiveExportSheet(initialDestination: archiveRoot, scopedLocalIdentifiers: localIdentifiers)
     }
 
     @objc func zoomOutAction(_ sender: Any?) {
@@ -295,7 +301,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     var canSetAsideSelection: Bool {
-        isGallerySidebarSelection && contentController.hasSelectedAssets
+        guard isGallerySidebarSelection, contentController.hasSelectedAssets else { return false }
+        return model.selectedSidebarItem?.kind != .setAsideForArchive
     }
 
     var canPutBackSelection: Bool {
@@ -362,13 +369,14 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         alert.runSheetOrModal(for: view.window) { _ in }
     }
 
-    private func presentArchiveExportSheet(initialDestination: URL) {
+    private func presentArchiveExportSheet(initialDestination: URL, scopedLocalIdentifiers: [String]?) {
         guard archiveExportSheetWindow == nil else { return }
         guard let parent = view.window else { return }
 
         let sheetView = ArchiveExportSheetView(
             model: model,
-            initialDestinationURL: initialDestination
+            initialDestinationURL: initialDestination,
+            scopedLocalIdentifiers: scopedLocalIdentifiers
         ) { [weak self] in
             self?.dismissArchiveExportSheet()
         }

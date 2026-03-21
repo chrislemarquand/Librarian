@@ -398,12 +398,17 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     var title: String {
         if let archived = selectedArchivedItem {
-            return archived.filename
+            return URL(fileURLWithPath: archived.filename)
+                .deletingPathExtension()
+                .lastPathComponent
         }
         guard selectedAsset != nil else { return "" }
-        return originalFilename.isEmpty
+        let rawTitle = originalFilename.isEmpty
             ? (selectedAsset?.localIdentifier.split(separator: "/").first.map(String.init) ?? "")
             : originalFilename
+        return URL(fileURLWithPath: rawTitle)
+            .deletingPathExtension()
+            .lastPathComponent
     }
 
     var subtitle: String {

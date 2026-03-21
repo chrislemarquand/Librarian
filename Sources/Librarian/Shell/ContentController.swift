@@ -78,6 +78,7 @@ final class ContentController: NSViewController {
     private var archivedNoticeBarHeightConstraint: NSLayoutConstraint!
     private var scrollTopToArchivedNoticeConstraint: NSLayoutConstraint!
     private var scrollTopToContainerConstraint: NSLayoutConstraint!
+    private var contextMenuTargetIndices: [Int] = []
     private var logPane: NSView!
     private var logTextView: NSTextView!
     private let logPlaceholderViewModel = GalleryPlaceholderViewModel()
@@ -136,6 +137,9 @@ final class ContentController: NSViewController {
         }
         collectionView.onMoveSelection = { [weak self] (direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) in
             self?.moveSelection(direction, extendingSelection: extendingSelection)
+        }
+        collectionView.contextMenuProvider = { [weak self] indexPath in
+            self?.menuForItem(at: indexPath)
         }
         collectionView.allowsShiftExtendedMovement = true
         collectionView.handlesActivateOnReturn = false
@@ -1050,6 +1054,161 @@ final class ContentController: NSViewController {
         }
     }
 
+    private func menuForItem(at indexPath: IndexPath) -> NSMenu? {
+        let clickedIndex = indexPath.item
+        guard clickedIndex >= 0, clickedIndex < displayAssets.count else { return nil }
+
+        var selectedIndices = Set(collectionView.selectionIndexPaths.map(\.item).filter { $0 >= 0 && $0 < displayAssets.count })
+        let orderedIndices = Array(displayAssets.indices)
+
+        if !selectedIndices.contains(clickedIndex) {
+            collectionView.selectionIndexPaths = [IndexPath(item: clickedIndex, section: 0)]
+            syncModelSelectionFromCollection()
+            updateScreenshotActionBarState()
+            selectedIndices = [clickedIndex]
+        }
+
+        contextMenuTargetIndices = ContextMenuSupport.targetSelection(
+            clicked: clickedIndex,
+            selected: selectedIndices,
+            orderedItems: orderedIndices
+        )
+
+        let targetAssets = contextMenuTargetIndices
+            .filter { $0 >= 0 && $0 < displayAssets.count }
+            .map { displayAssets[$0] }
+        guard !targetAssets.isEmpty else { return nil }
+
+        let hasPhotoTargets = targetAssets.contains { $0.photoIdentifier != nil }
+        let hasArchiveTargets = targetAssets.contains { $0.archivedItem != nil }
+        let kind = selectedSidebarKind()
+
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        switch kind {
+        case .setAsideForArchive:
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Put Back",
+                action: #selector(putBackFromContextMenu(_:)),
+                target: self,
+                symbolName: "arrow.uturn.left.circle",
+                isEnabled: hasPhotoTargets
+            ))
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Open in Photos",
+                action: #selector(openInPhotosFromContextMenu(_:)),
+                target: self,
+                symbolName: "photo",
+                isEnabled: hasPhotoTargets
+            ))
+            menu.addItem(.separator())
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Send Selected to Archive",
+                action: #selector(sendSelectedToArchiveFromContextMenu(_:)),
+                target: self,
+                symbolName: "archivebox",
+                isEnabled: hasPhotoTargets && !model.isSendingArchive
+            ))
+
+        case .archived:
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Reveal in Finder",
+                action: #selector(revealInFinderFromContextMenu(_:)),
+                target: self,
+                symbolName: "folder",
+                isEnabled: hasArchiveTargets
+            ))
+
+        case .allPhotos, .recents, .favourites, .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments:
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Set Aside",
+                action: #selector(setAsideFromContextMenu(_:)),
+                target: self,
+                symbolName: "tray.and.arrow.down",
+                isEnabled: hasPhotoTargets && !model.isSendingArchive
+            ))
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Open in Photos",
+                action: #selector(openInPhotosFromContextMenu(_:)),
+                target: self,
+                symbolName: "photo",
+                isEnabled: hasPhotoTargets
+            ))
+
+        case .indexing, .log:
+            return nil
+        }
+
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    private func contextMenuPhotoIdentifiers() -> [String] {
+        contextMenuTargetIndices
+            .filter { $0 >= 0 && $0 < displayAssets.count }
+            .compactMap { displayAssets[$0].photoIdentifier }
+    }
+
+    private func contextMenuArchiveURLs() -> [URL] {
+        contextMenuTargetIndices
+            .filter { $0 >= 0 && $0 < displayAssets.count }
+            .compactMap { displayAssets[$0].archivedItem }
+            .map { URL(fileURLWithPath: $0.absolutePath) }
+    }
+
+    @objc
+    private func setAsideFromContextMenu(_: Any?) {
+        let identifiers = contextMenuPhotoIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.queueAssetsForArchive(localIdentifiers: identifiers)
+            AppLog.shared.info("Set aside \(identifiers.count) selected photo(s) for archive")
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+        } catch {
+            AppLog.shared.error("Failed to set aside photos for archive: \(error.localizedDescription)")
+        }
+    }
+
+    @objc
+    private func putBackFromContextMenu(_: Any?) {
+        guard selectedSidebarKind() == .setAsideForArchive else { return }
+        let identifiers = contextMenuPhotoIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.unqueueAssetsForArchive(localIdentifiers: identifiers)
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+            AppLog.shared.info("Put back \(identifiers.count) item(s) from archive set-aside queue")
+        } catch {
+            AppLog.shared.error("Failed to put back selected archive items: \(error.localizedDescription)")
+        }
+    }
+
+    @objc
+    private func openInPhotosFromContextMenu(_: Any?) {
+        guard let firstIdentifier = contextMenuPhotoIdentifiers().first else { return }
+        model.photosService.openInPhotos(localIdentifier: firstIdentifier)
+    }
+
+    @objc
+    private func revealInFinderFromContextMenu(_: Any?) {
+        let urls = contextMenuArchiveURLs()
+        guard !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    @objc
+    private func sendSelectedToArchiveFromContextMenu(_: Any?) {
+        guard selectedSidebarKind() == .setAsideForArchive else { return }
+        let identifiers = contextMenuPhotoIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        guard let splitVC = parent as? MainSplitViewController else { return }
+        splitVC.sendSelectedToArchive(localIdentifiers: identifiers)
+    }
+
     func refreshDisplayedAssets() {
         loadAssetsIfNeeded(force: true)
     }
@@ -1320,7 +1479,7 @@ private final class AssetGridItem: NSCollectionViewItem {
             fallback.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             fallback.centerYAnchor.constraint(equalTo: view.centerYAnchor),
 
-            sharedBadge.topAnchor.constraint(equalTo: imageView.topAnchor, constant: 10),
+            sharedBadge.topAnchor.constraint(equalTo: imageView.topAnchor, constant: 6),
             sharedBadge.trailingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: -6),
             sharedBadge.widthAnchor.constraint(equalToConstant: 15),
             sharedBadge.heightAnchor.constraint(equalToConstant: 10),

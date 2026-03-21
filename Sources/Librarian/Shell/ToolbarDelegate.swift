@@ -59,7 +59,6 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             .librarianZoomIn,
             .space,
             .librarianSetAside,
-            .librarianPutBack,
             .space,
             .librarianSendToArchive,
             .flexibleSpace,
@@ -174,7 +173,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Send to Archive"
             item.paletteLabel = "Send to Archive"
-            item.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Send to Archive")
+            item.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: "Send to Archive")
             item.autovalidates = false
             item.target = splitVC
             item.action = #selector(MainSplitViewController.sendToArchiveAction(_:))

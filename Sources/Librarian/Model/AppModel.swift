@@ -678,6 +678,18 @@ final class AppModel: ObservableObject {
         to archiveRootURL: URL,
         options: ArchiveExportOptions
     ) async throws -> ArchiveSendOutcome {
+        try await sendArchiveCandidatesWithOutcome(
+            to: archiveRootURL,
+            options: options,
+            localIdentifiers: nil
+        )
+    }
+
+    func sendArchiveCandidatesWithOutcome(
+        to archiveRootURL: URL,
+        options: ArchiveExportOptions,
+        localIdentifiers: [String]? = nil
+    ) async throws -> ArchiveSendOutcome {
         let archiveStatus = ArchiveSettings.archiveRootAvailability(for: archiveRootURL)
         guard archiveStatus == .available else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 9, userInfo: [
@@ -692,7 +704,14 @@ final class AppModel: ObservableObject {
         guard !isSendingArchive else {
             return ArchiveSendOutcome(exportedCount: 0, deletedCount: 0, failedCount: 0, notDeletedCount: 0, failures: [])
         }
-        let identifiers = try database.assetRepository.fetchArchiveCandidateIdentifiers(statuses: [.pending, .failed])
+        let pendingOrFailedIdentifiers = try database.assetRepository.fetchArchiveCandidateIdentifiers(statuses: [.pending, .failed])
+        let identifiers: [String]
+        if let localIdentifiers {
+            let scopedSet = Set(localIdentifiers)
+            identifiers = pendingOrFailedIdentifiers.filter { scopedSet.contains($0) }
+        } else {
+            identifiers = pendingOrFailedIdentifiers
+        }
         guard !identifiers.isEmpty else {
             return ArchiveSendOutcome(exportedCount: 0, deletedCount: 0, failedCount: 0, notDeletedCount: 0, failures: [])
         }
