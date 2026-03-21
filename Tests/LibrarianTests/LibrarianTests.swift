@@ -64,13 +64,13 @@ import Foundation
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-test-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
 
-    let source = root.appendingPathComponent("Archive", isDirectory: true)
-    let destinationInside = source.appendingPathComponent("NestedDestination", isDirectory: true)
-    try fm.createDirectory(at: source, withIntermediateDirectories: true)
-    try fm.createDirectory(at: source.appendingPathComponent(".librarian", isDirectory: true), withIntermediateDirectories: true)
+    let sourceRoot = root.appendingPathComponent("SourceRoot", isDirectory: true)
+    #expect(ArchiveSettings.ensureControlFolder(at: sourceRoot))
+    let sourceArchive = ArchiveSettings.archiveTreeRootURL(from: sourceRoot)
+    let destinationInside = sourceArchive.appendingPathComponent("NestedDestinationRoot", isDirectory: true)
 
     do {
-        try ArchiveSettingsViewController.test_preflightArchiveMove(sourceRoot: source, destinationRoot: destinationInside)
+        try ArchiveSettingsViewController.test_preflightArchiveMove(sourceRoot: sourceRoot, destinationRoot: destinationInside)
         Issue.record("Expected preflight to throw for destination-inside-source")
     } catch {
         let nsError = error as NSError
@@ -83,12 +83,12 @@ import Foundation
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-test-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
 
-    let source = root.appendingPathComponent("Librarian", isDirectory: true)
+    let source = root.appendingPathComponent("LibrarianRoot", isDirectory: true)
     let destinationParent = root
 
-    try fm.createDirectory(at: source, withIntermediateDirectories: true)
     #expect(ArchiveSettings.ensureControlFolder(at: source))
-    try Data("x".utf8).write(to: source.appendingPathComponent("photo1.jpg"))
+    let sourceArchive = ArchiveSettings.archiveTreeRootURL(from: source)
+    try Data("x".utf8).write(to: sourceArchive.appendingPathComponent("photo1.jpg"))
 
     try ArchiveSettingsViewController.test_preflightArchiveMove(sourceRoot: source, destinationRoot: destinationParent)
 }
@@ -98,11 +98,12 @@ import Foundation
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-test-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
 
-    let source = root.appendingPathComponent("Archive", isDirectory: true)
-    let destinationInside = source.appendingPathComponent("Archive", isDirectory: true)
+    let source = root.appendingPathComponent("SourceRoot", isDirectory: true)
+    #expect(ArchiveSettings.ensureControlFolder(at: source))
+    let sourceArchive = ArchiveSettings.archiveTreeRootURL(from: source)
+    let destinationInside = sourceArchive.appendingPathComponent("Archive", isDirectory: true)
 
-    try fm.createDirectory(at: source, withIntermediateDirectories: true)
-    try Data("x".utf8).write(to: source.appendingPathComponent("photo1.jpg"))
+    try Data("x".utf8).write(to: sourceArchive.appendingPathComponent("photo1.jpg"))
 
     do {
         try ArchiveSettingsViewController.test_copyAndVerifyArchiveMove(

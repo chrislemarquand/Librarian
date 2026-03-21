@@ -153,7 +153,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         guard let currentRootURL = ArchiveSettings.restoreArchiveRootURL() else { return }
         let panel = NSOpenPanel()
         panel.title = "Choose Move Destination"
-        panel.message = "Choose where to move your archive. Librarian will copy all files and switch to the new location. The original will remain untouched."
+        panel.message = "Choose where to move your archive. Librarian will move all archive files and switch to the new location."
         panel.prompt = "Move Here"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -361,7 +361,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
         do {
             try await Task.detached(priority: .utility) {
-                try Self.copyAndVerifyArchiveMove(
+                try Self.moveAndVerifyArchive(
                     sourceRoot: currentRootURL,
                     destinationRoot: destinationRoot,
                     expectedFileCount: preflight.sourceFileCount
@@ -373,7 +373,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshMoveButtonState()
             refreshOrganizeButtonState()
             refreshAddPhotosButtonState()
-            showArchiveMoveError("Archive copy failed: \(error.localizedDescription)")
+            showArchiveMoveError("Archive move failed: \(error.localizedDescription)")
             return
         }
 
@@ -383,7 +383,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshMoveButtonState()
             refreshOrganizeButtonState()
             refreshAddPhotosButtonState()
-            showArchiveMoveError("Archive was copied, but Librarian couldn’t switch to the new location.")
+            showArchiveMoveError("Archive was moved, but Librarian couldn’t switch to the new location.")
             return
         }
 
@@ -413,15 +413,13 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         alert.messageText = "Move Existing Archive?"
         alert.informativeText =
             """
-            Librarian will copy your current archive to the selected destination and switch to it after verification.
+            Librarian will move your current archive to the selected destination and switch to it after verification.
 
-            Files to copy: \(preflight.sourceFileCount.formatted())
+            Files to move: \(preflight.sourceFileCount.formatted())
             Estimated size: \(sizeText)
             Destination free space: \(freeText)
-
-            The current archive will remain untouched.
             """
-        alert.addButton(withTitle: "Copy and Switch")
+        alert.addButton(withTitle: "Move and Switch")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }
@@ -443,17 +441,16 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             """
             Librarian is now using:
             \(destinationRoot.path)
-
-            Previous archive remains at:
-            \(sourceRoot.path)
             """
         alert.addButton(withTitle: "OK")
         _ = alert.runModal()
     }
 
     nonisolated private static func preflightArchiveMove(sourceRoot: URL, destinationRoot: URL) throws -> ArchiveMovePreflight {
-        let sourcePath = canonicalPath(for: sourceRoot)
-        let destinationPath = canonicalPath(for: destinationRoot)
+        let sourceArchiveRoot = ArchiveSettings.archiveTreeRootURL(from: sourceRoot)
+        let destinationArchiveRoot = ArchiveSettings.archiveTreeRootURL(from: destinationRoot)
+        let sourcePath = canonicalPath(for: sourceArchiveRoot)
+        let destinationPath = canonicalPath(for: destinationArchiveRoot)
         if sourcePath == destinationPath {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 10, userInfo: [
                 NSLocalizedDescriptionKey: """
@@ -463,7 +460,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
                 """
             ])
         }
-        if isPath(destinationRoot, inside: sourceRoot) {
+        if isPath(destinationArchiveRoot, inside: sourceArchiveRoot) {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: """
                 Destination cannot be inside the current archive.
@@ -490,18 +487,16 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         let destinationExists = fileManager.fileExists(atPath: destinationRoot.path)
 
         if destinationExists {
-            let destinationAvailability = ArchiveSettings.archiveRootAvailability(for: destinationRoot)
-            guard destinationAvailability == .available else {
+            guard isWritableDirectory(destinationRoot, fileManager: fileManager) else {
                 throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "Selected destination is not writable: \(destinationAvailability.userVisibleDescription)"
+                    NSLocalizedDescriptionKey: "Selected destination is not writable."
                 ])
             }
         } else {
             let parent = destinationRoot.deletingLastPathComponent()
-            let parentAvailability = ArchiveSettings.archiveRootAvailability(for: parent)
-            guard parentAvailability == .available else {
+            guard isWritableDirectory(parent, fileManager: fileManager) else {
                 throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 12, userInfo: [
-                    NSLocalizedDescriptionKey: "Destination parent folder is not writable: \(parentAvailability.userVisibleDescription)"
+                    NSLocalizedDescriptionKey: "Destination parent folder is not writable."
                 ])
             }
         }
@@ -512,10 +507,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             ])
         }
 
-        if destinationExists {
+        if fileManager.fileExists(atPath: destinationArchiveRoot.path) {
             let conflicts = try conflictingDestinationPaths(
-                sourceRoot: sourceRoot,
-                destinationRoot: destinationRoot,
+                sourceRoot: sourceArchiveRoot,
+                destinationRoot: destinationArchiveRoot,
                 fileManager: fileManager
             )
             if !conflicts.isEmpty {
@@ -532,7 +527,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             }
         }
 
-        let stats = try directoryStats(root: sourceRoot, fileManager: fileManager)
+        let stats = try directoryStats(root: sourceArchiveRoot, fileManager: fileManager)
         let freeBytes = try destinationRoot.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             .volumeAvailableCapacityForImportantUsage
 
@@ -549,7 +544,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         )
     }
 
-    nonisolated private static func copyAndVerifyArchiveMove(
+    nonisolated private static func moveAndVerifyArchive(
         sourceRoot: URL,
         destinationRoot: URL,
         expectedFileCount: Int
@@ -562,53 +557,37 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             if destinationAccess { destinationRoot.stopAccessingSecurityScopedResource() }
         }
 
-        if isPath(destinationRoot, inside: sourceRoot) {
+        let sourceArchiveRoot = ArchiveSettings.archiveTreeRootURL(from: sourceRoot)
+        let destinationArchiveRoot = ArchiveSettings.archiveTreeRootURL(from: destinationRoot)
+
+        if isPath(destinationArchiveRoot, inside: sourceArchiveRoot) {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: """
                 Destination cannot be inside the current archive.
-                Current: \(canonicalPath(for: sourceRoot))
-                Selected: \(canonicalPath(for: destinationRoot))
+                Current: \(canonicalPath(for: sourceArchiveRoot))
+                Selected: \(canonicalPath(for: destinationArchiveRoot))
                 """
             ])
         }
 
         try fileManager.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: destinationArchiveRoot.path) {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Selected destination already contains an Archive folder."
+            ])
+        }
+        try fileManager.moveItem(at: sourceArchiveRoot, to: destinationArchiveRoot)
 
-        guard let enumerator = fileManager.enumerator(
-            at: sourceRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: []
-        ) else {
-            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 7, userInfo: [
-                NSLocalizedDescriptionKey: "Could not enumerate source archive."
+        if fileManager.fileExists(atPath: sourceArchiveRoot.path) {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "Verification failed after move. Source archive folder still exists."
             ])
         }
 
-        var copiedFileCount = 0
-        let destinationPath = canonicalPath(for: destinationRoot)
-        while let sourceURL = enumerator.nextObject() as? URL {
-            let sourcePath = canonicalPath(for: sourceURL)
-            if sourcePath == destinationPath || sourcePath.hasPrefix(destinationPath + "/") {
-                enumerator.skipDescendants()
-                continue
-            }
-
-            let values = try sourceURL.resourceValues(forKeys: [.isDirectoryKey])
-            guard let relativePath = relativePath(from: sourceRoot, to: sourceURL) else { continue }
-            let destinationURL = destinationRoot.appendingPathComponent(relativePath, isDirectory: values.isDirectory == true)
-            if values.isDirectory == true {
-                try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true)
-            } else {
-                let parent = destinationURL.deletingLastPathComponent()
-                try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-                try fileManager.copyItem(at: sourceURL, to: destinationURL)
-                copiedFileCount += 1
-            }
-        }
-
-        guard copiedFileCount == expectedFileCount else {
+        let destinationStats = try directoryStats(root: destinationArchiveRoot, fileManager: fileManager)
+        guard destinationStats.fileCount >= expectedFileCount else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 8, userInfo: [
-                NSLocalizedDescriptionKey: "Verification failed after copy (\(copiedFileCount) of \(expectedFileCount) files)."
+                NSLocalizedDescriptionKey: "Verification failed after move (\(destinationStats.fileCount) of \(expectedFileCount) files visible at destination)."
             ])
         }
     }
@@ -678,6 +657,38 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
+    nonisolated private static func isWritableDirectory(_ url: URL, fileManager: FileManager) -> Bool {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return false
+        }
+
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        if !didAccess && !fileManager.isReadableFile(atPath: url.path) {
+            return false
+        }
+        if !fileManager.isWritableFile(atPath: url.path) {
+            return false
+        }
+
+        do {
+            let values = try url.resourceValues(forKeys: [.volumeIsReadOnlyKey])
+            if values.volumeIsReadOnly == true {
+                return false
+            }
+        } catch {
+            return false
+        }
+
+        return true
+    }
+
 #if DEBUG
     nonisolated static func test_preflightArchiveMove(sourceRoot: URL, destinationRoot: URL) throws {
         _ = try preflightArchiveMove(sourceRoot: sourceRoot, destinationRoot: destinationRoot)
@@ -688,7 +699,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         destinationRoot: URL,
         expectedFileCount: Int
     ) throws {
-        try copyAndVerifyArchiveMove(
+        try moveAndVerifyArchive(
             sourceRoot: sourceRoot,
             destinationRoot: destinationRoot,
             expectedFileCount: expectedFileCount
