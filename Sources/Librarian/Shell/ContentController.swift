@@ -1175,11 +1175,14 @@ final class ContentController: NSViewController {
                 try model.queueAssetsForArchive(localIdentifiers: selectedAssets)
             }
             AppLog.shared.info("Marked \(selectedAssets.count) screenshot(s) as \(decision.rawValue)")
+            let action = decision == .archiveCandidate ? "Set Aside" : "Keep"
+            model.setStatusMessage("\(action): \(selectedAssets.count) screenshot(s).", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
         } catch {
             AppLog.shared.error("Failed to set screenshot decision: \(error.localizedDescription)")
+            model.setStatusMessage("Couldn’t update screenshot decisions. \(error.localizedDescription)")
         }
         updateScreenshotActionBarState()
     }
@@ -1202,11 +1205,13 @@ final class ContentController: NSViewController {
         do {
             try model.queueAssetsForArchive(localIdentifiers: identifiers)
             AppLog.shared.info("Set aside \(identifiers.count) selected photo(s) for archive")
+            model.setStatusMessage("Set Aside: \(identifiers.count) photo(s).", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
         } catch {
             AppLog.shared.error("Failed to set aside photos for archive: \(error.localizedDescription)")
+            model.setStatusMessage("Couldn’t set aside photos. \(error.localizedDescription)")
         }
     }
 
@@ -1224,8 +1229,10 @@ final class ContentController: NSViewController {
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
             AppLog.shared.info("Put back \(identifiers.count) item(s) from archive set-aside queue")
+            model.setStatusMessage("Put Back: \(identifiers.count) item(s).", autoClearAfterSuccess: true)
         } catch {
             AppLog.shared.error("Failed to put back selected archive items: \(error.localizedDescription)")
+            model.setStatusMessage("Couldn’t put back selected items. \(error.localizedDescription)")
         }
     }
 
@@ -1338,11 +1345,13 @@ final class ContentController: NSViewController {
         do {
             try model.queueAssetsForArchive(localIdentifiers: identifiers)
             AppLog.shared.info("Set aside \(identifiers.count) selected photo(s) for archive")
+            model.setStatusMessage("Set Aside: \(identifiers.count) photo(s).", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
         } catch {
             AppLog.shared.error("Failed to set aside photos for archive: \(error.localizedDescription)")
+            model.setStatusMessage("Couldn’t set aside photos. \(error.localizedDescription)")
         }
     }
 
@@ -1357,8 +1366,10 @@ final class ContentController: NSViewController {
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
             AppLog.shared.info("Put back \(identifiers.count) item(s) from archive set-aside queue")
+            model.setStatusMessage("Put Back: \(identifiers.count) item(s).", autoClearAfterSuccess: true)
         } catch {
             AppLog.shared.error("Failed to put back selected archive items: \(error.localizedDescription)")
+            model.setStatusMessage("Couldn’t put back selected items. \(error.localizedDescription)")
         }
     }
 

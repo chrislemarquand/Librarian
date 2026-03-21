@@ -1,6 +1,7 @@
 import Cocoa
 import SharedUI
 import SwiftUI
+import Combine
 
 @MainActor
 final class MainSplitViewController: ThreePaneSplitViewController {
@@ -17,6 +18,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
     private var lastBindingPromptSignature: String?
     private var isShowingBindingPrompt = false
+    private var subtitleObservers: Set<AnyCancellable> = []
 
     init(model: AppModel) {
         self.model = model
@@ -61,6 +63,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         super.viewDidLoad()
         toolbarDelegate.configure(splitVC: self)
         observeModelState()
+        installSubtitleObservers()
         installContentKeyboardMonitor(contentView: contentController.view) { [weak self] in
             guard let self, self.isGallerySidebarSelection else { return }
             self.quickLookSelectionAction(nil)
@@ -157,6 +160,28 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             name: .librarianSystemPhotoLibraryChanged,
             object: nil
         )
+    }
+
+    private func installSubtitleObservers() {
+        func observe<Value: Equatable>(_ publisher: Published<Value>.Publisher) {
+            publisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    self?.refreshWindowSubtitle()
+                }
+                .store(in: &subtitleObservers)
+        }
+
+        observe(model.$isSendingArchive)
+        observe(model.$isImportingArchive)
+        observe(model.$importStatusText)
+        observe(model.$isIndexing)
+        observe(model.$indexingProgress)
+        observe(model.$isAnalysing)
+        observe(model.$analysisStatusText)
+        observe(model.$statusMessage)
+        observe(model.$archiveRootAvailability)
+        observe(model.$latestArchiveLibraryBindingEvaluation)
     }
 
     @objc private func modelStateChanged() {
@@ -265,6 +290,11 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var lastSubtitleText = ""
 
     private func refreshWindowSubtitle() {
+        if let priorityText = windowSubtitlePriorityText() {
+            setSubtitle(priorityText)
+            return
+        }
+
         guard let kind = model.selectedSidebarItem?.kind else {
             setSubtitle("")
             return
@@ -281,6 +311,51 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
         }
         setSubtitle(text)
+    }
+
+    private func windowSubtitlePriorityText() -> String? {
+        if model.isSendingArchive {
+            return "Sending to Archive…"
+        }
+
+        if model.isImportingArchive {
+            let message = model.importStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return message.isEmpty ? "Importing into Archive…" : message
+        }
+
+        if model.isIndexing {
+            return model.indexingProgress.statusText
+        }
+
+        if model.isAnalysing {
+            let message = model.analysisStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return message.isEmpty ? "Analysing Library…" : message
+        }
+
+        let archiveState = model.archiveRootAvailability
+        if archiveState == .unavailable || archiveState == .readOnly || archiveState == .permissionDenied {
+            return archiveState.userVisibleDescription
+        }
+
+        if let eval = model.latestArchiveLibraryBindingEvaluation {
+            switch eval.state {
+            case .mismatch:
+                return "Archive linked to a different photo library."
+            case .unbound:
+                return "Archive is not linked to a photo library."
+            case .unknown:
+                return "Couldn’t verify active photo library."
+            case .match:
+                break
+            }
+        }
+
+        let status = model.statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !status.isEmpty, status != "Ready" {
+            return status
+        }
+
+        return nil
     }
 
     private func setSubtitle(_ text: String) {
@@ -313,6 +388,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             do {
                 let removed = try model.unqueueFailedArchiveAssets()
                 if removed > 0 {
+                    model.setStatusMessage("Put Back Failed: \(removed) item(s).", autoClearAfterSuccess: true)
                     showArchiveAlert(
                         title: "Put Back Failed Items",
                         message: "Removed \(removed) failed item(s) from Set Aside."
@@ -321,6 +397,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
                 contentController.refreshDisplayedAssets()
             } catch {
                 AppLog.shared.error("Failed to put back failed archive items: \(error.localizedDescription)")
+                model.setStatusMessage("Couldn’t put back failed items. \(error.localizedDescription)")
                 showArchiveAlert(title: "Put Back Failed Items", message: error.localizedDescription)
             }
         }

@@ -536,6 +536,7 @@ final class AppModel: ObservableObject {
     @Published var analysisStatusText: String = ""
     @Published var isImportingArchive = false
     @Published var importStatusText: String = ""
+    @Published var statusMessage: String = "Ready"
     @Published var indexedAssetCount = 0
     @Published var pendingArchiveCandidateCount = 0
     @Published var failedArchiveCandidateCount = 0
@@ -568,6 +569,7 @@ final class AppModel: ObservableObject {
     private var pendingLibraryIdentityCheckTask: Task<Void, Never>?
     private var libraryMonitorTimer: Timer?
     private var didNotifyArchiveNeedsRelinkForCurrentOutage = false
+    private var statusResetTask: Task<Void, Never>?
     private var suppressChangeSyncUntil: Date = .distantPast
     private var suppressChangeSyncReason: String?
     private var pendingUpsertsByIdentifier: [String: IndexedAsset] = [:]
@@ -1483,6 +1485,20 @@ final class AppModel: ObservableObject {
         pendingArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.pending, .exporting, .failed])) ?? 0
         failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+    }
+
+    func setStatusMessage(_ message: String, autoClearAfterSuccess: Bool = false) {
+        statusResetTask?.cancel()
+        statusResetTask = nil
+        statusMessage = message
+
+        guard autoClearAfterSuccess else { return }
+        statusResetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard let self, self.statusMessage == message else { return }
+            self.statusMessage = "Ready"
+            self.statusResetTask = nil
+        }
     }
 
     private func refreshArchivedIndexAsync() {
