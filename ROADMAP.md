@@ -2,202 +2,129 @@
 
 Last updated: 2026-03-21
 
-## Planning Principles
+This file is the single source of truth for release planning.
 
-- Version scope is capability-based, not date-based.
-- v1.0 is distribution-ready (not dev-only).
-- The archive pipeline is the trust boundary; reliability items there take priority over new UX.
-- Do not plan already-shipped features as new work.
+## Product Direction
 
-## Implemented Baseline (Do Not Re-Plan)
+- Distribution target: notarized direct distribution (non-App Store).
+- Security posture: credible/safe defaults without App Sandbox constraints.
+- Reliability priority: archive trust boundary and import/export correctness before new feature breadth.
 
-These are already present in code and should be treated as shipped baseline:
+## Status Key
 
-- Core queue set currently implemented: `Screenshots`, `Duplicates`, `Low Quality`, `Documents`, plus archive `Set Aside`.
-- Library analysis pipeline (osxphotos query + Vision pass + import of scores/labels/fingerprints/file size/person counts).
-- Create New Archive flow with preflight scan, dedupe, import summary, and archive-root switch.
-- Multi-selection inspector placeholder (`X Photos Selected`).
+- `[Done]` shipped in current codebase
+- `[In Progress]` partially shipped and actively being completed
+- `[Planned]` approved but not started
+- `[Parked]` intentionally deferred
 
-## Decision Log (Approved / Rejected / Delayed)
+## Current Baseline (Shipped)
 
-### Approved
-
-- Reset stale `exporting` archive rows at startup to recover from interrupted runs.
-- Add an export progress sheet with clear completion counts and log access.
-- Keep direct notarized distribution as the release target (not App Store / sandbox track for v1.0).
-- Keep osxphotos process-boundary hardening (XPC or equivalent) as reliability architecture work, not a distribution gate.
-- Add Quick Look (`Space`) for selected items.
-- Add gallery context menus with auto-select-on-right-click behavior.
-- Add sidebar badges for at-a-glance counts.
-- Add keyboard parity bundle:
-  - `Cmd+A` select visible
-  - put-back shortcut
-  - Tab pane cycling
-- Add archive trust-boundary automated test baseline.
-
-### Approved with Custom Direction
-
-- Export flags behavior (`--skip-original-if-edited`, `--skip-live`):
-  - keep behavior behind explicit user-approved export toggles in Settings.
-  - default behavior and copy must be explicit and reversible.
-
-### Delayed
-
-- Queue keep-reset empty-state UX (replace Settings-only reset controls).
-
-### Rejected
-
-- `Review Later` queue.
-  - Reason: overlaps existing queues.
-- Subtitle-only success feedback for archive completion.
-  - Reason: explicit modal success confirmation is preferred.
-
-## Release Plan
-
-## v1.0 — Trusted Core + Distribution Readiness
-
-Goal: stable daily-driver release with safe archive trust boundary and release-safe process model.
-
-Status key: `[Done]`, `[Partial]`, `[Planned]`
-
-### In
-
-- Archive pipeline hardening:
-  - [Done] startup reset of stale `exporting` rows
-  - [Done] retry-safe failure handling and clearer per-item failure visibility
-  - [Done] improved partial-success summaries
-  - [Done] archive move guardrails to prevent recursive self-copy when destination resolves inside current archive
-- Export UX:
-  - [Done] progress sheet (indeterminate + status line + completion summary + log access)
-- osxphotos boundary:
-  - [Planned] consolidate export and analysis subprocess launching behind a single internal runner boundary (XPC optional)
-- Export behavior controls:
-  - [Done] add user-visible toggles for edited/live export handling (the approved flags decision)
-- Runtime dependency hardening:
-  - [Done] bundle and validate ExifTool at app runtime so export behavior is not dependent on user machine installs
+- Queue set in product: `Screenshots`, `Duplicates`, `Low Quality`, `Documents`, `WhatsApp`, `Accidental`, `Set Aside`, `Archive`.
+- Analysis pipeline: osxphotos query + Vision pass + score/label/fingerprint/file-size/person persistence.
+- Archive creation + relink model with control folder (`.librarian`) and `archive.json` metadata.
+- Archive move/relink guardrails, including recursive destination protections.
+- Startup/offline/write-access handling for archive availability.
+- Archive export progress workflow sheet with completion summary + log access.
+- Archive import workflow sheet used by both:
+  - Path A: user-triggered import from Librarian.
+  - Path B: Finder-detected unorganized files routed through review/import flow.
+- Import dedupe behavior:
+  - Path A leaves duplicates in source location (no “Already in Photo Library” folder creation).
+  - Path B keeps archive organization and relocates rejected duplicates into `Already in Photo Library` while preserving folder tree.
+- Sidebar/archive count synchronization after export and archive index refresh.
+- Multi-library safety gate baseline:
+  - detect system photo library change,
+  - pause archive import/export when binding mismatch risk exists,
+  - prompt to rebind/select archive/create archive.
 - Interaction baseline:
-  - [Done] Quick Look (`Space`)
-  - [Done] gallery context menus with view-aware actions and right-click target normalization
-  - [Partial] keyboard parity (`Cmd+A`, put-back shortcut, Tab focus cycling)
-- Boxes quality pass (v1.0):
-  - [Planned] run a single quality sweep across all box views before release, including existing boxes and WhatsApp.
-  - [Planned] establish one shared quality bar per box:
-    - classifier/input signals (precision/recall targets by box type)
-    - fetch-query correctness and sidebar count consistency
-    - empty-state copy, actions, and inspector consistency
-    - test minimums (classifier + repository query/count + UI count wiring)
-  - [Planned] deliver in slices by box family, with WhatsApp implemented within the same pass (not as a one-off):
-    - Duplicates tuning (Vision/perceptual thresholds)
-    - Documents tuning (Vision/OCR false-positive reduction)
-    - Low Quality / Screenshots / Accidental consistency checks
-    - WhatsApp classification + indexing + view wiring + tests
-- Inspector completeness:
-  - [Done] finalise Inspector fields, including Archive-view-specific metadata coverage
-- Sidebar visibility:
-  - [Done] item badges wired through `badgeText` + repository counts
-- Trust-boundary test gate:
-  - [Partial] state transitions
-  - [Done] mixed export outcomes
-  - [Done] deletion reconciliation
-  - [Done] interrupted-run recovery
-  - [Done] archive move destination safety regression coverage (inside-source blocked, parent-destination allowed, recursive-copy guard)
-- External archive robustness baseline:
-  - [Done] archive control folder (`.librarian`) with schema/version metadata and stable archive ID
-  - [Done] archive relink flow for moved archives (internal ↔ external), with archive ID validation
-  - [Done] startup/offline handling when archive volume is unavailable
-  - [Done] write-access and free-space preflight before archive export/import
-  - [Done] crash/disconnect-safe control-file writes (atomic writes for archive metadata and run artifacts)
-  - [Done] async archive-view/badge/subtitle synchronization after archive index refresh
+  - Quick Look (`Space`),
+  - context menus with right-click target normalization,
+  - sidebar badges,
+  - keyboard parity (`Cmd+A`, put-back shortcut, Tab pane focus cycling).
+- Runtime dependency hardening:
+  - bundled ExifTool integrated,
+  - osxphotos execution consolidated behind a single runner boundary shared by export + analysis.
 
-### Remaining Priority To Reach v1.0
+## v1.0 — Trusted Core Release
 
-- Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
-- Execute the v1.0 Boxes quality pass across all box views (including WhatsApp) and close agreed quality-bar test gates.
+Goal: stable daily-driver release with trustworthy archive behavior and distribution readiness.
 
-### Out
+### Must Ship
 
-- Queue keep-reset empty-state UX
-- broader smart-view expansion and integrity tooling
-- restore UI
-- workflow automation hooks
+- Archive reliability + trust boundary:
+  - [Done] stale `exporting` recovery at startup
+  - [Done] mixed outcome handling and clearer per-item failure visibility
+  - [Done] interrupted-run recovery baseline
+  - [Done] archive move destination safety regressions covered
+  - [Done] archive metadata/control writes use crash-safe atomic updates
+- Import/export workflow convergence:
+  - [Done] SharedUI-driven import sheet for both Path A and Path B entry points
+  - [Done] Finder-detected import review path triggers the same sheet
+  - [Done] dedupe placement rules differ correctly by Path A vs Path B
+- Process/runtime hardening:
+  - [Done] ExifTool bundled and runtime-resolved
+  - [Done] osxphotos launch boundary consolidated for export + analysis
+- Core UX and operability:
+  - [Done] archive progress + completion messaging model
+  - [Done] “Show in Finder” opens archive folder (not parent)
+  - [Done] settings reflects active system library/archive linkage state
+
+### Remaining To Close v1.0
+
+- Boxes quality pass (single coordinated sweep across all boxes):
+  - [In Progress] Duplicates tuning and regression checks
+  - [In Progress] Documents OCR/vision false-positive tuning
+  - [In Progress] Low Quality/Screenshots/Accidental consistency checks
+  - [In Progress] WhatsApp quality + query/count/UI consistency
+  - [Planned] complete shared quality-bar tests per box (classifier/query/count/UI wiring)
+- Multi-library safety gate UX polish:
+  - [In Progress] eliminate technical/fallback phrasing in mismatch prompts
+  - [Planned] improve first-run/linking copy and naming clarity for library/archive references
+- Test gate completion:
+  - [In Progress] finalize/expand state-transition automated coverage for trust-boundary flows
+
+### v1.0 Out of Scope
+
+- Queue keep/reset empty-state redesign
+- Restore feature UX
+- Automation hooks and preset profiles
+- Large taxonomy expansion beyond current boxes
 
 ## v1.1 — Stabilization + UX Hardening
 
-Goal: remove rough edges from 1.0 and improve review speed without widening domain scope.
+Goal: remove rough edges from 1.0 usage and improve resilience/clarity without widening domain scope.
 
-### In
+### Planned
 
-- Queue keep-reset empty-state UX and cleanup of temporary Settings reset surface.
-- Inspector polish and readability improvements for long archive/error fields.
-- Additional archive UX hardening discovered during 1.0 use (non-breaking).
+- Queue keep/reset empty-state UX and cleanup of temporary Settings reset controls.
+- Inspector readability pass for long fields (archive paths/errors/metadata).
+- Archive robustness follow-through:
+  - volume identity tracking (same path, different disk safeguards),
+  - operation journal + reconciliation pass,
+  - read-only/permission-drift handling polish,
+  - slow-disk/network-volume responsiveness tuning.
 - SharedUI extraction follow-through for interaction primitives introduced in 1.0.
-- External archive robustness follow-through:
-  - volume identity tracking (same path, different disk safeguards)
-  - operation journal + reconciliation pass for interrupted archive runs
-  - read-only mount and permission-drift handling polish
-  - slow-disk/network-volume behavior tuning (batching, responsiveness)
+- Optional background archive change monitoring (FSEvents) if passive refresh remains a UX pain point.
 
-## v1.2 — Analysis and View Model Expansion
+## v1.2+
 
-Goal: strengthen analysis lifecycle and scale query-driven views.
+- Analysis lifecycle improvements (rerun policy, last-analysed visibility, refresh recommendations).
+- Smart/query view expansion and incremental indexing/reconciliation tooling.
+- Workflow expansion and richer archive auditing/reporting.
 
-### In
+## Parking Lot (Design Decisions Needed)
 
-- Analysis lifecycle improvements:
-  - rerun policy
-  - "last analysed" state visibility
-  - refresh recommendations when library growth warrants it
-- Smart/query view expansion beyond current queue set.
-- Incremental indexing and integrity/reconciliation tooling.
-
-## v1.3 — Workflow Expansion
-
-Goal: deepen curation workflows built on stable 1.0–1.2 foundations.
-
-### In
-
-- Context-review style curation flows (day/event/trip-oriented review).
-- Archive pipeline extension work directly supporting richer review workflows.
-
-## v2.0 — Intelligence + Workflow Platform
-
-Goal: first materially new generation beyond incremental queue and UX work.
-
-### In
-
-- Mature explainability/meaningfulness stack.
-- Stronger context-aware recommendation workflows.
-- Durable job orchestration and audit/replay/recovery improvements.
-- Extensibility hooks for downstream archive workflows.
-- Restore capability promoted toward user-facing product surface (if quality bar is met).
-
-## SharedUI Work
-
-These are cross-repo items discovered from Ledger/SharedUI audit and should be tracked as SharedUI-scoped work even when driven by Librarian needs.
-
-- **[SharedUI] Quick Look Coordinator** — [Done]
-  - Spacebar → Quick Look keyboard monitor extracted from Ledger into `ThreePaneSplitViewController.installContentKeyboardMonitor`. Both apps now use the shared implementation; `QuickLookPanelCoordinator` was already in SharedUI.
-
-- **[SharedUI] Gallery Context-Menu Selection Infrastructure**
-  - [Done] Extracted reusable right-click target normalization and shared menu-item helpers into SharedUI (`ContextMenuSupport`), then consumed from Ledger and Librarian.
-  - Keep app-specific menu item actions local to each app (implemented).
-  - Source reference: `Ledger/Sources/Ledger/BrowserGalleryView.swift`.
-
-- **[SharedUI] Three-Pane Keyboard Focus Utility**
-  - [Done] Spacebar → Quick Look routing extracted as `installContentKeyboardMonitor` in `ThreePaneSplitViewController`.
-  - [Planned] Tab pane focus-cycling (sidebar ↔ content) — still app-specific in Ledger, not yet implemented in Librarian.
-  - Source reference: `Ledger/Sources/Ledger/MainContentView.swift`.
-
-## Open Items / Parking Lot
-
-- **Multiple library handling follow-through** — Librarian now detects system library changes, updates UI state, and gates archive writes with archive-library binding prompts. Remaining design work is around long-term data model strategy: whether to maintain separate GRDB databases per Photos library or keep a single database with stronger reconciliation/migration rules when the active library changes.
-
-- **FSEvents archive folder watching** — Currently the ArchiveIndexer only runs when the Archive view is opened (passive detection). If the user places files in the archive folder via Finder, they won't appear until the view is next opened and there's no badge update. A full solution requires: installing an FSEvents watcher on the archive root folder, triggering a re-index when changes are detected, updating the sidebar badge, and optionally auto-triggering the organize pass if unorganized files are detected. Parked in favour of passive detection for now.
-
-- **Archive export routing (Type then Date layout)** — When the "Type then date" folder layout is selected, the export pipeline (Set Aside → osxphotos export) should route files into the correct top-level subfolder based on content type rather than dumping everything into a flat date structure. The routing logic needs to be defined — the original spec used a queue-based rule (Duplicates → `Photos/`, Screenshots/junk → `Other/`) but this no longer reflects the intended model. The correct routing rules should be agreed before implementation. This is blocked on export-pipeline routing design, not on App Store sandboxing. In the meantime the organizer (`ArchiveOrganizer`) falls back to routing everything to `Photos/` with a comment.
-
+- Long-term data model for multiple Photos libraries:
+  - separate DB per library vs single DB + stronger reconciliation/migration.
+- Type-then-date archive export routing policy:
+  - finalize content-type routing model before implementation.
 - Archive pipeline extensions:
-  - export profiles/presets
-  - richer post-export auditing/reporting
-  - optional automation hooks
-- Any future queue taxonomy changes should be additive and justified by measurable workflow gain.
+  - export presets/profiles,
+  - richer post-export audit reports,
+  - automation hooks.
+
+## SharedUI Tracking
+
+- [Done] Quick Look keyboard monitor extraction and shared wiring.
+- [Done] Context-menu right-click selection normalization in SharedUI.
+- [Done] Shared keyboard utility support used by Librarian parity behavior.
