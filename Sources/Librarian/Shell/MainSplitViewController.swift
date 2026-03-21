@@ -14,6 +14,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private let inspectorController: InspectorController
 
     private var inspectorKeyMonitor: Any?
+    private var keyboardParityMonitor: Any?
     private var archiveExportSheetWindow: NSWindow?
     private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
     private var lastBindingPromptSignature: String?
@@ -75,6 +76,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             self.toggleInspector(nil)
             return nil
         }
+        installKeyboardParityMonitorIfNeeded()
         toolbarDelegate.refresh(model: model)
     }
 
@@ -101,6 +103,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     override func viewWillDisappear() {
         super.viewWillDisappear()
         if let m = inspectorKeyMonitor { NSEvent.removeMonitor(m); inspectorKeyMonitor = nil }
+        if let m = keyboardParityMonitor { NSEvent.removeMonitor(m); keyboardParityMonitor = nil }
     }
 
     // MARK: - Model observation
@@ -370,6 +373,15 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         toolbarDelegate.refresh(model: model)
     }
 
+    override func selectAll(_ sender: Any?) {
+        guard shouldHandleContentKeyCommands() else {
+            super.selectAll(sender)
+            return
+        }
+        contentController.selectAllVisibleAssets()
+        toolbarDelegate.refresh(model: model)
+    }
+
     @objc func addPhotosToArchiveAction(_ sender: Any?) {
         archiveImportSheetPresenter?.present(mode: .pathAUserPick)
     }
@@ -425,6 +437,62 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         model.selectedSidebarItem?.kind == .setAsideForArchive
             && model.failedArchiveCandidateCount > 0
             && !model.isSendingArchive
+    }
+
+    private func installKeyboardParityMonitorIfNeeded() {
+        guard keyboardParityMonitor == nil else { return }
+        keyboardParityMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option, .function])
+
+            if event.keyCode == KeyCode.tab,
+               (modifiers.isEmpty || modifiers == [.shift]),
+               KeyboardShortcutSupport.shouldHandlePaneTabSwitch(
+                    in: self.view.window,
+                    sidebarView: self.sidebarController.view,
+                    contentView: self.contentController.view
+               ) {
+                self.togglePaneFocusBetweenSidebarAndContent()
+                return nil
+            }
+
+            guard self.shouldHandleContentKeyCommands() else { return event }
+
+            if event.charactersIgnoringModifiers == "a", modifiers == [.command] {
+                self.contentController.selectAllVisibleAssets()
+                self.toolbarDelegate.refresh(model: self.model)
+                return nil
+            }
+
+            if (event.keyCode == KeyCode.delete || event.keyCode == KeyCode.forwardDelete),
+               modifiers == [.command, .option],
+               (self.canPutBackSelection || self.canPutBackFailedItems) {
+                self.putBackSelectionAction(nil)
+                return nil
+            }
+
+            return event
+        }
+    }
+
+    private func shouldHandleContentKeyCommands() -> Bool {
+        guard KeyboardShortcutSupport.canHandleWindowShortcuts(in: view.window) else { return false }
+        guard !KeyboardShortcutSupport.isEditableTextResponder(view.window?.firstResponder) else { return false }
+        return KeyboardShortcutSupport.isResponder(view.window?.firstResponder, inside: contentController.view)
+    }
+
+    private func togglePaneFocusBetweenSidebarAndContent() {
+        KeyboardShortcutSupport.togglePaneFocus(
+            in: view.window,
+            sidebarView: sidebarController.view,
+            contentView: contentController.view,
+            focusSidebar: { [weak self] in
+                self?.sidebarController.focusSidebar()
+            },
+            focusContent: { [weak self] in
+                self?.contentController.focusContentPane()
+            }
+        )
     }
 
     private func resolveOrPromptArchiveRoot() -> URL? {
@@ -576,6 +644,12 @@ extension MainSplitViewController {
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(addPhotosToArchiveAction(_:)) {
             return !model.isImportingArchive && model.archiveRootURL != nil
+        }
+        if item.action == #selector(putBackSelectionAction(_:)) {
+            return canPutBackSelection || canPutBackFailedItems
+        }
+        if item.action == #selector(selectAll(_:)) {
+            return isGallerySidebarSelection
         }
         return super.validateUserInterfaceItem(item)
     }

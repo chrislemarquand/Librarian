@@ -1199,6 +1199,24 @@ final class ContentController: NSViewController {
         !selectedAssetIdentifiers().isEmpty
     }
 
+    func selectAllVisibleAssets() {
+        guard !displayAssets.isEmpty else {
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            return
+        }
+        let all = Set(displayAssets.indices.map { IndexPath(item: $0, section: 0) })
+        guard collectionView.selectionIndexPaths != all else { return }
+        collectionView.selectionIndexPaths = all
+        syncModelSelectionFromCollection()
+        updateScreenshotActionBarState()
+    }
+
+    func focusContentPane() {
+        guard let window = view.window else { return }
+        window.makeFirstResponder(collectionView)
+    }
+
     func queueSelectedAssetsForArchive() {
         let identifiers = selectedAssetIdentifiers()
         guard !identifiers.isEmpty else { return }

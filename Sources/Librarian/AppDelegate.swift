@@ -173,6 +173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let setAsideItem = NSMenuItem(title: "Set Aside Selection", action: #selector(MainSplitViewController.setAsideSelectionAction(_:)), keyEquivalent: "a")
         setAsideItem.keyEquivalentModifierMask = [.command, .option]
         fileMenu.addItem(setAsideItem)
+        let putBackItem = NSMenuItem(title: "Put Back from Set Aside", action: #selector(MainSplitViewController.putBackSelectionAction(_:)), keyEquivalent: "\u{8}")
+        putBackItem.keyEquivalentModifierMask = [.command, .option]
+        fileMenu.addItem(putBackItem)
         let sendToArchiveItem = NSMenuItem(title: "Send to Archive", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "a")
         sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
         fileMenu.addItem(sendToArchiveItem)
