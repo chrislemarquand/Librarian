@@ -53,16 +53,47 @@ enum ArchiveSettings {
         }
     }
 
-    static let bookmarkKey = "com.librarian.app.archiveRootBookmark"
-    static let archiveIDKey = "com.librarian.app.archiveID"
+    // MARK: - Folder layout
+
+    enum ArchiveFolderLayout: String {
+        /// All files land in `Archive/YYYY/MM/DD`. Simple flat structure.
+        case dateOnly     = "dateOnly"
+        /// Photos land in `Photos/YYYY/MM/DD`. Categorised content (screenshots, documents, etc.)
+        /// lands in `Other/{type}/YYYY/MM/DD`. Aligns with spec section 23.2.
+        case kindThenDate = "kindThenDate"
+    }
+
+    static let folderLayoutKey = "com.librarian.app.archiveFolderLayout"
+
+    static var folderLayout: ArchiveFolderLayout {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: folderLayoutKey),
+                  let layout = ArchiveFolderLayout(rawValue: raw) else { return .dateOnly }
+            return layout
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: folderLayoutKey) }
+    }
+
+    // MARK: - Keys
+
+    static let bookmarkKey       = "com.librarian.app.archiveRootBookmark"
+    static let archiveIDKey      = "com.librarian.app.archiveID"
+    static let archiveFolderName = "Archive"
     static let controlFolderName = ".librarian"
-    static let configFileName = "archive.json"
+    static let configFileName    = "archive.json"
 
     struct ArchiveControlPaths {
+        /// The user-chosen root (e.g. `Testing/`). The archive subfolder lives inside this.
         let rootURL: URL
 
+        /// The designated archive folder (`Testing/Archive/`). This is where the red icon
+        /// is applied, where `.librarian/` lives, and where file content is written.
+        var archiveFolderURL: URL {
+            rootURL.appendingPathComponent(ArchiveSettings.archiveFolderName, isDirectory: true)
+        }
+
         var controlRootURL: URL {
-            rootURL.appendingPathComponent(ArchiveSettings.controlFolderName, isDirectory: true)
+            archiveFolderURL.appendingPathComponent(ArchiveSettings.controlFolderName, isDirectory: true)
         }
 
         var configURL: URL {
@@ -153,6 +184,7 @@ enum ArchiveSettings {
         let fileManager = FileManager.default
         let paths = ArchiveControlPaths(rootURL: rootURL)
         do {
+            try fileManager.createDirectory(at: paths.archiveFolderURL, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: paths.controlRootURL, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: paths.thumbnailsURL, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: paths.reportsURL, withIntermediateDirectories: true)
@@ -202,8 +234,22 @@ enum ArchiveSettings {
         return (try? decoder.decode(ArchiveControlConfig.self, from: data))?.archiveID
     }
 
+    /// The archive subfolder inside the user-chosen root — always `{root}/Archive/`.
+    /// This is where `.librarian/` lives, where the red icon is applied, and the root
+    /// from which the indexer and organizer scan.
+    /// - `dateOnly`:     content at `{root}/Archive/YYYY/MM/DD/`
+    /// - `kindThenDate`: content at `{root}/Archive/Photos/YYYY/MM/DD/` etc.
     static func archiveTreeRootURL(from rootURL: URL) -> URL {
-        rootURL.appendingPathComponent("Archive", isDirectory: true)
+        rootURL.appendingPathComponent(archiveFolderName, isDirectory: true)
+    }
+
+    /// The folder where Path-B imports (Add Photos to Archive) write new files.
+    static func importDestinationRoot(from rootURL: URL) -> URL {
+        let archiveFolder = archiveTreeRootURL(from: rootURL)
+        switch folderLayout {
+        case .dateOnly:     return archiveFolder
+        case .kindThenDate: return archiveFolder.appendingPathComponent("Photos", isDirectory: true)
+        }
     }
 
     static func currentArchiveTreeRootURL() -> URL? {
@@ -229,6 +275,15 @@ enum ArchiveSettings {
             return .unavailable
         }
 
+        // Detect folders that have been moved to the Trash — they still exist on disk
+        // but should be treated as unavailable so the relink flow fires.
+        let trashURL = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".Trash")
+            .standardized
+        if rootURL.standardized.path.hasPrefix(trashURL.path + "/") {
+            return .unavailable
+        }
+
         do {
             let values = try rootURL.resourceValues(forKeys: [.isDirectoryKey, .volumeIsReadOnlyKey])
             if values.isDirectory == false {
@@ -246,6 +301,20 @@ enum ArchiveSettings {
         }
         if !fileManager.isWritableFile(atPath: rootURL.path) {
             return .permissionDenied
+        }
+
+        // The bookmark tracks the user-chosen parent folder. The actual archive
+        // lives under `{root}/Archive/.librarian`. If `Archive/` was moved away,
+        // the root can still exist but the archive is unavailable.
+        let paths = ArchiveControlPaths(rootURL: rootURL)
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: paths.archiveFolderURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return .unavailable
+        }
+        guard fileManager.fileExists(atPath: paths.controlRootURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return .unavailable
         }
         return .available
     }
@@ -282,6 +351,7 @@ final class AppModel: ObservableObject {
     @Published var activeInspectorFieldCatalog: [InspectorFieldCatalogEntry] = AppModel.defaultInspectorFieldCatalog()
     @Published var indexingProgress: IndexingProgress = .idle
     @Published var archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability = .notConfigured
+    @Published var archiveRootURL: URL? = ArchiveSettings.restoreArchiveRootURL()
     @Published var galleryGridLevel: Int = 4 {
         didSet {
             let clamped = min(max(galleryGridLevel, Self.galleryColumnRange.lowerBound), Self.galleryColumnRange.upperBound)
@@ -350,7 +420,13 @@ final class AppModel: ObservableObject {
         pendingArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.pending, .exporting, .failed])) ?? 0
         failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
         AppLog.shared.info("Loaded persisted index count: \(indexedAssetCount)")
-        refreshArchiveRootAvailability()
+        let availability = refreshArchiveRootAvailability()
+        // Always post so the breadcrumb and archive view reflect any bookmark
+        // the OS silently resolved to a new path (e.g. archive moved in Finder).
+        NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
+        if availability == .unavailable {
+            NotificationCenter.default.post(name: .librarianArchiveNeedsRelink, object: nil)
+        }
 
         await requestPhotosAccess()
     }
@@ -511,7 +587,13 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func updateArchiveRoot(_ url: URL) -> Bool {
+        // Remove the custom icon from the current Archive/ subfolder before switching.
+        if let oldRoot = ArchiveSettings.restoreArchiveRootURL(),
+           oldRoot.standardizedFileURL != url.standardizedFileURL {
+            ArchiveFolderIcon.remove(from: ArchiveSettings.archiveTreeRootURL(from: oldRoot), accessedVia: oldRoot)
+        }
         guard ArchiveSettings.persistArchiveRootURL(url) else { return false }
+        ArchiveFolderIcon.apply(to: ArchiveSettings.archiveTreeRootURL(from: url), accessedVia: url)
         refreshArchiveRootAvailability()
         NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
@@ -523,6 +605,7 @@ final class AppModel: ObservableObject {
         let previous = archiveRootAvailability
         let current = ArchiveSettings.currentArchiveRootAvailability()
         archiveRootAvailability = current
+        archiveRootURL = ArchiveSettings.restoreArchiveRootURL()
         if previous != current {
             AppLog.shared.info("Archive root availability changed: \(String(describing: previous)) -> \(String(describing: current))")
         }
@@ -557,19 +640,18 @@ final class AppModel: ObservableObject {
     }
 
     func runArchiveImport(
-        archiveRoot: URL,
         sourceFolders: [URL],
         preflight: ArchiveImportPreflightResult
     ) async throws -> ArchiveImportRunSummary {
+        guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else {
+            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "No archive root is configured."
+            ])
+        }
         let archiveStatus = ArchiveSettings.archiveRootAvailability(for: archiveRoot)
         guard archiveStatus == .available else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 5, userInfo: [
                 NSLocalizedDescriptionKey: archiveStatus.userVisibleDescription
-            ])
-        }
-        guard ArchiveSettings.ensureControlFolder(at: archiveRoot) else {
-            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 4, userInfo: [
-                NSLocalizedDescriptionKey: "Couldn’t initialize archive control folder at the selected location."
             ])
         }
         guard !isImportingArchive else {
@@ -620,10 +702,8 @@ final class AppModel: ObservableObject {
                 sourcePaths: sourceFolders.map(\.path)
             )
 
-            // Only commit the new archive root if at least some files were imported.
             if summary.imported > 0 {
-                updateArchiveRoot(archiveRoot)
-                // Re-index the new archive root on a background thread so sidebar counts update.
+                // Re-index the archive on a background thread so sidebar counts update.
                 let db = self.database
                 Task.detached(priority: .utility) {
                     let indexer = ArchiveIndexer(database: db)

@@ -2,31 +2,32 @@ import AppKit
 import SharedUI
 
 final class ArchiveSettingsViewController: SettingsGridViewController {
-    private enum ArchiveDestinationSelection {
-        case useAsNewArchive
-        case moveExistingArchive
-        case cancel
-    }
+    private enum ExistingArchivePromptChoice { case switchToThis, chooseDifferent, cancel }
 
     private let model: AppModel
     private let archiveOrganizer = ArchiveOrganizer()
     private var isOrganizingArchive = false
-    private var isCreatingArchive = false
     private var isMovingArchive = false
 
-    private lazy var archivePathField: NSTextField = {
-        let field = NSTextField(labelWithString: "Not set")
-        field.textColor = .secondaryLabelColor
-        field.lineBreakMode = .byTruncatingMiddle
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        return field
+    private lazy var archivePathControl = makePathControl(url: nil)
+    private lazy var showInFinderButton = makeActionButton(title: "Show in Finder", action: #selector(showArchiveInFinder))
+    private lazy var newButton          = makeActionButton(title: "New…",           action: #selector(chooseNewArchive))
+    private lazy var moveButton         = makeActionButton(title: "Move…",          action: #selector(chooseMoveDestination))
+    private lazy var archiveActionButtons: NSStackView = {
+        let stack = NSStackView(views: [showInFinderButton, newButton, moveButton])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
     }()
-    private lazy var chooseButton     = makeActionButton(title: "Change…",           action: #selector(chooseArchivePath))
-    private lazy var organizeButton   = makeActionButton(title: "Organize Archive",  action: #selector(organizeArchiveManually))
+    private lazy var dateOnlyRadio     = makeRadioButton(title: "Date",
+                                                        action: #selector(folderLayoutChanged(_:)))
+    private lazy var kindThenDateRadio = makeRadioButton(title: "Type then Date",
+                                                        action: #selector(folderLayoutChanged(_:)))
+    private lazy var organizeButton   = makeActionButton(title: "Organize Archive",      action: #selector(organizeArchiveManually))
     private lazy var organizeLabel    = makeDescriptionLabel("Scans the archive and normalizes folders to YYYY/MM/DD.")
-    private lazy var createButton     = makeActionButton(title: "Create New Archive…", action: #selector(createNewArchive))
-    private lazy var createLabel      = makeDescriptionLabel("Import photos from existing folders into a new archive root.")
+    private lazy var addPhotosButton  = makeActionButton(title: "Add Photos to Archive…", action: #selector(addPhotosToArchive))
+    private lazy var addPhotosLabel   = makeDescriptionLabel("Copy photos from a folder into the archive. Original files are never moved or deleted.")
 
     init(model: AppModel) {
         self.model = model
@@ -47,9 +48,11 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     override func viewDidAppear() {
         super.viewDidAppear()
         refreshArchivePath()
-        refreshChooseButtonState()
+        refreshNewButtonState()
+        refreshMoveButtonState()
+        refreshFolderLayoutState()
         refreshOrganizeButtonState()
-        refreshCreateButtonState()
+        refreshAddPhotosButtonState()
     }
 
     deinit {
@@ -58,95 +61,108 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
     override func makeRows() -> [[NSView]] {
         [
-            [makeCategoryLabel(title: "Archive destination:"), archivePathField, chooseButton],
-            [makeCategoryLabel(title: "Archive organization:"), organizeLabel,   organizeButton],
-            [makeCategoryLabel(title: "Create archive:"),       createLabel,     createButton],
+            [makeCategoryLabel(title: "Archive Location:"), archivePathControl,   NSView()],
+            [NSView(),                                      archiveActionButtons, NSView()],
+            [makeCategoryLabel(title: "Folder structure:"), dateOnlyRadio,        NSView()],
+            [NSView(),                                      kindThenDateRadio,    NSView()],
+            [makeCategoryLabel(title: "Archive organization:"), organizeLabel,  organizeButton],
+            [makeCategoryLabel(title: "Add photos:"),           addPhotosLabel, addPhotosButton],
         ]
     }
 
     // MARK: - Actions
 
-    @objc private func chooseArchivePath() {
+    @objc private func showArchiveInFinder() {
+        guard let url = ArchiveSettings.restoreArchiveRootURL() else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func chooseNewArchive() {
+        runNewArchivePicker(retrying: false)
+    }
+
+    private func runNewArchivePicker(retrying: Bool) {
         let panel = NSOpenPanel()
-        panel.prompt = "Set Archive Folder"
-        panel.message = "Choose the active archive root used for export and the Archive view."
+        panel.prompt = "Choose"
+        panel.message = retrying
+            ? "Choose an empty or new folder for the archive."
+            : "Choose a location for a new archive, or select an existing Librarian archive to switch to it."
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
-        let result = panel.runModal()
-        guard result == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        let currentRootURL = ArchiveSettings.restoreArchiveRootURL()
-        let currentArchiveID = UserDefaults.standard.string(forKey: ArchiveSettings.archiveIDKey)
-        let selectedArchiveID = ArchiveSettings.archiveID(for: url)
-        var requiresInitializationConfirmation = true
+        // Same folder as current — nothing to do.
+        if url.standardizedFileURL == ArchiveSettings.restoreArchiveRootURL()?.standardizedFileURL { return }
 
-        if selectedArchiveID == nil,
-           let currentRootURL,
-           currentRootURL.standardizedFileURL != url.standardizedFileURL {
-            switch promptArchiveDestinationSelection(currentRootURL: currentRootURL, newRootURL: url) {
+        if let selectedArchiveID = ArchiveSettings.archiveID(for: url) {
+            // Existing Librarian archive detected — let the user decide.
+            switch promptExistingArchiveDetected(at: url) {
+            case .switchToThis:
+                let currentArchiveID = UserDefaults.standard.string(forKey: ArchiveSettings.archiveIDKey)
+                if let currentArchiveID, selectedArchiveID != currentArchiveID,
+                   !ArchiveRootPrompts.confirmArchiveSwitch(fromArchiveID: currentArchiveID, toArchiveID: selectedArchiveID) {
+                    return
+                }
+                guard model.updateArchiveRoot(url) else { return }
+                refreshArchivePath()
+                Task { @MainActor [weak self] in
+                    await self?.scanArchiveAndPromptToOrganizeIfNeeded()
+                }
+            case .chooseDifferent:
+                runNewArchivePicker(retrying: true)
             case .cancel:
                 return
-            case .moveExistingArchive:
-                Task { @MainActor [weak self] in
-                    await self?.moveExistingArchive(currentRootURL: currentRootURL, newRootURL: url)
-                }
-                return
-            case .useAsNewArchive:
-                requiresInitializationConfirmation = false
             }
-        }
-
-        if let selectedArchiveID,
-           let currentArchiveID,
-           selectedArchiveID != currentArchiveID,
-           !ArchiveRootPrompts.confirmArchiveSwitch(fromArchiveID: currentArchiveID, toArchiveID: selectedArchiveID) {
-            return
-        }
-
-        if selectedArchiveID == nil,
-           requiresInitializationConfirmation,
-           !ArchiveRootPrompts.confirmInitializeArchive(at: url) {
-            return
-        }
-
-        guard model.updateArchiveRoot(url) else { return }
-        refreshArchivePath()
-        Task { @MainActor [weak self] in
-            await self?.scanArchiveAndPromptToOrganizeIfNeeded()
+        } else {
+            // New location — confirm initialization and proceed.
+            if !ArchiveRootPrompts.confirmInitializeArchive(at: url) { return }
+            guard model.updateArchiveRoot(url) else { return }
+            refreshArchivePath()
+            Task { @MainActor [weak self] in
+                await self?.scanArchiveAndPromptToOrganizeIfNeeded()
+            }
         }
     }
 
-    private func promptArchiveDestinationSelection(
-        currentRootURL: URL,
-        newRootURL: URL
-    ) -> ArchiveDestinationSelection {
+    private func promptExistingArchiveDetected(at url: URL) -> ExistingArchivePromptChoice {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Set a New Archive Location"
+        alert.messageText = "Existing Archive Detected"
         alert.informativeText =
             """
-            Choose how Librarian should handle this destination:
+            The selected folder is already a Librarian archive:
+            \(url.path)
 
-            • Use as New Archive: switch immediately and initialize a fresh archive at:
-              \(newRootURL.path)
-
-            • Move Existing Archive: migrate your current archive from:
-              \(currentRootURL.path)
+            Switch to this archive, or choose a different location for a new archive?
             """
-        alert.addButton(withTitle: "Use as New Archive")
-        alert.addButton(withTitle: "Move Existing Archive…")
+        alert.addButton(withTitle: "Switch to This")
+        alert.addButton(withTitle: "Choose Different Location…")
         alert.addButton(withTitle: "Cancel")
 
         switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            return .useAsNewArchive
-        case .alertSecondButtonReturn:
-            return .moveExistingArchive
-        default:
-            return .cancel
+        case .alertFirstButtonReturn:  return .switchToThis
+        case .alertSecondButtonReturn: return .chooseDifferent
+        default:                       return .cancel
+        }
+    }
+
+    @objc private func chooseMoveDestination() {
+        guard let currentRootURL = ArchiveSettings.restoreArchiveRootURL() else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Move Destination"
+        panel.message = "Choose where to move your archive. Librarian will copy all files and switch to the new location. The original will remain untouched."
+        panel.prompt = "Move Here"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { @MainActor [weak self] in
+            await self?.moveExistingArchive(currentRootURL: currentRootURL, newRootURL: url)
         }
     }
 
@@ -156,36 +172,65 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         }
     }
 
-    @objc private func createNewArchive() {
-        guard !isCreatingArchive else { return }
+    @objc private func addPhotosToArchive() {
         Task { @MainActor [weak self] in
-            await self?.runCreateNewArchiveFlow()
+            guard let self else { return }
+            await runAddPhotosToArchiveFlow(model: model, presentingWindow: view.window)
+            refreshAddPhotosButtonState()
         }
     }
 
     // MARK: - Notification handler
 
+    @objc private func folderLayoutChanged(_ sender: NSButton) {
+        if sender === dateOnlyRadio {
+            ArchiveSettings.folderLayout = .dateOnly
+        } else if sender === kindThenDateRadio {
+            ArchiveSettings.folderLayout = .kindThenDate
+        }
+    }
+
     @objc private func archiveRootChanged() {
         refreshArchivePath()
-        refreshChooseButtonState()
+        refreshNewButtonState()
+        refreshMoveButtonState()
+        refreshFolderLayoutState()
         refreshOrganizeButtonState()
+        refreshAddPhotosButtonState()
     }
 
     // MARK: - State refresh
 
     private func refreshArchivePath() {
-        if let url = ArchiveSettings.restoreArchiveRootURL() {
-            archivePathField.stringValue = url.path
-            archivePathField.textColor = .labelColor
-        } else {
-            archivePathField.stringValue = "Not set"
-            archivePathField.textColor = .secondaryLabelColor
+        guard model.archiveRootAvailability != .unavailable else {
+            archivePathControl.url = nil
+            return
         }
+        guard let treeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
+            archivePathControl.url = nil
+            return
+        }
+        archivePathControl.url = treeRoot
+        let all = archivePathControl.pathItems
+        if all.count > 4 { archivePathControl.pathItems = Array(all.suffix(4)) }
     }
 
-    private func refreshChooseButtonState() {
-        chooseButton.isEnabled = !isMovingArchive
-        chooseButton.title = isMovingArchive ? "Moving…" : "Change…"
+    private func refreshNewButtonState() {
+        let hasRoot = ArchiveSettings.restoreArchiveRootURL() != nil
+        showInFinderButton.isEnabled = hasRoot && !isMovingArchive
+        newButton.isEnabled = !isMovingArchive
+    }
+
+    private func refreshMoveButtonState() {
+        let hasRoot = ArchiveSettings.restoreArchiveRootURL() != nil
+        moveButton.isEnabled = hasRoot && !isMovingArchive
+        moveButton.title = isMovingArchive ? "Moving…" : "Move…"
+    }
+
+    private func refreshFolderLayoutState() {
+        let current = ArchiveSettings.folderLayout
+        dateOnlyRadio.state     = current == .dateOnly     ? .on : .off
+        kindThenDateRadio.state = current == .kindThenDate ? .on : .off
     }
 
     private func refreshOrganizeButtonState() {
@@ -199,13 +244,9 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         }
     }
 
-    private func refreshCreateButtonState() {
-        let busy = isCreatingArchive || model.isImportingArchive || isMovingArchive
-        createButton.isEnabled = !busy
-        createButton.title = busy ? "Importing…" : "Create New Archive…"
-        if !busy, createLabel.stringValue == "Importing…" || createLabel.stringValue == "Scanning…" {
-            createLabel.stringValue = "Import photos from existing folders into a new archive root."
-        }
+    private func refreshAddPhotosButtonState() {
+        let hasRoot = ArchiveSettings.restoreArchiveRootURL() != nil
+        addPhotosButton.isEnabled = hasRoot && !model.isImportingArchive && !isMovingArchive
     }
 
     // MARK: - Archive organisation
@@ -283,9 +324,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     private func moveExistingArchive(currentRootURL: URL, newRootURL: URL) async {
         guard !isMovingArchive else { return }
         isMovingArchive = true
-        refreshChooseButtonState()
+        refreshNewButtonState()
+        refreshMoveButtonState()
         refreshOrganizeButtonState()
-        refreshCreateButtonState()
+        refreshAddPhotosButtonState()
 
         let destinationRoot = newRootURL.standardizedFileURL
 
@@ -296,9 +338,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             }.value
         } catch {
             isMovingArchive = false
-            refreshChooseButtonState()
+            refreshNewButtonState()
+        refreshMoveButtonState()
             refreshOrganizeButtonState()
-            refreshCreateButtonState()
+            refreshAddPhotosButtonState()
             showArchiveMoveError("Move preflight failed: \(error.localizedDescription)")
             return
         }
@@ -309,9 +352,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             preflight: preflight
         ) else {
             isMovingArchive = false
-            refreshChooseButtonState()
+            refreshNewButtonState()
+        refreshMoveButtonState()
             refreshOrganizeButtonState()
-            refreshCreateButtonState()
+            refreshAddPhotosButtonState()
             return
         }
 
@@ -325,18 +369,20 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             }.value
         } catch {
             isMovingArchive = false
-            refreshChooseButtonState()
+            refreshNewButtonState()
+        refreshMoveButtonState()
             refreshOrganizeButtonState()
-            refreshCreateButtonState()
+            refreshAddPhotosButtonState()
             showArchiveMoveError("Archive copy failed: \(error.localizedDescription)")
             return
         }
 
         guard model.updateArchiveRoot(destinationRoot) else {
             isMovingArchive = false
-            refreshChooseButtonState()
+            refreshNewButtonState()
+        refreshMoveButtonState()
             refreshOrganizeButtonState()
-            refreshCreateButtonState()
+            refreshAddPhotosButtonState()
             showArchiveMoveError("Archive was copied, but Librarian couldn’t switch to the new location.")
             return
         }
@@ -344,9 +390,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshArchivePath()
         await scanArchiveAndPromptToOrganizeIfNeeded()
         isMovingArchive = false
-        refreshChooseButtonState()
+        refreshNewButtonState()
+        refreshMoveButtonState()
         refreshOrganizeButtonState()
-        refreshCreateButtonState()
+        refreshAddPhotosButtonState()
         showArchiveMoveSuccess(from: currentRootURL, to: destinationRoot)
     }
 
@@ -649,142 +696,4 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     }
 #endif
 
-    // MARK: - Create New Archive workflow
-
-    @MainActor
-    private func runCreateNewArchiveFlow() async {
-        guard !isCreatingArchive else { return }
-
-        let rootPanel = NSOpenPanel()
-        rootPanel.title = "Choose New Archive Root"
-        rootPanel.message = "Choose or create a folder that will become the new active archive root."
-        rootPanel.prompt = "Choose Root"
-        rootPanel.canChooseDirectories = true
-        rootPanel.canChooseFiles = false
-        rootPanel.allowsMultipleSelection = false
-        rootPanel.canCreateDirectories = true
-        rootPanel.directoryURL = ArchiveSettings.restoreArchiveRootURL()
-            ?? FileManager.default.homeDirectoryForCurrentUser
-        guard rootPanel.runModal() == .OK, let archiveRoot = rootPanel.url else { return }
-
-        let sourcePanel = NSOpenPanel()
-        sourcePanel.title = "Choose Source Folders"
-        sourcePanel.message = "Choose one or more folders whose photos will be imported into the new archive. These folders will not be modified."
-        sourcePanel.prompt = "Choose Sources"
-        sourcePanel.canChooseDirectories = true
-        sourcePanel.canChooseFiles = false
-        sourcePanel.allowsMultipleSelection = true
-        sourcePanel.canCreateDirectories = false
-        sourcePanel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-        guard sourcePanel.runModal() == .OK, !sourcePanel.urls.isEmpty else { return }
-        let sourceFolders = sourcePanel.urls
-
-        isCreatingArchive = true
-        refreshCreateButtonState()
-        createLabel.stringValue = "Scanning…"
-
-        let coordinator = ArchiveImportCoordinator(
-            archiveRoot: archiveRoot,
-            sourceFolders: sourceFolders,
-            database: model.database
-        )
-        let preflight: ArchiveImportPreflightResult
-        do {
-            preflight = try await Task.detached(priority: .utility) {
-                try coordinator.runPreflight()
-            }.value
-        } catch {
-            isCreatingArchive = false
-            refreshCreateButtonState()
-            createLabel.stringValue = "Scan failed: \(error.localizedDescription)"
-            AppLog.shared.error("Archive import preflight failed: \(error.localizedDescription)")
-            return
-        }
-
-        createLabel.stringValue = "\(preflight.totalDiscovered.formatted()) file(s) found."
-        let confirmed = await showPreflightConfirmation(preflight: preflight)
-        guard confirmed else {
-            isCreatingArchive = false
-            refreshCreateButtonState()
-            createLabel.stringValue = "Import cancelled."
-            return
-        }
-
-        guard preflight.toImport > 0 else {
-            isCreatingArchive = false
-            refreshCreateButtonState()
-            createLabel.stringValue = "Nothing to import after deduplication."
-            return
-        }
-
-        createLabel.stringValue = "Importing…"
-        let summary: ArchiveImportRunSummary
-        do {
-            summary = try await model.runArchiveImport(
-                archiveRoot: archiveRoot,
-                sourceFolders: sourceFolders,
-                preflight: preflight
-            )
-        } catch {
-            isCreatingArchive = false
-            refreshCreateButtonState()
-            createLabel.stringValue = "Import failed: \(error.localizedDescription)"
-            return
-        }
-
-        isCreatingArchive = false
-        refreshCreateButtonState()
-        if summary.imported > 0 {
-            refreshArchivePath()
-            refreshOrganizeButtonState()
-        }
-        createLabel.stringValue = "\(summary.imported.formatted()) file(s) imported."
-        showImportCompletionAlert(summary: summary)
-    }
-
-    @MainActor
-    private func showPreflightConfirmation(preflight: ArchiveImportPreflightResult) async -> Bool {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Create Archive?"
-
-        var lines: [String] = ["\(preflight.totalDiscovered.formatted()) file(s) discovered."]
-        if preflight.duplicatesInSource > 0 {
-            lines.append("• \(preflight.duplicatesInSource.formatted()) duplicate(s) within source folders will be skipped.")
-        }
-        if preflight.existsInPhotoKit > 0 {
-            lines.append("• \(preflight.existsInPhotoKit.formatted()) file(s) already in your Photos library will be skipped.")
-        }
-        lines.append("")
-        lines.append(preflight.toImport > 0
-            ? "\(preflight.toImport.formatted()) file(s) will be imported."
-            : "Nothing to import — all files are duplicates or already in Photos.")
-        alert.informativeText = lines.joined(separator: "\n")
-        alert.addButton(withTitle: preflight.toImport > 0 ? "Create Archive" : "OK")
-        if preflight.toImport > 0 { alert.addButton(withTitle: "Cancel") }
-
-        let response = await alert.runSheetOrModal(for: view.window)
-        return response == .alertFirstButtonReturn && preflight.toImport > 0
-    }
-
-    private func showImportCompletionAlert(summary: ArchiveImportRunSummary) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Archive Created"
-
-        var lines: [String] = ["\(summary.imported.formatted()) file(s) imported."]
-        if summary.skippedDuplicateInSource > 0 {
-            lines.append("• \(summary.skippedDuplicateInSource.formatted()) duplicate(s) in source folders skipped.")
-        }
-        if summary.skippedExistsInPhotoKit > 0 {
-            lines.append("• \(summary.skippedExistsInPhotoKit.formatted()) file(s) already in Photos skipped.")
-        }
-        if summary.failed > 0 {
-            lines.append("• \(summary.failed.formatted()) file(s) failed — check the log for details.")
-        }
-        alert.informativeText = lines.joined(separator: "\n")
-        alert.addButton(withTitle: "Done")
-
-        alert.runSheetOrModal(for: view.window) { _ in }
-    }
 }
