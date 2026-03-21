@@ -30,6 +30,10 @@ final class LibrarySettingsViewController: SettingsGridViewController {
             self, selector: #selector(analysisStateChanged),
             name: .librarianAnalysisStateChanged, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(systemLibraryChanged),
+            name: .librarianSystemPhotoLibraryChanged, object: nil
+        )
     }
 
     override func viewDidAppear() {
@@ -45,9 +49,15 @@ final class LibrarySettingsViewController: SettingsGridViewController {
     override func makeRows() -> [[NSView]] {
         var rows: [[NSView]] = []
 
-        if let libraryURL = Self.findPhotosLibraryURL() {
+        if let libraryURL = model.currentSystemPhotoLibraryURL ?? Self.findPhotosLibraryURL() {
             rows.append([makeCategoryLabel(title: "Library Location:"), makePathControl(url: libraryURL), NSView()])
             rows.append([NSView(), showInFinderButton, NSView()])
+        } else {
+            rows.append([
+                makeCategoryLabel(title: "Library Location:"),
+                makeDescriptionLabel("Current System Library"),
+                NSView()
+            ])
         }
 
         rows += [
@@ -71,7 +81,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
     // MARK: - Actions
 
     @objc private func showLibraryInFinder() {
-        guard let url = Self.findPhotosLibraryURL() else { return }
+        guard let url = model.currentSystemPhotoLibraryURL ?? Self.findPhotosLibraryURL() else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
@@ -97,6 +107,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
 
     @objc private func indexingStateChanged() { refreshRebuildButtonState() }
     @objc private func analysisStateChanged()  { refreshAnalyseButtonState() }
+    @objc private func systemLibraryChanged()  { rebuildGrid() }
 
     // MARK: - State refresh
 

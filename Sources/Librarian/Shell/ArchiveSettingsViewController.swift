@@ -84,8 +84,12 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     // MARK: - Actions
 
     @objc private func showArchiveInFinder() {
-        guard let url = ArchiveSettings.restoreArchiveRootURL() else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        if let treeRoot = ArchiveSettings.currentArchiveTreeRootURL() {
+            NSWorkspace.shared.activateFileViewerSelecting([treeRoot])
+            return
+        }
+        guard let fallbackRoot = ArchiveSettings.restoreArchiveRootURL() else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([fallbackRoot])
     }
 
     @objc private func chooseNewArchive() {
@@ -294,6 +298,21 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     @MainActor
     private func organizeArchive() async {
         guard !isOrganizingArchive else { return }
+        let gate = model.evaluateArchiveWriteGate(for: .organizeArchive)
+        guard gate.isAllowed else {
+            let resolved = await ArchiveLibraryMismatchPrompt.resolveWriteGateIfPossible(
+                model: model,
+                decision: gate,
+                operation: .organizeArchive,
+                parentWindow: view.window
+            )
+            guard resolved else {
+                organizeLabel.stringValue = gate.message
+                return
+            }
+            await organizeArchive()
+            return
+        }
         guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
             organizeLabel.stringValue = "Choose an archive destination first."
             return

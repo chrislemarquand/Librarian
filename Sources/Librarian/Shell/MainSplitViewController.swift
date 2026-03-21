@@ -15,6 +15,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var inspectorKeyMonitor: Any?
     private var archiveExportSheetWindow: NSWindow?
     private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
+    private var lastBindingPromptSignature: String?
+    private var isShowingBindingPrompt = false
 
     init(model: AppModel) {
         self.model = model
@@ -88,6 +90,9 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         }
         refreshWindowTitle()
         refreshWindowSubtitle()
+        Task { @MainActor [weak self] in
+            await self?.presentArchiveLibraryBindingPromptIfNeeded()
+        }
     }
 
     override func viewWillDisappear() {
@@ -140,6 +145,12 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             name: .librarianContentDataChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(archiveLibraryBindingChanged),
+            name: .librarianArchiveLibraryBindingChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
@@ -161,6 +172,37 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     @objc private func contentDataChanged() {
         refreshSidebarItemsWithBadges()
         refreshWindowSubtitle()
+    }
+
+    @objc private func archiveLibraryBindingChanged() {
+        Task { @MainActor [weak self] in
+            await self?.presentArchiveLibraryBindingPromptIfNeeded()
+        }
+    }
+
+    private func presentArchiveLibraryBindingPromptIfNeeded() async {
+        guard !isShowingBindingPrompt else { return }
+        let gate = model.evaluateArchiveWriteGate(for: .importIntoArchive)
+        guard gate.status != .allowed else { return }
+        guard let evaluation = gate.evaluation else { return }
+
+        let signature = [
+            evaluation.state.rawValue,
+            evaluation.expectedFingerprint ?? "nil",
+            evaluation.currentFingerprint ?? "nil",
+            evaluation.archiveID ?? "nil"
+        ].joined(separator: "|")
+        guard lastBindingPromptSignature != signature else { return }
+        lastBindingPromptSignature = signature
+
+        isShowingBindingPrompt = true
+        _ = await ArchiveLibraryMismatchPrompt.resolveWriteGateIfPossible(
+            model: model,
+            decision: gate,
+            operation: .importIntoArchive,
+            parentWindow: view.window
+        )
+        isShowingBindingPrompt = false
     }
 
     private func refreshWindowTitle() {

@@ -81,6 +81,7 @@ enum ArchiveSettings {
     static let archiveFolderName = "Archive"
     static let controlFolderName = ".librarian"
     static let configFileName    = "archive.json"
+    static let configSchemaVersion = 2
 
     struct ArchiveControlPaths {
         /// The user-chosen root (e.g. `Testing/`). The archive subfolder lives inside this.
@@ -109,17 +110,32 @@ enum ArchiveSettings {
         }
     }
 
-    private struct ArchiveControlConfig: Codable {
-        let schemaVersion: Int
-        let archiveID: String
-        let createdAt: Date
-        let createdByVersion: String
-        let layoutMode: String
-        let paths: Paths
+    struct ArchiveControlConfig: Codable {
+        var schemaVersion: Int
+        var archiveID: String
+        var createdAt: Date
+        var createdByVersion: String
+        var layoutMode: String
+        var paths: Paths
+        var photoLibraryBinding: PhotoLibraryBinding?
 
         struct Paths: Codable {
-            let thumbnails: String
-            let reports: String
+            var thumbnails: String
+            var reports: String
+        }
+
+        struct PhotoLibraryBinding: Codable, Equatable {
+            enum BindingMode: String, Codable {
+                case strict
+                case advisory
+            }
+
+            var libraryFingerprint: String
+            var libraryIDSource: String
+            var libraryPathHint: String?
+            var boundAt: Date
+            var bindingMode: BindingMode
+            var lastSeenMatchAt: Date?
         }
     }
 
@@ -190,6 +206,8 @@ enum ArchiveSettings {
             try fileManager.createDirectory(at: paths.reportsURL, withIntermediateDirectories: true)
             if !fileManager.fileExists(atPath: paths.configURL.path) {
                 try writeInitialControlConfig(to: paths.configURL)
+            } else {
+                try migrateControlConfigIfNeeded(at: paths.configURL)
             }
             return true
         } catch {
@@ -203,7 +221,7 @@ enum ArchiveSettings {
         let version = (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let config = ArchiveControlConfig(
-            schemaVersion: 1,
+            schemaVersion: configSchemaVersion,
             archiveID: UUID().uuidString,
             createdAt: Date(),
             createdByVersion: (version?.isEmpty == false ? version! : "dev"),
@@ -211,13 +229,10 @@ enum ArchiveSettings {
             paths: .init(
                 thumbnails: "thumbnails",
                 reports: "reports"
-            )
+            ),
+            photoLibraryBinding: nil
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(config)
-        try data.write(to: configURL, options: .atomic)
+        try writeControlConfig(config, to: configURL)
     }
 
     static func archiveID(for rootURL: URL) -> String? {
@@ -228,10 +243,72 @@ enum ArchiveSettings {
             }
         }
         let configURL = ArchiveControlPaths(rootURL: rootURL).configURL
+        return readControlConfig(at: configURL)?.archiveID
+    }
+
+    static func controlConfig(for rootURL: URL) -> ArchiveControlConfig? {
+        let didAccess = rootURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                rootURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        let configURL = ArchiveControlPaths(rootURL: rootURL).configURL
+        return readControlConfig(at: configURL)
+    }
+
+    @discardableResult
+    static func updateControlConfig(
+        at rootURL: URL,
+        mutate: (inout ArchiveControlConfig) -> Void
+    ) -> Bool {
+        guard ensureControlFolder(at: rootURL) else { return false }
+        let didAccess = rootURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                rootURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        let configURL = ArchiveControlPaths(rootURL: rootURL).configURL
+        guard var config = readControlConfig(at: configURL) else { return false }
+        mutate(&config)
+        if config.schemaVersion < configSchemaVersion {
+            config.schemaVersion = configSchemaVersion
+        }
+        do {
+            try writeControlConfig(config, to: configURL)
+            return true
+        } catch {
+            AppLog.shared.error("Failed to update archive control config: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private static func migrateControlConfigIfNeeded(at configURL: URL) throws {
+        guard var config = readControlConfig(at: configURL) else { return }
+        var didChange = false
+        if config.schemaVersion < configSchemaVersion {
+            config.schemaVersion = configSchemaVersion
+            didChange = true
+        }
+        if didChange {
+            try writeControlConfig(config, to: configURL)
+        }
+    }
+
+    private static func readControlConfig(at configURL: URL) -> ArchiveControlConfig? {
         guard let data = try? Data(contentsOf: configURL) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode(ArchiveControlConfig.self, from: data))?.archiveID
+        return try? decoder.decode(ArchiveControlConfig.self, from: data)
+    }
+
+    private static func writeControlConfig(_ config: ArchiveControlConfig, to configURL: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(config)
+        try data.write(to: configURL, options: .atomic)
     }
 
     /// The archive subfolder inside the user-chosen root — always `{root}/Archive/`.
@@ -260,6 +337,20 @@ enum ArchiveSettings {
     static func currentArchiveRootAvailability() -> ArchiveRootAvailability {
         guard let rootURL = restoreArchiveRootURL() else { return .notConfigured }
         return archiveRootAvailability(for: rootURL)
+    }
+
+    static func currentPhotoLibraryFingerprint() throws -> PhotoLibraryFingerprint {
+        try PhotoLibraryFingerprintService.currentFingerprint()
+    }
+
+    static func evaluatePhotoLibraryBinding(
+        for rootURL: URL,
+        persistMatchTimestamp: Bool = false
+    ) -> ArchiveLibraryBindingEvaluation {
+        ArchiveLibraryBindingEvaluator.evaluate(
+            rootURL: rootURL,
+            persistMatchTimestamp: persistMatchTimestamp
+        )
     }
 
     static func archiveRootAvailability(for rootURL: URL) -> ArchiveRootAvailability {
@@ -320,6 +411,38 @@ enum ArchiveSettings {
     }
 }
 
+enum ArchiveWriteOperation {
+    case importIntoArchive
+    case organizeArchive
+    case exportArchive
+
+    var displayName: String {
+        switch self {
+        case .importIntoArchive:
+            return "import photos"
+        case .organizeArchive:
+            return "organize the archive"
+        case .exportArchive:
+            return "export"
+        }
+    }
+}
+
+struct ArchiveWriteGateDecision {
+    enum Status {
+        case allowed
+        case requiresResolution
+        case error
+    }
+
+    let status: Status
+    let rootURL: URL?
+    let evaluation: ArchiveLibraryBindingEvaluation?
+    let message: String
+
+    var isAllowed: Bool { status == .allowed }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     private static let staleArchiveExportMessage =
@@ -352,6 +475,9 @@ final class AppModel: ObservableObject {
     @Published var indexingProgress: IndexingProgress = .idle
     @Published var archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability = .notConfigured
     @Published var archiveRootURL: URL? = ArchiveSettings.restoreArchiveRootURL()
+    @Published var currentSystemPhotoLibraryPath: String?
+    @Published var currentSystemPhotoLibraryFingerprint: String?
+    @Published var latestArchiveLibraryBindingEvaluation: ArchiveLibraryBindingEvaluation?
     @Published var galleryGridLevel: Int = 4 {
         didSet {
             let clamped = min(max(galleryGridLevel, Self.galleryColumnRange.lowerBound), Self.galleryColumnRange.upperBound)
@@ -367,6 +493,8 @@ final class AppModel: ObservableObject {
     private var changeTracker: PhotosChangeTracker?
     private var pendingDeltaApplyTask: Task<Void, Never>?
     private var pendingUnknownReconcileTask: Task<Void, Never>?
+    private var pendingLibraryIdentityCheckTask: Task<Void, Never>?
+    private var libraryMonitorTimer: Timer?
     private var suppressChangeSyncUntil: Date = .distantPast
     private var suppressChangeSyncReason: String?
     private var pendingUpsertsByIdentifier: [String: IndexedAsset] = [:]
@@ -427,6 +555,8 @@ final class AppModel: ObservableObject {
         if availability == .unavailable {
             NotificationCenter.default.post(name: .librarianArchiveNeedsRelink, object: nil)
         }
+        startSystemPhotoLibraryMonitoring()
+        scheduleSystemPhotoLibraryRefresh(reason: "startup", debounceMilliseconds: 0)
 
         await requestPhotosAccess()
     }
@@ -597,6 +727,7 @@ final class AppModel: ObservableObject {
         refreshArchiveRootAvailability()
         NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+        scheduleSystemPhotoLibraryRefresh(reason: "archiveRootUpdated", debounceMilliseconds: 0)
         return true
     }
 
@@ -643,15 +774,10 @@ final class AppModel: ObservableObject {
         sourceFolders: [URL],
         preflight: ArchiveImportPreflightResult
     ) async throws -> ArchiveImportRunSummary {
-        guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else {
+        let gate = evaluateArchiveWriteGate(for: .importIntoArchive)
+        guard gate.isAllowed, let archiveRoot = gate.rootURL else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 6, userInfo: [
-                NSLocalizedDescriptionKey: "No archive root is configured."
-            ])
-        }
-        let archiveStatus = ArchiveSettings.archiveRootAvailability(for: archiveRoot)
-        guard archiveStatus == .available else {
-            throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 5, userInfo: [
-                NSLocalizedDescriptionKey: archiveStatus.userVisibleDescription
+                NSLocalizedDescriptionKey: gate.message
             ])
         }
         guard !isImportingArchive else {
@@ -770,10 +896,10 @@ final class AppModel: ObservableObject {
         options: ArchiveExportOptions,
         localIdentifiers: [String]? = nil
     ) async throws -> ArchiveSendOutcome {
-        let archiveStatus = ArchiveSettings.archiveRootAvailability(for: archiveRootURL)
-        guard archiveStatus == .available else {
+        let gate = evaluateArchiveWriteGate(for: .exportArchive, preferredRootURL: archiveRootURL)
+        guard gate.isAllowed else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 9, userInfo: [
-                NSLocalizedDescriptionKey: archiveStatus.userVisibleDescription
+                NSLocalizedDescriptionKey: gate.message
             ])
         }
         guard ArchiveSettings.ensureControlFolder(at: archiveRootURL) else {
@@ -949,6 +1075,155 @@ final class AppModel: ObservableObject {
     deinit {
         pendingDeltaApplyTask?.cancel()
         pendingUnknownReconcileTask?.cancel()
+        pendingLibraryIdentityCheckTask?.cancel()
+    }
+
+    var currentSystemPhotoLibraryURL: URL? {
+        guard let path = currentSystemPhotoLibraryPath, !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    func scheduleSystemPhotoLibraryRefresh(reason: String, debounceMilliseconds: UInt64 = 450) {
+        pendingLibraryIdentityCheckTask?.cancel()
+        pendingLibraryIdentityCheckTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if debounceMilliseconds > 0 {
+                try? await Task.sleep(nanoseconds: debounceMilliseconds * 1_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            self.refreshSystemPhotoLibraryState(reason: reason)
+        }
+    }
+
+    private func startSystemPhotoLibraryMonitoring() {
+        guard libraryMonitorTimer == nil else { return }
+        libraryMonitorTimer = Timer.scheduledTimer(withTimeInterval: 6.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleSystemPhotoLibraryRefresh(reason: "periodicPoll")
+            }
+        }
+    }
+
+    private func refreshSystemPhotoLibraryState(reason: String) {
+        let fingerprint: PhotoLibraryFingerprint?
+        do {
+            fingerprint = try ArchiveSettings.currentPhotoLibraryFingerprint()
+        } catch {
+            AppLog.shared.info("System photo library fingerprint unavailable (\(reason)): \(error.localizedDescription)")
+            fingerprint = nil
+        }
+
+        let previousPath = currentSystemPhotoLibraryPath
+        let previousFingerprint = currentSystemPhotoLibraryFingerprint
+        let nextPath = fingerprint?.pathHint
+        let nextFingerprint = fingerprint?.fingerprint
+
+        currentSystemPhotoLibraryPath = nextPath
+        currentSystemPhotoLibraryFingerprint = nextFingerprint
+        if previousPath != nextPath || previousFingerprint != nextFingerprint {
+            NotificationCenter.default.post(name: .librarianSystemPhotoLibraryChanged, object: nil)
+        }
+
+        guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else {
+            latestArchiveLibraryBindingEvaluation = nil
+            return
+        }
+
+        let evaluation = ArchiveSettings.evaluatePhotoLibraryBinding(for: archiveRoot, persistMatchTimestamp: false)
+        let previousEvaluation = latestArchiveLibraryBindingEvaluation
+        latestArchiveLibraryBindingEvaluation = evaluation
+        if previousEvaluation != evaluation {
+            NotificationCenter.default.post(name: .librarianArchiveLibraryBindingChanged, object: nil)
+        }
+
+        if evaluation.state == .match, let fingerprint = evaluation.currentFingerprint {
+            ArchiveLibraryCouplingRegistry.upsert(
+                libraryFingerprint: fingerprint,
+                archiveRootURL: archiveRoot,
+                archiveID: evaluation.archiveID,
+                libraryPathHint: evaluation.currentLibraryPathHint
+            )
+        }
+    }
+
+    func evaluateArchiveWriteGate(
+        for operation: ArchiveWriteOperation,
+        preferredRootURL: URL? = nil
+    ) -> ArchiveWriteGateDecision {
+        guard let archiveRoot = preferredRootURL ?? ArchiveSettings.restoreArchiveRootURL() else {
+            return ArchiveWriteGateDecision(
+                status: .error,
+                rootURL: nil,
+                evaluation: nil,
+                message: "No archive destination is configured."
+            )
+        }
+
+        let availability = ArchiveSettings.archiveRootAvailability(for: archiveRoot)
+        guard availability == .available else {
+            return ArchiveWriteGateDecision(
+                status: .error,
+                rootURL: archiveRoot,
+                evaluation: nil,
+                message: availability.userVisibleDescription
+            )
+        }
+
+        let evaluation = ArchiveSettings.evaluatePhotoLibraryBinding(for: archiveRoot, persistMatchTimestamp: false)
+        let previousEvaluation = latestArchiveLibraryBindingEvaluation
+        latestArchiveLibraryBindingEvaluation = evaluation
+        if previousEvaluation != evaluation {
+            NotificationCenter.default.post(name: .librarianArchiveLibraryBindingChanged, object: nil)
+        }
+
+        switch evaluation.state {
+        case .match:
+            if let fingerprint = evaluation.currentFingerprint {
+                ArchiveLibraryCouplingRegistry.upsert(
+                    libraryFingerprint: fingerprint,
+                    archiveRootURL: archiveRoot,
+                    archiveID: evaluation.archiveID,
+                    libraryPathHint: evaluation.currentLibraryPathHint
+                )
+            }
+            return ArchiveWriteGateDecision(
+                status: .allowed,
+                rootURL: archiveRoot,
+                evaluation: evaluation,
+                message: ""
+            )
+        case .mismatch:
+            return ArchiveWriteGateDecision(
+                status: .requiresResolution,
+                rootURL: archiveRoot,
+                evaluation: evaluation,
+                message: "This archive is linked to a different photo library. Resolve the archive-library pairing in Settings before you can \(operation.displayName)."
+            )
+        case .unbound:
+            return ArchiveWriteGateDecision(
+                status: .requiresResolution,
+                rootURL: archiveRoot,
+                evaluation: evaluation,
+                message: "This archive is not linked to a photo library yet. Complete pairing in Settings before you can \(operation.displayName)."
+            )
+        case .unknown:
+            return ArchiveWriteGateDecision(
+                status: .requiresResolution,
+                rootURL: archiveRoot,
+                evaluation: evaluation,
+                message: "Librarian couldn’t verify the active photo library. Resolve this in Settings before you can \(operation.displayName)."
+            )
+        }
+    }
+
+    func knownCouplingForCurrentSystemLibrary() -> ArchiveLibraryCouplingEntry? {
+        guard let currentFingerprint = currentSystemPhotoLibraryFingerprint else { return nil }
+        return ArchiveLibraryCouplingRegistry.coupling(for: currentFingerprint)
+    }
+
+    func knownCoupledArchiveRootURLForCurrentSystemLibrary() -> URL? {
+        guard let currentFingerprint = currentSystemPhotoLibraryFingerprint else { return nil }
+        return ArchiveLibraryCouplingRegistry.resolveArchiveRootURL(for: currentFingerprint)
     }
 
     private func registerChangeTracking() {
