@@ -19,26 +19,50 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
     }
     guard response == .alertFirstButtonReturn else { return }
 
-    let panel = NSOpenPanel()
-    panel.title = "Locate Archive"
-    panel.message = "Select your archive folder, or the folder that contains it."
-    panel.prompt = "Choose Folder"
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
-    panel.canCreateDirectories = false
-    panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+    let expectedArchiveID = UserDefaults.standard.string(forKey: ArchiveSettings.archiveIDKey)
+    let resolvedRoot: URL
+    while true {
+        let panel = NSOpenPanel()
+        panel.title = "Locate Archive"
+        panel.message = "Select your archive folder, or the folder that contains it."
+        panel.prompt = "Choose Folder"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
 
-    guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
+        guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
+        let resolution = ArchiveSettings.resolveArchiveRoot(
+            fromUserSelection: selectedURL,
+            expectedArchiveID: expectedArchiveID
+        )
 
-    guard let resolvedRoot = ArchiveSettings.resolveArchiveRoot(fromUserSelection: selectedURL) else {
-        let errorAlert = NSAlert()
-        errorAlert.alertStyle = .warning
-        errorAlert.messageText = "Archive Not Recognized"
-        errorAlert.informativeText = "The selected folder does not appear to contain a Librarian archive. Select the archive folder itself, or its parent folder."
-        errorAlert.addButton(withTitle: "OK")
-        _ = await errorAlert.runSheetOrModal(for: presentingWindow)
-        return
+        switch resolution {
+        case .resolved(let rootURL, _):
+            resolvedRoot = rootURL
+            break
+        case .archiveIDMismatch(_, let expectedID, let selectedID):
+            if ArchiveRootPrompts.confirmArchiveSwitch(fromArchiveID: expectedID, toArchiveID: selectedID),
+               case .resolved(let rootURL, _) = ArchiveSettings.resolveArchiveRoot(
+                   fromUserSelection: selectedURL,
+                   expectedArchiveID: nil
+               ) {
+                resolvedRoot = rootURL
+                break
+            } else {
+                continue
+            }
+        case .unresolved:
+            let errorAlert = NSAlert()
+            errorAlert.alertStyle = .warning
+            errorAlert.messageText = "Archive Not Recognized"
+            errorAlert.informativeText = "The selected folder does not appear to contain a Librarian archive. Select the archive folder itself, or its parent folder."
+            errorAlert.addButton(withTitle: "OK")
+            _ = await errorAlert.runSheetOrModal(for: presentingWindow)
+            continue
+        }
+        break
     }
 
     guard model.updateArchiveRoot(resolvedRoot) else {

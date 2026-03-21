@@ -100,7 +100,7 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
   - [Done] archive move destination safety regression coverage (inside-source blocked, parent-destination allowed, recursive-copy guard)
 - External archive robustness baseline:
   - [Done] archive control folder (`.librarian`) with schema/version metadata and stable archive ID
-  - [Partial] archive relink flow for moved archives (internal ↔ external), with archive ID validation
+  - [Done] archive relink flow for moved archives (internal ↔ external), with archive ID validation
   - [Done] startup/offline handling when archive volume is unavailable
   - [Done] write-access and free-space preflight before archive export/import
   - [Done] crash/disconnect-safe control-file writes (atomic writes for archive metadata and run artifacts)
@@ -110,7 +110,6 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 
 - Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
 - Implement WhatsApp Box classification + indexing + view wiring.
-- Complete external archive robustness follow-through (full relink coverage across export/import paths).
 - Tune Vision classifiers for Duplicates and Documents boxes (precision/recall and false-positive reduction).
 
 ### Out

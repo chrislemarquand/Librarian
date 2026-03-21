@@ -537,3 +537,92 @@ import Foundation
     let estimate = ArchiveOperationPreflightService.estimateExportWriteBytes(fileSizeStats: stats)
     #expect(estimate == 3_000_000 + (2 * 8 * 1024 * 1024))
 }
+
+@Test func resolveArchiveRootWithExpectedArchiveIDFlagsMismatch() throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-resolve-expected-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: root) }
+
+    let archiveA = root.appendingPathComponent("ArchiveA", isDirectory: true)
+    let archiveB = root.appendingPathComponent("ArchiveB", isDirectory: true)
+    #expect(ArchiveSettings.ensureControlFolder(at: archiveA))
+    #expect(ArchiveSettings.ensureControlFolder(at: archiveB))
+
+    guard let expectedArchiveID = ArchiveSettings.archiveID(for: archiveA) else {
+        Issue.record("Expected archive ID for archiveA")
+        return
+    }
+
+    let resolution = ArchiveSettings.resolveArchiveRoot(
+        fromUserSelection: ArchiveSettings.archiveTreeRootURL(from: archiveB),
+        expectedArchiveID: expectedArchiveID
+    )
+
+    switch resolution {
+    case .archiveIDMismatch(let rootURL, let expected, let selected):
+        #expect(rootURL.standardizedFileURL == archiveB.standardizedFileURL)
+        #expect(expected == expectedArchiveID)
+        #expect(selected == ArchiveSettings.archiveID(for: archiveB))
+    default:
+        Issue.record("Expected archiveIDMismatch resolution")
+    }
+}
+
+@Test func resolveArchiveRootWithExpectedArchiveIDAcceptsMatch() throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-resolve-expected-match-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: root) }
+
+    #expect(ArchiveSettings.ensureControlFolder(at: root))
+    guard let expectedArchiveID = ArchiveSettings.archiveID(for: root) else {
+        Issue.record("Expected archive ID for root")
+        return
+    }
+
+    let resolution = ArchiveSettings.resolveArchiveRoot(
+        fromUserSelection: ArchiveSettings.archiveTreeRootURL(from: root),
+        expectedArchiveID: expectedArchiveID
+    )
+
+    switch resolution {
+    case .resolved(let rootURL, let archiveID):
+        #expect(rootURL.standardizedFileURL == root.standardizedFileURL)
+        #expect(archiveID == expectedArchiveID)
+    default:
+        Issue.record("Expected resolved result")
+    }
+}
+
+@Test @MainActor func updateArchiveRootRefreshesModelStateForRelink() throws {
+    let fm = FileManager.default
+    let parent = fm.temporaryDirectory.appendingPathComponent("librarian-relink-sync-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: parent) }
+
+    let defaults = UserDefaults.standard
+    let bookmarkBackup = defaults.object(forKey: ArchiveSettings.bookmarkKey)
+    let archiveIDBackup = defaults.object(forKey: ArchiveSettings.archiveIDKey)
+    defer {
+        if let bookmarkBackup {
+            defaults.set(bookmarkBackup, forKey: ArchiveSettings.bookmarkKey)
+        } else {
+            defaults.removeObject(forKey: ArchiveSettings.bookmarkKey)
+        }
+        if let archiveIDBackup {
+            defaults.set(archiveIDBackup, forKey: ArchiveSettings.archiveIDKey)
+        } else {
+            defaults.removeObject(forKey: ArchiveSettings.archiveIDKey)
+        }
+    }
+
+    let rootA = parent.appendingPathComponent("RootA", isDirectory: true)
+    let rootB = parent.appendingPathComponent("RootB", isDirectory: true)
+    #expect(ArchiveSettings.ensureControlFolder(at: rootA))
+    #expect(ArchiveSettings.ensureControlFolder(at: rootB))
+    #expect(ArchiveSettings.persistArchiveRootURL(rootA))
+
+    let model = AppModel()
+
+    #expect(model.updateArchiveRoot(rootB))
+    #expect(model.archiveRootURL?.standardizedFileURL == rootB.standardizedFileURL)
+    #expect(model.archiveRootAvailability == .available)
+}

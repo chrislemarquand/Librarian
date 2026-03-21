@@ -146,6 +146,12 @@ enum ArchiveSettings {
         }
     }
 
+    enum ArchiveRootSelectionResolution: Equatable {
+        case unresolved
+        case resolved(rootURL: URL, archiveID: String)
+        case archiveIDMismatch(rootURL: URL, expectedArchiveID: String, selectedArchiveID: String)
+    }
+
     static func restoreArchiveRootURL() -> URL? {
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else {
             return nil
@@ -296,6 +302,26 @@ enum ArchiveSettings {
         }
 
         return nil
+    }
+
+    static func resolveArchiveRoot(
+        fromUserSelection selectedURL: URL,
+        expectedArchiveID: String?
+    ) -> ArchiveRootSelectionResolution {
+        guard let resolvedRoot = resolveArchiveRoot(fromUserSelection: selectedURL),
+              let selectedArchiveID = archiveID(for: resolvedRoot) else {
+            return .unresolved
+        }
+
+        if let expectedArchiveID, expectedArchiveID != selectedArchiveID {
+            return .archiveIDMismatch(
+                rootURL: resolvedRoot,
+                expectedArchiveID: expectedArchiveID,
+                selectedArchiveID: selectedArchiveID
+            )
+        }
+
+        return .resolved(rootURL: resolvedRoot, archiveID: selectedArchiveID)
     }
 
     static func controlConfig(for rootURL: URL) -> ArchiveControlConfig? {

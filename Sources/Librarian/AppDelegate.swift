@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindowController: MainWindowController?
     private var settingsWindowController: SettingsWindowController?
     private var isShowingTerminateConfirmation = false
+    private var isPresentingArchiveRelinkFlow = false
     private var allowImmediateTermination = false
     var appModel: AppModel? { mainWindowController?.appModel }
 
@@ -64,9 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard !self.isPresentingArchiveRelinkFlow else { return }
+                guard model.refreshArchiveRootAvailability() == .unavailable else { return }
+                self.isPresentingArchiveRelinkFlow = true
+                defer { self.isPresentingArchiveRelinkFlow = false }
                 await runArchiveRelinkFlow(
                     model: model,
                     presentingWindow: self.mainWindowController?.window
