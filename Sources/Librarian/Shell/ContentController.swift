@@ -928,7 +928,7 @@ final class ContentController: NSViewController {
         ])
 
         guard shouldShow else { return }
-        archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) file(s) need review for organize/dedupe."
+        archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) files need review for organize/dedupe."
         archivedNoticeActionButton.isEnabled = !isOrganizingArchivedFiles
         archivedNoticeActionButton.title = isOrganizingArchivedFiles ? "Working…" : "Review Import…"
         archivedNoticeDismissButton.isEnabled = !isOrganizingArchivedFiles
@@ -1136,7 +1136,7 @@ final class ContentController: NSViewController {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Quick Look Unavailable"
-        alert.informativeText = "Selected items are not available locally. Download iCloud-only photos first."
+        alert.informativeText = "Selected photos aren’t available locally. Download iCloud-only photos first."
         alert.addButton(withTitle: "OK")
         alert.runSheetOrModal(for: view.window) { _ in }
     }
@@ -1147,7 +1147,7 @@ final class ContentController: NSViewController {
         guard !identifiers.isEmpty else { return }
         do {
             try model.database.assetRepository.keepAssetsInQueue(identifiers, queueKind: kind.debugName)
-            AppLog.shared.info("Kept \(identifiers.count) item(s) in queue '\(kind.debugName)'")
+            AppLog.shared.info("Kept \(identifiers.count) items in queue '\(kind.debugName)'")
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
@@ -1176,7 +1176,7 @@ final class ContentController: NSViewController {
             }
             AppLog.shared.info("Marked \(selectedAssets.count) screenshot(s) as \(decision.rawValue)")
             let action = decision == .archiveCandidate ? "Set Aside" : "Keep"
-            model.setStatusMessage("\(action): \(selectedAssets.count) screenshot(s).", autoClearAfterSuccess: true)
+            model.setStatusMessage("\(action): \(selectedAssets.count) screenshots.", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
@@ -1204,8 +1204,8 @@ final class ContentController: NSViewController {
         guard !identifiers.isEmpty else { return }
         do {
             try model.queueAssetsForArchive(localIdentifiers: identifiers)
-            AppLog.shared.info("Set aside \(identifiers.count) selected photo(s) for archive")
-            model.setStatusMessage("Set Aside: \(identifiers.count) photo(s).", autoClearAfterSuccess: true)
+            AppLog.shared.info("Set aside \(identifiers.count) selected photos for archive")
+            model.setStatusMessage("Set aside \(identifiers.count) photos.", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
@@ -1228,11 +1228,11 @@ final class ContentController: NSViewController {
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
-            AppLog.shared.info("Put back \(identifiers.count) item(s) from archive set-aside queue")
-            model.setStatusMessage("Put Back: \(identifiers.count) item(s).", autoClearAfterSuccess: true)
+            AppLog.shared.info("Put back \(identifiers.count) items from archive set-aside queue")
+            model.setStatusMessage("Put back \(identifiers.count) photos.", autoClearAfterSuccess: true)
         } catch {
             AppLog.shared.error("Failed to put back selected archive items: \(error.localizedDescription)")
-            model.setStatusMessage("Couldn’t put back selected items. \(error.localizedDescription)")
+            model.setStatusMessage("Couldn’t put back selected photos. \(error.localizedDescription)")
         }
     }
 
@@ -1344,8 +1344,8 @@ final class ContentController: NSViewController {
         guard !identifiers.isEmpty else { return }
         do {
             try model.queueAssetsForArchive(localIdentifiers: identifiers)
-            AppLog.shared.info("Set aside \(identifiers.count) selected photo(s) for archive")
-            model.setStatusMessage("Set Aside: \(identifiers.count) photo(s).", autoClearAfterSuccess: true)
+            AppLog.shared.info("Set aside \(identifiers.count) selected photos for archive")
+            model.setStatusMessage("Set aside \(identifiers.count) photos.", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
@@ -1365,11 +1365,11 @@ final class ContentController: NSViewController {
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
-            AppLog.shared.info("Put back \(identifiers.count) item(s) from archive set-aside queue")
-            model.setStatusMessage("Put Back: \(identifiers.count) item(s).", autoClearAfterSuccess: true)
+            AppLog.shared.info("Put back \(identifiers.count) items from archive set-aside queue")
+            model.setStatusMessage("Put back \(identifiers.count) photos.", autoClearAfterSuccess: true)
         } catch {
             AppLog.shared.error("Failed to put back selected archive items: \(error.localizedDescription)")
-            model.setStatusMessage("Couldn’t put back selected items. \(error.localizedDescription)")
+            model.setStatusMessage("Couldn’t put back selected photos. \(error.localizedDescription)")
         }
     }
 

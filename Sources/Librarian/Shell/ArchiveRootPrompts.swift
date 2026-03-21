@@ -10,10 +10,10 @@ enum ArchiveRootPrompts {
             """
             The selected folder appears to be a different Librarian archive.
 
-            Current archive ID: \(fromArchiveID)
-            Selected archive ID: \(toArchiveID)
+            If this is the moved location of your current archive, choose Cancel and select that folder instead.
 
-            If this folder is the moved location of your current archive, choose Cancel and select that folder instead.
+            Current archive reference: \(fromArchiveID)
+            Selected archive reference: \(toArchiveID)
             """
         alert.addButton(withTitle: "Switch Archive")
         alert.addButton(withTitle: "Cancel")
@@ -23,15 +23,15 @@ enum ArchiveRootPrompts {
     static func confirmInitializeArchive(at url: URL) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Initialize New Archive Here?"
+        alert.messageText = "Create New Archive Here?"
         alert.informativeText =
             """
-            Librarian will create a hidden .librarian control folder in:
+            Librarian will create its hidden support files in:
             \(url.path)
 
-            This marks the location as a Librarian archive root.
+            This marks the location as a Librarian archive.
             """
-        alert.addButton(withTitle: "Initialize and Use")
+        alert.addButton(withTitle: "Create and Use")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }

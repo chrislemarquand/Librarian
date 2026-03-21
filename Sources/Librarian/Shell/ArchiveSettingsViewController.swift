@@ -323,11 +323,11 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             return
         }
 
-        organizeLabel.stringValue = "\(count.formatted()) unorganized file(s) detected."
+        organizeLabel.stringValue = "\(count.formatted()) unorganized files detected."
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Organize New Archive Location?"
-        alert.informativeText = "Librarian found \(count.formatted()) file(s) outside the YYYY/MM/DD folder pattern. Organize them now?"
+        alert.informativeText = "Librarian found \(count.formatted()) files outside the YYYY/MM/DD folder pattern. Organize them now?"
         alert.addButton(withTitle: "Organize Now")
         alert.addButton(withTitle: "Not Now")
 
@@ -374,7 +374,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         }
         isOrganizingArchive = false
         refreshOrganizeButtonState()
-        organizeLabel.stringValue = "Moved \(summary.movedCount.formatted()) file(s). \(summary.alreadyOrganizedCount.formatted()) already organized."
+        organizeLabel.stringValue = "Moved \(summary.movedCount.formatted()) files. \(summary.alreadyOrganizedCount.formatted()) already organized."
         AppLog.shared.info("Archive organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
     }
@@ -409,7 +409,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshMoveButtonState()
             refreshOrganizeButtonState()
             refreshAddPhotosButtonState()
-            showArchiveMoveError("Move preflight failed: \(error.localizedDescription)")
+            showArchiveMoveError("Librarian couldn’t prepare the move. \(error.localizedDescription)")
             return
         }
 
@@ -440,7 +440,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshMoveButtonState()
             refreshOrganizeButtonState()
             refreshAddPhotosButtonState()
-            showArchiveMoveError("Archive move failed: \(error.localizedDescription)")
+            showArchiveMoveError("Librarian couldn’t move the archive. \(error.localizedDescription)")
             return
         }
 
@@ -546,7 +546,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
         guard ArchiveSettings.archiveID(for: sourceRoot) != nil else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "Current archive is missing its control metadata."
+                NSLocalizedDescriptionKey: "Current archive is missing required Librarian metadata."
             ])
         }
 

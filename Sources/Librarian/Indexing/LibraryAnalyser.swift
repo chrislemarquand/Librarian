@@ -382,7 +382,7 @@ nonisolated private func runOsxPhotosQuery() throws -> Data {
 
     guard osxProcess.terminationStatus == 0 else {
         throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 3, userInfo: [
-            NSLocalizedDescriptionKey: "osxphotos query exited with code \(osxProcess.terminationStatus)."
+            NSLocalizedDescriptionKey: "The library scan process ended unexpectedly (code \(osxProcess.terminationStatus))."
         ])
     }
 
@@ -447,7 +447,7 @@ nonisolated private func resolveBundledOsxPhotosExecutableForAnalysis() throws -
         if fm.isExecutableFile(atPath: url.path) { return url }
     }
     throw NSError(domain: "\(AppBrand.identifierPrefix).analysis", code: 5, userInfo: [
-        NSLocalizedDescriptionKey: "Bundled osxphotos executable not found in app resources."
+        NSLocalizedDescriptionKey: "Required library scan components are missing from the app."
     ])
 }
 

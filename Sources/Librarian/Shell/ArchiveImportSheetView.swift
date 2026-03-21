@@ -133,7 +133,7 @@ final class ArchiveImportSession: ObservableObject {
         let panel = NSOpenPanel()
         panel.title = "Choose Source Folders"
         panel.message = "Choose one or more folders to import into the archive."
-        panel.prompt = "Choose Sources"
+        panel.prompt = "Choose Folders"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
@@ -186,19 +186,19 @@ final class ArchiveImportSession: ObservableObject {
             self.preflight = preflight
 
             guard preflight.toImport > 0 else {
-                model.setStatusMessage("Archive import: no files to import after duplicate checks.", autoClearAfterSuccess: true)
+                model.setStatusMessage("No photos to import after duplicate checks.", autoClearAfterSuccess: true)
                 return
             }
             let summary = try await model.runArchiveImport(sourceFolders: sourceFolders, preflight: preflight)
             self.summary = summary
             if summary.failed > 0 {
-                model.setStatusMessage("Archive import completed with \(summary.failed.formatted()) failure(s).")
+                model.setStatusMessage("Import completed with \(summary.failed.formatted()) failures.")
             } else {
-                model.setStatusMessage("Archive import complete: \(summary.imported.formatted()) file(s).", autoClearAfterSuccess: true)
+                model.setStatusMessage("Import complete: \(summary.imported.formatted()) photos.", autoClearAfterSuccess: true)
             }
         } catch {
             runError = error.localizedDescription
-            model.setStatusMessage("Archive import failed. \(error.localizedDescription)")
+            model.setStatusMessage("Import failed. \(error.localizedDescription)")
         }
     }
 
@@ -223,7 +223,7 @@ final class ArchiveImportSession: ObservableObject {
             }.value
         } catch {
             runError = error.localizedDescription
-            model.setStatusMessage("Archive import review failed. \(error.localizedDescription)")
+            model.setStatusMessage("Review failed. \(error.localizedDescription)")
             return
         }
 
@@ -236,7 +236,7 @@ final class ArchiveImportSession: ObservableObject {
         )
 
         guard !plan.allCandidates.isEmpty else {
-            model.setStatusMessage("Archive import: no unorganized files found.", autoClearAfterSuccess: true)
+            model.setStatusMessage("No unorganized photos found.", autoClearAfterSuccess: true)
             return
         }
 
@@ -250,15 +250,15 @@ final class ArchiveImportSession: ObservableObject {
             }.value
         } catch {
             runError = error.localizedDescription
-            model.setStatusMessage("Archive import review failed. \(error.localizedDescription)")
+            model.setStatusMessage("Review failed. \(error.localizedDescription)")
             return
         }
         summary = execution
         if execution.failed > 0 {
-            model.setStatusMessage("Archive import review completed with \(execution.failed.formatted()) failure(s).")
+            model.setStatusMessage("Review completed with \(execution.failed.formatted()) failures.")
         } else {
             model.setStatusMessage(
-                "Archive import review complete: \(execution.imported.formatted()) organized, \(execution.skippedExistsInPhotoKit.formatted()) already in Photo Library.",
+                "Review complete: \(execution.imported.formatted()) organized, \(execution.skippedExistsInPhotoKit.formatted()) already in Photo Library.",
                 autoClearAfterSuccess: true
             )
         }
@@ -541,7 +541,7 @@ struct ArchiveImportSheetView: View {
             if summary.failed > 0 {
                 return ["Imported \(summary.imported). Failed \(summary.failed). Review Details…"]
             }
-            return ["Imported \(summary.imported) file(s)."]
+            return ["Imported \(summary.imported) photos."]
         }
         return nil
     }

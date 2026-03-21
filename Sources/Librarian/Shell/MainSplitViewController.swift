@@ -358,12 +358,12 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             do {
                 let removed = try model.unqueueFailedArchiveAssets()
                 if removed > 0 {
-                    model.setStatusMessage("Put Back Failed: \(removed) item(s).", autoClearAfterSuccess: true)
+                    model.setStatusMessage("Removed failed photos from Set Aside: \(removed).", autoClearAfterSuccess: true)
                 }
                 contentController.refreshDisplayedAssets()
             } catch {
                 AppLog.shared.error("Failed to put back failed archive items: \(error.localizedDescription)")
-                model.setStatusMessage("Couldn’t put back failed items. \(error.localizedDescription)")
+                model.setStatusMessage("Couldn’t remove failed photos from Set Aside. \(error.localizedDescription)")
                 showArchiveAlert(title: "Put Back Failed Items", message: error.localizedDescription)
             }
         }
@@ -460,7 +460,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     private func promptForArchiveRoot() -> URL? {
         let panel = NSOpenPanel()
-        panel.prompt = "Set Archive Folder"
+        panel.prompt = "Choose Folder"
         panel.message = "Choose where Librarian should export archived photos."
         panel.canChooseDirectories = true
         panel.canChooseFiles = false

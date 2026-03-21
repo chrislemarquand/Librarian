@@ -63,7 +63,7 @@ final class ArchiveExportSession: ObservableObject {
 
     func chooseDestination() {
         let panel = NSOpenPanel()
-        panel.prompt = "Set Archive Folder"
+        panel.prompt = "Choose Folder"
         panel.message = "Choose where Librarian should export archived photos."
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -206,12 +206,12 @@ struct ArchiveExportSheetView: View {
         guard let outcome = session.outcome else { return nil }
         if outcome.failedCount > 0 || outcome.notDeletedCount > 0 {
             return [
-                "\(outcome.exportedCount) exported, \(outcome.failedCount) failed.",
-                "Failed items remain in Set Aside. Review Details…"
+                "\(outcome.exportedCount) photos exported, \(outcome.failedCount) failed.",
+                "Failed photos remain in Set Aside. Review details."
             ]
         }
         return [
-            "\(outcome.exportedCount) exported and \(outcome.deletedCount) removed from Photos."
+            "\(outcome.exportedCount) photos exported and \(outcome.deletedCount) removed from Photos."
         ]
     }
 

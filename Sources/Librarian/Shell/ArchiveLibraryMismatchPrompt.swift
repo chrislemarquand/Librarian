@@ -41,9 +41,9 @@ enum ArchiveLibraryMismatchPrompt {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = libraryName.map { "Switched to \($0)" } ?? "System Photo Library Changed"
-        alert.informativeText = "Librarian found the archive linked to this library: \"\(archiveName)\".\n\nWould you like to switch to it now?"
+        alert.informativeText = "Librarian found the archive linked to this library: \"\(archiveName)\".\n\nSwitch to it now?"
         alert.addButton(withTitle: "Switch to Linked Archive")
-        alert.addButton(withTitle: "Stay on Current Archive")
+        alert.addButton(withTitle: "Keep Current Archive")
         let response = await alert.runSheetOrModal(for: parentWindow)
         guard response == .alertFirstButtonReturn else { return false }
 
@@ -61,11 +61,11 @@ enum ArchiveLibraryMismatchPrompt {
 
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "No Archive Linked to This Photo Library"
+        alert.messageText = "No Archive Linked to This Library"
         if let libraryName = displayLibraryName(fromURL: model.currentSystemPhotoLibraryURL) {
-            alert.informativeText = "You switched to \"\(libraryName)\", but no linked archive was found.\n\nChoose how you want to continue."
+            alert.informativeText = "You switched to \"\(libraryName)\", but no linked archive was found.\n\nChoose how to continue."
         } else {
-            alert.informativeText = "No linked archive was found for the active system photo library.\n\nChoose how you want to continue."
+            alert.informativeText = "No linked archive was found for the active system photo library.\n\nChoose how to continue."
         }
         alert.addButton(withTitle: "Create New Archive")
         alert.addButton(withTitle: "Choose Existing Archive")
@@ -85,7 +85,7 @@ enum ArchiveLibraryMismatchPrompt {
                 return false
             }
             guard model.updateArchiveRoot(selected) else { return false }
-            return rebindCurrentArchiveToCurrentLibrary(model: model)
+            return linkCurrentArchiveToCurrentLibrary(model: model)
 
         case .alertSecondButtonReturn:
             guard let selected = promptForArchiveRoot(
@@ -95,7 +95,7 @@ enum ArchiveLibraryMismatchPrompt {
                 mode: .existingOnly
             ) else { return false }
             guard model.updateArchiveRoot(selected) else { return false }
-            return rebindCurrentArchiveToCurrentLibrary(model: model)
+            return linkCurrentArchiveToCurrentLibrary(model: model)
 
         default:
             return false
@@ -123,14 +123,14 @@ enum ArchiveLibraryMismatchPrompt {
                 currentLibraryName: currentName,
                 operation: operation
             )
-            alert.addButton(withTitle: "Rebind Archive to Current Library")
+            alert.addButton(withTitle: "Link Archive to Current Library")
             alert.addButton(withTitle: "Choose Different Archive")
             alert.addButton(withTitle: "Cancel")
 
             let response = await alert.runSheetOrModal(for: parentWindow)
             switch response {
             case .alertFirstButtonReturn:
-                return rebindCurrentArchiveToCurrentLibrary(model: model)
+                return linkCurrentArchiveToCurrentLibrary(model: model)
             case .alertSecondButtonReturn:
                 guard let selected = promptForArchiveRoot(
                     title: "Choose Archive",
@@ -139,7 +139,7 @@ enum ArchiveLibraryMismatchPrompt {
                     mode: .existingOnly
                 ) else { return false }
                 guard model.updateArchiveRoot(selected) else { return false }
-                return rebindCurrentArchiveToCurrentLibrary(model: model)
+                return linkCurrentArchiveToCurrentLibrary(model: model)
             default:
                 return false
             }
@@ -149,7 +149,7 @@ enum ArchiveLibraryMismatchPrompt {
             if let currentName {
                 alert.informativeText = "\(archiveName) is not yet linked to a photo library.\n\nCurrent system photo library:\n\(currentName)"
             } else {
-                alert.informativeText = "\(archiveName) is not yet linked to a photo library.\n\nLibrarian could not resolve the current library name."
+                alert.informativeText = "\(archiveName) is not yet linked to a photo library.\n\nLibrarian can’t identify the current system photo library name."
             }
             alert.addButton(withTitle: "Link Now")
             alert.addButton(withTitle: "Choose Different Archive")
@@ -157,7 +157,7 @@ enum ArchiveLibraryMismatchPrompt {
             let response = await alert.runSheetOrModal(for: parentWindow)
             switch response {
             case .alertFirstButtonReturn:
-                return rebindCurrentArchiveToCurrentLibrary(model: model)
+                return linkCurrentArchiveToCurrentLibrary(model: model)
             case .alertSecondButtonReturn:
                 guard let selected = promptForArchiveRoot(
                     title: "Choose Archive",
@@ -166,7 +166,7 @@ enum ArchiveLibraryMismatchPrompt {
                     mode: .existingOnly
                 ) else { return false }
                 guard model.updateArchiveRoot(selected) else { return false }
-                return rebindCurrentArchiveToCurrentLibrary(model: model)
+                return linkCurrentArchiveToCurrentLibrary(model: model)
             default:
                 return false
             }
@@ -182,15 +182,15 @@ enum ArchiveLibraryMismatchPrompt {
         }
     }
 
-    private static func rebindCurrentArchiveToCurrentLibrary(model: AppModel) -> Bool {
+    private static func linkCurrentArchiveToCurrentLibrary(model: AppModel) -> Bool {
         guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else { return false }
         guard let library = try? ArchiveSettings.currentPhotoLibraryFingerprint() else { return false }
 
         let confirm = NSAlert()
         confirm.alertStyle = .warning
-        confirm.messageText = "Rebind Archive?"
-        confirm.informativeText = "Rebinding changes duplicate detection for future imports. Existing archived files will not be moved or deleted automatically."
-        confirm.addButton(withTitle: "Rebind")
+        confirm.messageText = "Link Archive to Current Library?"
+        confirm.informativeText = "Changing this link affects duplicate detection for future imports. Photos already in the archive will not be moved or deleted."
+        confirm.addButton(withTitle: "Link Archive")
         confirm.addButton(withTitle: "Cancel")
         guard confirm.runModal() == .alertFirstButtonReturn else { return false }
 
@@ -208,7 +208,7 @@ enum ArchiveLibraryMismatchPrompt {
             }
         }
         if updated {
-            model.scheduleSystemPhotoLibraryRefresh(reason: "rebindArchive", debounceMilliseconds: 0)
+            model.scheduleSystemPhotoLibraryRefresh(reason: "linkArchive", debounceMilliseconds: 0)
         }
         return updated
     }
@@ -242,7 +242,7 @@ enum ArchiveLibraryMismatchPrompt {
         case .existingOnly:
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Archive Not Recognised"
+            alert.messageText = "Archive Not Recognized"
             alert.informativeText = "The selected folder does not contain a Librarian archive."
             alert.addButton(withTitle: "OK")
             _ = alert.runModal()
@@ -281,10 +281,10 @@ enum ArchiveLibraryMismatchPrompt {
         if let currentLibraryName {
             currentLine = "Current system photo library:\n\(currentLibraryName)"
         } else {
-            currentLine = "Librarian could not resolve the current system library name."
+            currentLine = "Librarian can’t identify the current system photo library name."
         }
 
-        return "\(bindingLine)\n\n\(currentLine)\n\n\(operation.displayName.capitalized) is paused to prevent incorrect duplicate handling."
+        return "\(bindingLine)\n\n\(currentLine)\n\n\(operation.displayName.capitalized) is paused to avoid incorrect duplicate handling."
     }
 
     private static func normalizeRootForNewArchiveSelection(_ selected: URL) -> URL {

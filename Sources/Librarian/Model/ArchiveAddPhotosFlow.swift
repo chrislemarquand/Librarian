@@ -23,7 +23,7 @@ func runAddPhotosToArchiveFlow(model: AppModel, presentingWindow: NSWindow?) asy
     let panel = NSOpenPanel()
     panel.title = "Choose Source Folders"
     panel.message = "Choose one or more folders whose photos will be copied into the archive. These folders will not be modified."
-    panel.prompt = "Choose Sources"
+    panel.prompt = "Choose Folders"
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
     panel.allowsMultipleSelection = true
@@ -85,17 +85,17 @@ private func showAddPhotosPreflightConfirmation(
     alert.alertStyle = .informational
     alert.messageText = "Add Photos to Archive?"
 
-    var lines: [String] = ["\(preflight.totalDiscovered.formatted()) file(s) discovered."]
+    var lines: [String] = ["\(preflight.totalDiscovered.formatted()) photos discovered."]
     if preflight.duplicatesInSource > 0 {
-        lines.append("• \(preflight.duplicatesInSource.formatted()) duplicate(s) within source folders will be skipped.")
+        lines.append("• \(preflight.duplicatesInSource.formatted()) duplicate photos within source folders will be skipped.")
     }
     if preflight.existsInPhotoKit > 0 {
-        lines.append("• \(preflight.existsInPhotoKit.formatted()) file(s) already in your Photos library will be skipped.")
+        lines.append("• \(preflight.existsInPhotoKit.formatted()) photos already in your Photos library will be skipped.")
     }
     lines.append("")
     lines.append(preflight.toImport > 0
-        ? "\(preflight.toImport.formatted()) file(s) will be copied into the archive."
-        : "Nothing to import — all files are duplicates or already in Photos.")
+        ? "\(preflight.toImport.formatted()) photos will be copied into the archive."
+        : "Nothing to import — all photos are duplicates or already in Photos.")
     alert.informativeText = lines.joined(separator: "\n")
     alert.addButton(withTitle: preflight.toImport > 0 ? "Add Photos" : "OK")
     if preflight.toImport > 0 { alert.addButton(withTitle: "Cancel") }
@@ -110,15 +110,15 @@ private func showAddPhotosCompletion(summary: ArchiveImportRunSummary, window: N
     alert.alertStyle = .informational
     alert.messageText = "Photos Added"
 
-    var lines: [String] = ["\(summary.imported.formatted()) file(s) copied into the archive."]
+    var lines: [String] = ["\(summary.imported.formatted()) photos copied into the archive."]
     if summary.skippedDuplicateInSource > 0 {
-        lines.append("• \(summary.skippedDuplicateInSource.formatted()) duplicate(s) in source folders skipped.")
+        lines.append("• \(summary.skippedDuplicateInSource.formatted()) duplicates in source folders skipped.")
     }
     if summary.skippedExistsInPhotoKit > 0 {
-        lines.append("• \(summary.skippedExistsInPhotoKit.formatted()) file(s) already in Photos skipped.")
+        lines.append("• \(summary.skippedExistsInPhotoKit.formatted()) photos already in Photos skipped.")
     }
     if summary.failed > 0 {
-        lines.append("• \(summary.failed.formatted()) file(s) failed — check the log for details.")
+        lines.append("• \(summary.failed.formatted()) photos failed — check the log for details.")
     }
     alert.informativeText = lines.joined(separator: "\n")
     alert.addButton(withTitle: "Done")

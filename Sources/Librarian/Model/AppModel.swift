@@ -613,7 +613,7 @@ final class AppModel: ObservableObject {
                 errorMessage: Self.staleArchiveExportMessage
             )
             if recovered > 0 {
-                AppLog.shared.info("Recovered \(recovered) stale archive export item(s) at launch")
+                AppLog.shared.info("Recovered \(recovered) stale archive export items at launch")
             }
         } catch {
             AppLog.shared.error("Failed to recover stale archive exports: \(error.localizedDescription)")
@@ -766,7 +766,7 @@ final class AppModel: ObservableObject {
         let identifiers = Array(Set(localIdentifiers))
         guard !identifiers.isEmpty else { return }
         try database.assetRepository.queueForArchive(identifiers: identifiers)
-        AppLog.shared.info("Queued \(identifiers.count) item(s) for archive")
+        AppLog.shared.info("Queued \(identifiers.count) items for archive")
         refreshArchiveCandidateCount()
     }
 
@@ -774,7 +774,7 @@ final class AppModel: ObservableObject {
         let identifiers = Array(Set(localIdentifiers))
         guard !identifiers.isEmpty else { return }
         try database.assetRepository.removeFromArchiveQueue(identifiers: identifiers)
-        AppLog.shared.info("Removed \(identifiers.count) item(s) from archive set-aside queue")
+        AppLog.shared.info("Removed \(identifiers.count) items from archive set-aside queue")
         refreshArchiveCandidateCount()
     }
 
@@ -782,7 +782,7 @@ final class AppModel: ObservableObject {
         let failed = try database.assetRepository.fetchArchiveCandidateIdentifiers(statuses: [.failed])
         guard !failed.isEmpty else { return 0 }
         try database.assetRepository.removeFromArchiveQueue(identifiers: failed)
-        AppLog.shared.info("Removed \(failed.count) failed item(s) from archive set-aside queue")
+        AppLog.shared.info("Removed \(failed.count) failed items from archive set-aside queue")
         refreshArchiveCandidateCount()
         assetDataVersion &+= 1
         return failed.count
@@ -944,17 +944,17 @@ final class AppModel: ObservableObject {
         let outcome = try await sendPendingArchiveWithOutcome(to: archiveRootURL, options: .default)
         if outcome.exportedCount == 0 {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "Export failed for \(outcome.failedCount) item(s). Nothing was deleted."
+                NSLocalizedDescriptionKey: "Export failed for \(outcome.failedCount) photos. Nothing was deleted."
             ])
         }
         if outcome.notDeletedCount > 0 {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 6, userInfo: [
-                NSLocalizedDescriptionKey: "Exported \(outcome.exportedCount) item(s), but \(outcome.notDeletedCount) could not be removed from Photos. Those items were returned to Set Aside."
+                NSLocalizedDescriptionKey: "Exported \(outcome.exportedCount) photos, but \(outcome.notDeletedCount) could not be removed from Photos. Those photos were returned to Set Aside."
             ])
         }
         if outcome.failedCount > 0 {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 7, userInfo: [
-                NSLocalizedDescriptionKey: "Exported \(outcome.exportedCount) item(s). \(outcome.failedCount) failed and remain in Set Aside."
+                NSLocalizedDescriptionKey: "Exported \(outcome.exportedCount) photos. \(outcome.failedCount) failed and remain in Set Aside."
             ])
         }
     }
@@ -983,7 +983,7 @@ final class AppModel: ObservableObject {
         }
         guard ArchiveSettings.ensureControlFolder(at: archiveRootURL) else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 8, userInfo: [
-                NSLocalizedDescriptionKey: "Couldn’t initialize archive control folder at the selected location."
+                NSLocalizedDescriptionKey: "Couldn’t prepare the archive at the selected location."
             ])
         }
         guard !isSendingArchive else {
@@ -1013,7 +1013,7 @@ final class AppModel: ObservableObject {
 
         do {
             try database.assetRepository.markArchiveCandidatesExporting(identifiers: identifiers)
-            archiveSendStatusText = "Exporting \(identifiers.count.formatted()) item(s)…"
+            archiveSendStatusText = "Exporting \(identifiers.count.formatted()) photos…"
             refreshArchiveCandidateCount()
             let exportTargets = [
                 ArchiveExportTarget(
@@ -1038,7 +1038,7 @@ final class AppModel: ObservableObject {
                     return "\(identifier): \(message)"
                 }.joined(separator: " | ")
                 try database.assetRepository.markArchiveCandidatesFailed(identifiers: failedIdentifiers, error: summary)
-                AppLog.shared.error("Archive export failed for \(failedIdentifiers.count) item(s): \(summary)")
+                AppLog.shared.error("Archive export failed for \(failedIdentifiers.count) items: \(summary)")
             }
 
             guard !exportedIdentifiers.isEmpty else {
@@ -1072,7 +1072,7 @@ final class AppModel: ObservableObject {
             }
 
             if !notDeleted.isEmpty {
-                let errorText = "Delete step did not remove \(notDeleted.count) item(s) from Photos. Returned to archive box."
+                let errorText = "Delete step did not remove \(notDeleted.count) photos from Photos. Returned to Set Aside."
                 try database.assetRepository.markArchiveCandidatesFailed(identifiers: notDeleted, error: errorText)
                 failures.append(contentsOf: notDeleted.map { ArchiveExportFailure(identifier: $0, message: errorText) })
                 try await database.jobRepository.markFailed(job, error: errorText)
@@ -1091,7 +1091,7 @@ final class AppModel: ObservableObject {
             }
 
             if !failedIdentifiers.isEmpty {
-                let message = "Exported \(exportedIdentifiers.count) item(s). \(failedIdentifiers.count) failed and remain in Set Aside."
+                let message = "Exported \(exportedIdentifiers.count) photos. \(failedIdentifiers.count) failed and remain in Set Aside."
                 try await database.jobRepository.markFailed(job, error: message)
                 indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
                 assetDataVersion &+= 1
@@ -1650,7 +1650,7 @@ nonisolated private func runOsxPhotosExportBatch(
             }
         }
         if result.exitCode != 0 {
-            let message = result.outputText.isEmpty ? "osxphotos export failed (exit \(result.exitCode))" : result.outputText
+            let message = result.outputText.isEmpty ? "Export failed (code \(result.exitCode))." : result.outputText
             failures.append(contentsOf: target.localIdentifiers.map { ArchiveExportFailure(identifier: $0, message: message) })
             try? fileManager.removeItem(at: tempDir)
             continue
@@ -1662,7 +1662,7 @@ nonisolated private func runOsxPhotosExportBatch(
             reportData = try Data(contentsOf: reportURL)
             reportRows = try JSONDecoder().decode([OsxPhotosReportRow].self, from: reportData)
         } catch {
-            let message = "osxphotos report parsing failed: \(error.localizedDescription)"
+            let message = "Export report parsing failed: \(error.localizedDescription)"
             failures.append(contentsOf: target.localIdentifiers.map { ArchiveExportFailure(identifier: $0, message: message) })
             try? fileManager.removeItem(at: tempDir)
             continue
@@ -1682,7 +1682,7 @@ nonisolated private func runOsxPhotosExportBatch(
             guard !localIdentifiers.isEmpty else { continue }
             guard let uuidRows = rowsByUUID[uuid], !uuidRows.isEmpty else {
                 failures.append(contentsOf: localIdentifiers.map {
-                    ArchiveExportFailure(identifier: $0, message: "osxphotos report did not include this UUID")
+                    ArchiveExportFailure(identifier: $0, message: "Export report did not include this item")
                 })
                 continue
             }
@@ -1704,7 +1704,7 @@ nonisolated private func runOsxPhotosExportBatch(
             let missingOnly = uuidRows.allSatisfy { $0.missing == true }
             if missingOnly {
                 failures.append(contentsOf: localIdentifiers.map {
-                    ArchiveExportFailure(identifier: $0, message: "osxphotos reported item as missing")
+                    ArchiveExportFailure(identifier: $0, message: "Export reported this item as missing")
                 })
                 continue
             }
@@ -1714,7 +1714,7 @@ nonisolated private func runOsxPhotosExportBatch(
             }
             if !hasOutcome {
                 failures.append(contentsOf: localIdentifiers.map {
-                    ArchiveExportFailure(identifier: $0, message: "osxphotos completed but no export outcome was reported")
+                    ArchiveExportFailure(identifier: $0, message: "Export finished, but no result was reported for this item")
                 })
                 continue
             }
@@ -1776,7 +1776,7 @@ nonisolated private func runOsxPhotos(arguments: [String]) -> (exitCode: Int32, 
         )
     }
 
-    return (1, "Bundled osxphotos executable not found in app resources, and no external osxphotos executable was found.")
+    return (1, "Required export components are missing.")
 }
 
 nonisolated private func runProcess(
@@ -1847,7 +1847,7 @@ nonisolated private func resolveBundledOsxPhotosExecutable() throws -> URL {
     }
 
     throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 5, userInfo: [
-        NSLocalizedDescriptionKey: "Bundled osxphotos executable not found in app resources."
+        NSLocalizedDescriptionKey: "Required export components are missing."
     ])
 }
 
