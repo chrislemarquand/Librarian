@@ -74,7 +74,8 @@ enum ArchiveLibraryMismatchPrompt {
             guard let selected = promptForArchiveRoot(
                 title: "Choose New Archive Location",
                 message: "Choose a folder for a new Librarian archive.",
-                prompt: "Use Location"
+                prompt: "Use Location",
+                mode: .newLocation
             ) else { return false }
             if ArchiveSettings.archiveID(for: selected) == nil,
                !ArchiveRootPrompts.confirmInitializeArchive(at: selected) {
@@ -87,7 +88,8 @@ enum ArchiveLibraryMismatchPrompt {
             guard let selected = promptForArchiveRoot(
                 title: "Choose Existing Archive",
                 message: "Choose the folder for the archive linked to this photo library.",
-                prompt: "Use Archive"
+                prompt: "Use Archive",
+                mode: .existingOnly
             ) else { return false }
             guard model.updateArchiveRoot(selected) else { return false }
             return rebindCurrentArchiveToCurrentLibrary(model: model)
@@ -133,7 +135,8 @@ enum ArchiveLibraryMismatchPrompt {
                 guard let selected = promptForArchiveRoot(
                     title: "Choose Archive",
                     message: "Choose the archive location to use with the current photo library.",
-                    prompt: "Use Archive"
+                    prompt: "Use Archive",
+                    mode: .existingOnly
                 ) else { return false }
                 guard model.updateArchiveRoot(selected) else { return false }
                 return rebindCurrentArchiveToCurrentLibrary(model: model)
@@ -160,7 +163,8 @@ enum ArchiveLibraryMismatchPrompt {
                 guard let selected = promptForArchiveRoot(
                     title: "Choose Archive",
                     message: "Choose the archive location to use with the current photo library.",
-                    prompt: "Use Archive"
+                    prompt: "Use Archive",
+                    mode: .existingOnly
                 ) else { return false }
                 guard model.updateArchiveRoot(selected) else { return false }
                 return rebindCurrentArchiveToCurrentLibrary(model: model)
@@ -210,7 +214,17 @@ enum ArchiveLibraryMismatchPrompt {
         return updated
     }
 
-    private static func promptForArchiveRoot(title: String, message: String, prompt: String) -> URL? {
+    private enum ArchivePromptMode {
+        case existingOnly
+        case newLocation
+    }
+
+    private static func promptForArchiveRoot(
+        title: String,
+        message: String,
+        prompt: String,
+        mode: ArchivePromptMode
+    ) -> URL? {
         let panel = NSOpenPanel()
         panel.title = title
         panel.message = message
@@ -222,13 +236,36 @@ enum ArchiveLibraryMismatchPrompt {
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
         guard panel.runModal() == .OK else { return nil }
         guard let selected = panel.url?.standardizedFileURL else { return nil }
-        return ArchiveSettings.resolveArchiveRoot(fromUserSelection: selected) ?? selected
+        if let resolved = ArchiveSettings.resolveArchiveRoot(fromUserSelection: selected) {
+            return resolved
+        }
+        switch mode {
+        case .existingOnly:
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Archive Not Recognised"
+            alert.informativeText = "The selected folder does not contain a Librarian archive."
+            alert.addButton(withTitle: "OK")
+            _ = alert.runModal()
+            return nil
+        case .newLocation:
+            return normalizeRootForNewArchiveSelection(selected)
+        }
     }
 
     private static func displayLibraryName(fromPath path: String?) -> String? {
         guard let path, !path.isEmpty else { return nil }
+        guard path.hasPrefix("/") else { return nil }
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         return name.isEmpty ? nil : name
+    }
+
+    private static func normalizeRootForNewArchiveSelection(_ selected: URL) -> URL {
+        let standardized = selected.standardizedFileURL
+        guard standardized.lastPathComponent == ArchiveSettings.archiveFolderName else {
+            return standardized
+        }
+        return standardized.deletingLastPathComponent().standardizedFileURL
     }
 
     private static func displayArchiveName(model: AppModel) -> String? {

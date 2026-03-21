@@ -22,24 +22,31 @@ enum PhotoLibraryFingerprintError: LocalizedError {
 }
 
 enum PhotoLibraryFingerprintService {
-    private static let sourceName = "pictures-directory-heuristic-v1"
+    private static let photosDefaultBookmarkSource = "photos-default-library-bookmark-v1"
+    private static let picturesDirectoryHeuristicSource = "pictures-directory-heuristic-v1"
+    private static let photosDefaultsDomain = "com.apple.Photos"
+    private static let photosDefaultLibraryBookmarkKey = "IPXDefaultLibraryURLBookmark"
 
     static func currentFingerprint(fileManager: FileManager = .default) throws -> PhotoLibraryFingerprint {
-        guard let libraryURL = findPhotosLibraryURL(fileManager: fileManager) else {
+        guard let resolved = findPhotosLibraryURL(fileManager: fileManager) else {
             throw PhotoLibraryFingerprintError.noLibraryURLFound
         }
-        let fingerprintInput = buildFingerprintInput(for: libraryURL)
+        let fingerprintInput = buildFingerprintInput(for: resolved.url)
         guard !fingerprintInput.isEmpty else {
             throw PhotoLibraryFingerprintError.fingerprintInputUnavailable
         }
         return PhotoLibraryFingerprint(
             fingerprint: "sha256:\(sha256Hex(fingerprintInput))",
-            source: sourceName,
-            pathHint: libraryURL.path
+            source: resolved.source,
+            pathHint: resolved.url.path
         )
     }
 
-    private static func findPhotosLibraryURL(fileManager: FileManager) -> URL? {
+    private static func findPhotosLibraryURL(fileManager: FileManager) -> (url: URL, source: String)? {
+        if let defaultURL = defaultPhotosLibraryURLFromPreferences() {
+            return (defaultURL, photosDefaultBookmarkSource)
+        }
+
         guard let picturesURL = fileManager.urls(for: .picturesDirectory, in: .userDomainMask).first,
               let contents = try? fileManager.contentsOfDirectory(
                 at: picturesURL,
@@ -49,7 +56,33 @@ enum PhotoLibraryFingerprintService {
         else {
             return nil
         }
-        return contents.first { $0.pathExtension == "photoslibrary" }
+        guard let heuristicURL = contents.first(where: { $0.pathExtension == "photoslibrary" }) else {
+            return nil
+        }
+        return (heuristicURL.standardizedFileURL, picturesDirectoryHeuristicSource)
+    }
+
+    private static func defaultPhotosLibraryURLFromPreferences() -> URL? {
+        guard let defaults = UserDefaults(suiteName: photosDefaultsDomain),
+              let bookmarkData = defaults.data(forKey: photosDefaultLibraryBookmarkKey)
+        else {
+            return nil
+        }
+
+        var isStale = false
+        guard let resolvedURL = try? URL(
+            resolvingBookmarkData: bookmarkData,
+            options: [.withoutUI, .withoutMounting],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        ) else {
+            return nil
+        }
+        let standardized = resolvedURL.standardizedFileURL
+        guard standardized.pathExtension == "photoslibrary" else {
+            return nil
+        }
+        return standardized
     }
 
     private static func buildFingerprintInput(for libraryURL: URL) -> String {

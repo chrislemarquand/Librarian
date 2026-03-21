@@ -123,7 +123,8 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         panel.canCreateDirectories = true
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
         guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
-        let url = ArchiveSettings.resolveArchiveRoot(fromUserSelection: selectedURL) ?? selectedURL.standardizedFileURL
+        let url = ArchiveSettings.resolveArchiveRoot(fromUserSelection: selectedURL)
+            ?? normalizedArchiveRootForCreateSelection(selectedURL)
 
         // Same folder as current — nothing to do.
         if url.standardizedFileURL == ArchiveSettings.restoreArchiveRootURL()?.standardizedFileURL { return }
@@ -753,6 +754,14 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         }
 
         return true
+    }
+
+    private func normalizedArchiveRootForCreateSelection(_ selectedURL: URL) -> URL {
+        let selected = selectedURL.standardizedFileURL
+        guard selected.lastPathComponent == ArchiveSettings.archiveFolderName else {
+            return selected
+        }
+        return selected.deletingLastPathComponent().standardizedFileURL
     }
 
 #if DEBUG
