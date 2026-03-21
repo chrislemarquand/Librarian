@@ -151,6 +151,12 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             name: .librarianArchiveLibraryBindingChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemPhotoLibraryChanged),
+            name: .librarianSystemPhotoLibraryChanged,
+            object: nil
+        )
     }
 
     @objc private func modelStateChanged() {
@@ -180,18 +186,29 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         }
     }
 
+    @objc private func systemPhotoLibraryChanged() {
+        lastBindingPromptSignature = nil
+        Task { @MainActor [weak self] in
+            await self?.presentArchiveLibraryBindingPromptIfNeeded()
+        }
+    }
+
     private func presentArchiveLibraryBindingPromptIfNeeded() async {
         guard !isShowingBindingPrompt else { return }
         let gate = model.evaluateArchiveWriteGate(for: .importIntoArchive)
-        guard gate.status != .allowed else { return }
+        guard gate.status != .allowed else {
+            lastBindingPromptSignature = nil
+            return
+        }
         guard let evaluation = gate.evaluation else { return }
-        guard evaluation.state == .mismatch else { return }
+        guard evaluation.state == .mismatch || evaluation.state == .unbound else { return }
 
         let signature = [
             evaluation.state.rawValue,
             evaluation.expectedFingerprint ?? "nil",
             evaluation.currentFingerprint ?? "nil",
-            evaluation.archiveID ?? "nil"
+            evaluation.archiveID ?? "nil",
+            model.currentSystemPhotoLibraryFingerprint ?? "nil"
         ].joined(separator: "|")
         guard lastBindingPromptSignature != signature else { return }
         lastBindingPromptSignature = signature
