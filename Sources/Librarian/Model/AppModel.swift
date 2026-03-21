@@ -1786,6 +1786,8 @@ nonisolated private func resolveBundledExifToolExecutable() throws -> URL {
 
     var candidates: [URL] = []
     if let resourceRoot = bundle.resourceURL {
+        candidates.append(resourceRoot.appendingPathComponent("Tools/exiftool.bundle/bin/exiftool", isDirectory: false))
+        candidates.append(resourceRoot.appendingPathComponent("exiftool.bundle/bin/exiftool", isDirectory: false))
         candidates.append(resourceRoot.appendingPathComponent("Tools/exiftool/bin/exiftool", isDirectory: false))
         candidates.append(resourceRoot.appendingPathComponent("exiftool/bin/exiftool", isDirectory: false))
     }

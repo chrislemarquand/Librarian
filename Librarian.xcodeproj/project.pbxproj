@@ -86,6 +86,7 @@
 				46FDD5D02F699C6D0034D51C /* Sources */,
 				46FDD5D12F699C6D0034D51C /* Frameworks */,
 				46FDD5D22F699C6D0034D51C /* Resources */,
+				C00100200000000000000001 /* Bundle ExifTool */,
 			);
 			buildRules = (
 			);
@@ -151,6 +152,28 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		C00100200000000000000001 /* Bundle ExifTool */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle ExifTool";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/exiftool/bin/exiftool",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build/bundle_exiftool.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		46FDD5D02F699C6D0034D51C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -200,7 +223,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -264,7 +287,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -292,10 +315,11 @@
 				CODE_SIGN_ENTITLEMENTS = Config/Librarian.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = NO;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "Config/Librarian-Info.plist";
+					CURRENT_PROJECT_VERSION = 1;
+					ENABLE_APP_SANDBOX = NO;
+					ENABLE_USER_SCRIPT_SANDBOXING = NO;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = "Config/Librarian-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -322,10 +346,11 @@
 				CODE_SIGN_ENTITLEMENTS = Config/Librarian.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = NO;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "Config/Librarian-Info.plist";
+					CURRENT_PROJECT_VERSION = 1;
+					ENABLE_APP_SANDBOX = NO;
+					ENABLE_USER_SCRIPT_SANDBOXING = NO;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = "Config/Librarian-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
