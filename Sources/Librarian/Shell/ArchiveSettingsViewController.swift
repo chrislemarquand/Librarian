@@ -11,6 +11,15 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     private var isMovingArchive = false
 
     private lazy var archivePathControl = makePathControl(url: nil)
+    private lazy var linkedLibraryPathControl = makePathControl(url: nil)
+    private lazy var linkedLibraryFallbackLabel = makeDescriptionLabel("Not linked")
+    private lazy var linkedLibraryContainer: NSStackView = {
+        let stack = NSStackView(views: [linkedLibraryPathControl, linkedLibraryFallbackLabel])
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
     private lazy var showInFinderButton = makeActionButton(title: "Show in Finder", action: #selector(showArchiveInFinder))
     private lazy var newButton          = makeActionButton(title: "New…",           action: #selector(chooseNewArchive))
     private lazy var moveButton         = makeActionButton(title: "Move…",          action: #selector(chooseMoveDestination))
@@ -44,6 +53,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             self, selector: #selector(archiveRootChanged),
             name: .librarianArchiveRootChanged, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(archiveBindingChanged),
+            name: .librarianArchiveLibraryBindingChanged, object: nil
+        )
     }
 
     override func viewDidAppear() {
@@ -59,6 +72,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             )
         }
         refreshArchivePath()
+        refreshLinkedLibraryPath()
         refreshNewButtonState()
         refreshMoveButtonState()
         refreshFolderLayoutState()
@@ -73,6 +87,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     override func makeRows() -> [[NSView]] {
         [
             [makeCategoryLabel(title: "Archive Location:"), archivePathControl,   NSView()],
+            [makeCategoryLabel(title: "Linked Photos Library:"), linkedLibraryContainer, NSView()],
             [NSView(),                                      archiveActionButtons, NSView()],
             [makeCategoryLabel(title: "Folder structure:"), dateOnlyRadio,        NSView()],
             [NSView(),                                      kindThenDateRadio,    NSView()],
@@ -107,7 +122,8 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
+        let url = ArchiveSettings.resolveArchiveRoot(fromUserSelection: selectedURL) ?? selectedURL.standardizedFileURL
 
         // Same folder as current — nothing to do.
         if url.standardizedFileURL == ArchiveSettings.restoreArchiveRootURL()?.standardizedFileURL { return }
@@ -203,11 +219,16 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
     @objc private func archiveRootChanged() {
         refreshArchivePath()
+        refreshLinkedLibraryPath()
         refreshNewButtonState()
         refreshMoveButtonState()
         refreshFolderLayoutState()
         refreshOrganizeButtonState()
         refreshAddPhotosButtonState()
+    }
+
+    @objc private func archiveBindingChanged() {
+        refreshLinkedLibraryPath()
     }
 
     // MARK: - State refresh
@@ -224,6 +245,25 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         archivePathControl.url = treeRoot
         let all = archivePathControl.pathItems
         if all.count > 4 { archivePathControl.pathItems = Array(all.suffix(4)) }
+    }
+
+    private func refreshLinkedLibraryPath() {
+        guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
+              let path = ArchiveSettings.controlConfig(for: archiveRoot)?.photoLibraryBinding?.libraryPathHint,
+              !path.isEmpty else {
+            linkedLibraryPathControl.url = nil
+            linkedLibraryPathControl.isHidden = true
+            linkedLibraryFallbackLabel.isHidden = false
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        linkedLibraryPathControl.url = url
+        let all = linkedLibraryPathControl.pathItems
+        if all.count > 1 {
+            linkedLibraryPathControl.pathItems = Array(all.suffix(1))
+        }
+        linkedLibraryPathControl.isHidden = false
+        linkedLibraryFallbackLabel.isHidden = true
     }
 
     private func refreshNewButtonState() {

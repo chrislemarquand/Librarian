@@ -10,13 +10,18 @@ enum ArchiveLibraryMismatchPrompt {
         parentWindow: NSWindow?
     ) async -> Bool {
         guard decision.status != .allowed else { return true }
+        let state = decision.evaluation?.state
 
-        if await offerKnownCouplingSwitchIfNeeded(model: model, parentWindow: parentWindow) {
-            return model.evaluateArchiveWriteGate(for: operation).isAllowed
-        }
+        // Coupling-switch/create-select prompts are only valid when we have a real
+        // mismatch to resolve. Do not show them for unbound/unknown bootstrap states.
+        if state == .mismatch {
+            if await offerKnownCouplingSwitchIfNeeded(model: model, parentWindow: parentWindow) {
+                return model.evaluateArchiveWriteGate(for: operation).isAllowed
+            }
 
-        if await offerCreateOrSelectIfNoCoupling(model: model, parentWindow: parentWindow) {
-            return model.evaluateArchiveWriteGate(for: operation).isAllowed
+            if await offerCreateOrSelectIfNoCoupling(model: model, parentWindow: parentWindow) {
+                return model.evaluateArchiveWriteGate(for: operation).isAllowed
+            }
         }
 
         return await presentMismatchResolutionPrompt(model: model, operation: operation, parentWindow: parentWindow)
@@ -216,7 +221,8 @@ enum ArchiveLibraryMismatchPrompt {
         panel.canCreateDirectories = true
         panel.directoryURL = ArchiveSettings.restoreArchiveRootURL() ?? FileManager.default.homeDirectoryForCurrentUser
         guard panel.runModal() == .OK else { return nil }
-        return panel.url?.standardizedFileURL
+        guard let selected = panel.url?.standardizedFileURL else { return nil }
+        return ArchiveSettings.resolveArchiveRoot(fromUserSelection: selected) ?? selected
     }
 
     private static func displayLibraryName(fromPath path: String?) -> String? {

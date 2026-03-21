@@ -56,19 +56,16 @@ enum PhotoLibraryFingerprintService {
         let standardizedPath = libraryURL.standardizedFileURL.path
         let keys: Set<URLResourceKey> = [
             .creationDateKey,
-            .contentModificationDateKey,
             .fileResourceIdentifierKey,
             .volumeIdentifierKey
         ]
         let values = try? libraryURL.resourceValues(forKeys: keys)
         let creation = values?.creationDate?.timeIntervalSince1970.description ?? ""
-        let modified = values?.contentModificationDate?.timeIntervalSince1970.description ?? ""
         let fileID = values?.fileResourceIdentifier.map { String(describing: $0) } ?? ""
         let volumeID = values?.volumeIdentifier.map { String(describing: $0) } ?? ""
         return [
             "path:\(standardizedPath)",
             "creation:\(creation)",
-            "modified:\(modified)",
             "fileID:\(fileID)",
             "volumeID:\(volumeID)"
         ].joined(separator: "\n")

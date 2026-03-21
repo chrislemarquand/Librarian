@@ -152,18 +152,20 @@ enum ArchiveSettings {
         ) else {
             return nil
         }
-        if stale {
-            _ = persistArchiveRootURL(url)
+        let resolved = resolveArchiveRoot(fromUserSelection: url) ?? url
+        if stale || resolved.standardizedFileURL != url.standardizedFileURL {
+            _ = persistArchiveRootURL(resolved)
         }
-        return url
+        return resolved
     }
 
     @discardableResult
     static func persistArchiveRootURL(_ url: URL) -> Bool {
-        guard ensureControlFolder(at: url) else { return false }
-        let newArchiveID = archiveID(for: url)
+        let normalizedRoot = resolveArchiveRoot(fromUserSelection: url) ?? url.standardizedFileURL
+        guard ensureControlFolder(at: normalizedRoot) else { return false }
+        let newArchiveID = archiveID(for: normalizedRoot)
         let previousArchiveID = UserDefaults.standard.string(forKey: archiveIDKey)
-        guard let bookmark = try? url.bookmarkData(
+        guard let bookmark = try? normalizedRoot.bookmarkData(
             options: [.withSecurityScope],
             includingResourceValuesForKeys: nil,
             relativeTo: nil
@@ -184,7 +186,7 @@ enum ArchiveSettings {
                 AppLog.shared.info("Archive root linked to archive id \(newArchiveID)")
             }
         }
-        AppLog.shared.info("Archive root set to: \(url.path)")
+        AppLog.shared.info("Archive root set to: \(normalizedRoot.path)")
         return true
     }
 
@@ -244,6 +246,49 @@ enum ArchiveSettings {
         }
         let configURL = ArchiveControlPaths(rootURL: rootURL).configURL
         return readControlConfig(at: configURL)?.archiveID
+    }
+
+    /// Normalizes a user-selected folder to the archive root model (`{root}/Archive/.librarian`).
+    /// Accepts selection of:
+    /// - archive root parent (`{root}`)
+    /// - archive subfolder (`{root}/Archive`)
+    /// - control folder (`{root}/Archive/.librarian`)
+    /// Returns nil when the selection is not a recognized existing archive.
+    static func resolveArchiveRoot(fromUserSelection selectedURL: URL) -> URL? {
+        let selected = selectedURL.standardizedFileURL
+        let fileManager = FileManager.default
+
+        // Highest-priority intent: user selected the Archive folder itself.
+        if selected.lastPathComponent == archiveFolderName {
+            let directControlURL = selected
+                .appendingPathComponent(controlFolderName, isDirectory: true)
+                .appendingPathComponent(configFileName, isDirectory: false)
+            if fileManager.fileExists(atPath: directControlURL.path) {
+                return selected.deletingLastPathComponent()
+            }
+        }
+
+        if selected.lastPathComponent == archiveFolderName {
+            let parent = selected.deletingLastPathComponent()
+            if archiveID(for: parent) != nil {
+                return parent
+            }
+        }
+
+        if selected.lastPathComponent == controlFolderName {
+            let archiveFolder = selected.deletingLastPathComponent()
+            let parent = archiveFolder.deletingLastPathComponent()
+            if archiveFolder.lastPathComponent == archiveFolderName,
+               archiveID(for: parent) != nil {
+                return parent
+            }
+        }
+
+        if archiveID(for: selected) != nil {
+            return selected
+        }
+
+        return nil
     }
 
     static func controlConfig(for rootURL: URL) -> ArchiveControlConfig? {
@@ -829,15 +874,7 @@ final class AppModel: ObservableObject {
             )
 
             if summary.imported > 0 {
-                // Re-index the archive on a background thread so sidebar counts update.
-                let db = self.database
-                Task.detached(priority: .utility) {
-                    let indexer = ArchiveIndexer(database: db)
-                    _ = try? indexer.refreshIndex()
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
-                    }
-                }
+                refreshArchivedIndexAsync()
             }
 
             try await database.jobRepository.markCompleted(job)
@@ -972,6 +1009,8 @@ final class AppModel: ObservableObject {
             for group in exportResult.exportedGroups where !group.localIdentifiers.isEmpty {
                 try database.assetRepository.markArchiveCandidatesExported(identifiers: group.localIdentifiers, archivePath: group.destinationPath)
             }
+            // Re-index as soon as export writes complete so Archive sidebar count updates immediately.
+            refreshArchivedIndexAsync()
             suppressChangeSync(for: 20, reason: "archiveDelete")
             let deletedIdentifiers = try await photosService.deleteAssets(localIdentifiers: exportedIdentifiers)
             let deletedSet = Set(deletedIdentifiers)
@@ -1193,6 +1232,9 @@ final class AppModel: ObservableObject {
                 message: ""
             )
         case .mismatch:
+            if tryAutoHealBindingForSameLibraryPath(rootURL: archiveRoot, evaluation: evaluation) {
+                return evaluateArchiveWriteGate(for: operation, preferredRootURL: archiveRoot)
+            }
             return ArchiveWriteGateDecision(
                 status: .requiresResolution,
                 rootURL: archiveRoot,
@@ -1217,6 +1259,19 @@ final class AppModel: ObservableObject {
                 message: "Librarian couldn’t verify the active photo library. Resolve this in Settings before you can \(operation.displayName)."
             )
         }
+    }
+
+    private func tryAutoHealBindingForSameLibraryPath(
+        rootURL: URL,
+        evaluation: ArchiveLibraryBindingEvaluation
+    ) -> Bool {
+        guard let boundPath = evaluation.boundLibraryPathHint,
+              let currentPath = evaluation.currentLibraryPathHint
+        else { return false }
+        let bound = URL(fileURLWithPath: boundPath).standardizedFileURL.path
+        let current = URL(fileURLWithPath: currentPath).standardizedFileURL.path
+        guard bound == current else { return false }
+        return tryAutoBindArchiveToCurrentLibrary(rootURL: rootURL)
     }
 
     private func tryAutoBindArchiveToCurrentLibrary(rootURL: URL) -> Bool {
@@ -1382,6 +1437,18 @@ final class AppModel: ObservableObject {
         pendingArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.pending, .exporting, .failed])) ?? 0
         failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+    }
+
+    private func refreshArchivedIndexAsync() {
+        let db = self.database
+        Task.detached(priority: .utility) {
+            let indexer = ArchiveIndexer(database: db)
+            _ = try? indexer.refreshIndex()
+            await MainActor.run {
+                NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+                NotificationCenter.default.post(name: .librarianContentDataChanged, object: nil)
+            }
+        }
     }
 }
 

@@ -26,7 +26,7 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
 
     guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
 
-    guard let resolvedRoot = resolveArchiveRoot(from: selectedURL) else {
+    guard let resolvedRoot = ArchiveSettings.resolveArchiveRoot(fromUserSelection: selectedURL) else {
         let errorAlert = NSAlert()
         errorAlert.alertStyle = .warning
         errorAlert.messageText = "Archive Not Recognised"
@@ -45,20 +45,4 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
         _ = await errorAlert.runSheetOrModal(for: presentingWindow)
         return
     }
-}
-
-/// Resolves the archive root URL from a user-selected folder.
-/// Accepts either the parent folder (e.g. `Testing/`) or the `Archive/` subfolder directly.
-private func resolveArchiveRoot(from selectedURL: URL) -> URL? {
-    // Case 1: user selected the parent (Testing/) — archiveID looks inside Testing/Archive/.librarian/
-    if ArchiveSettings.archiveID(for: selectedURL) != nil {
-        return selectedURL
-    }
-    // Case 2: user selected the Archive/ subfolder directly — check its parent
-    let parent = selectedURL.deletingLastPathComponent()
-    if selectedURL.lastPathComponent == ArchiveSettings.archiveFolderName,
-       ArchiveSettings.archiveID(for: parent) != nil {
-        return parent
-    }
-    return nil
 }

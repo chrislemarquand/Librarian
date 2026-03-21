@@ -314,6 +314,17 @@ import Foundation
     #expect(evaluation.reason == "current_library_fingerprint_unavailable")
 }
 
+@Test func resolveArchiveRootPrefersParentWhenArchiveFolderIsSelected() throws {
+    let fm = FileManager.default
+    let parent = fm.temporaryDirectory.appendingPathComponent("librarian-resolve-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: parent) }
+
+    #expect(ArchiveSettings.ensureControlFolder(at: parent))
+    let archiveFolder = ArchiveSettings.archiveTreeRootURL(from: parent)
+    let resolved = ArchiveSettings.resolveArchiveRoot(fromUserSelection: archiveFolder)
+    #expect(resolved?.standardizedFileURL == parent.standardizedFileURL)
+}
+
 @Test @MainActor func archiveImportFlowIsBlockedWhenLibraryBindingRequiresResolution() async throws {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-gate-import-\(UUID().uuidString)", isDirectory: true)

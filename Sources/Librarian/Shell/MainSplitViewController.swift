@@ -409,7 +409,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
         let result = panel.runModal()
         guard result == .OK else { return nil }
-        return panel.url
+        guard let selected = panel.url?.standardizedFileURL else { return nil }
+        return ArchiveSettings.resolveArchiveRoot(fromUserSelection: selected) ?? selected
     }
 
     private func showArchiveAlert(title: String, message: String) {
