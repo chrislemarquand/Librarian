@@ -509,3 +509,31 @@ import Foundation
     )
     #expect(statusMessage == "Set Aside: 3 photo(s).")
 }
+
+@Test func archiveSendNotDeletedIdentifiersReconcilesExportAndDeleteSets() {
+    let exported = ["a", "b", "c", "c"]
+    let deleted = ["b"]
+    let notDeleted = Set(
+        AppModel.notDeletedIdentifiers(
+            exportedIdentifiers: exported,
+            deletedIdentifiers: deleted
+        )
+    )
+    #expect(notDeleted == Set(["a", "c"]))
+}
+
+@Test func archiveSendClassificationCoversMixedOutcomeStates() {
+    #expect(AppModel.classifyArchiveSendOutcome(exportedCount: 0, failedCount: 4, notDeletedCount: 0) == .noExports)
+    #expect(AppModel.classifyArchiveSendOutcome(exportedCount: 4, failedCount: 0, notDeletedCount: 1) == .deleteMismatch)
+    #expect(AppModel.classifyArchiveSendOutcome(exportedCount: 4, failedCount: 2, notDeletedCount: 0) == .partialFailures)
+    #expect(AppModel.classifyArchiveSendOutcome(exportedCount: 4, failedCount: 0, notDeletedCount: 0) == .success)
+}
+
+@Test func exportPreflightEstimateUsesKnownAndFallbackSizes() {
+    let stats = AssetRepository.FileSizeStats(
+        knownBytes: 3_000_000,
+        unknownCount: 2
+    )
+    let estimate = ArchiveOperationPreflightService.estimateExportWriteBytes(fileSizeStats: stats)
+    #expect(estimate == 3_000_000 + (2 * 8 * 1024 * 1024))
+}

@@ -909,6 +909,12 @@ final class AppModel: ObservableObject {
                 NSLocalizedDescriptionKey: "An archive import is already in progress."
             ])
         }
+
+        _ = try ArchiveOperationPreflightService.checkWritableAndFreeSpace(
+            at: archiveRoot,
+            estimatedWriteBytes: ArchiveOperationPreflightService.estimateImportWriteBytes(candidateURLs: preflight.candidateURLs)
+        )
+
         isImportingArchive = true
         importStatusText = "Starting import…"
         defer {
@@ -1054,6 +1060,13 @@ final class AppModel: ObservableObject {
             return ArchiveSendOutcome(exportedCount: 0, deletedCount: 0, failedCount: 0, notDeletedCount: 0, failures: [])
         }
 
+        let fileSizeStats = try database.assetRepository.fetchFileSizeStats(localIdentifiers: identifiers)
+        let estimatedExportBytes = ArchiveOperationPreflightService.estimateExportWriteBytes(fileSizeStats: fileSizeStats)
+        _ = try ArchiveOperationPreflightService.checkWritableAndFreeSpace(
+            at: archiveRootURL,
+            estimatedWriteBytes: estimatedExportBytes
+        )
+
         isSendingArchive = true
         archiveSendStatusText = "Preparing archive export…"
         defer {
@@ -1120,9 +1133,10 @@ final class AppModel: ObservableObject {
             archiveSendStatusText = "Deleting exported photos from Photos…"
             suppressChangeSync(for: 20, reason: "archiveDelete")
             let deletedIdentifiers = try await photosService.deleteAssets(localIdentifiers: exportedIdentifiers)
-            let deletedSet = Set(deletedIdentifiers)
-            let expectedSet = Set(exportedIdentifiers)
-            let notDeleted = Array(expectedSet.subtracting(deletedSet))
+            let notDeleted = Self.notDeletedIdentifiers(
+                exportedIdentifiers: exportedIdentifiers,
+                deletedIdentifiers: deletedIdentifiers
+            )
 
             if !deletedIdentifiers.isEmpty {
                 try database.assetRepository.markDeleted(identifiers: deletedIdentifiers, at: Date())
@@ -1598,6 +1612,33 @@ final class AppModel: ObservableObject {
                 NotificationCenter.default.post(name: .librarianContentDataChanged, object: nil)
             }
         }
+    }
+
+    nonisolated static func notDeletedIdentifiers(
+        exportedIdentifiers: [String],
+        deletedIdentifiers: [String]
+    ) -> [String] {
+        let deletedSet = Set(deletedIdentifiers)
+        let expectedSet = Set(exportedIdentifiers)
+        return Array(expectedSet.subtracting(deletedSet))
+    }
+
+    enum ArchiveSendClassification {
+        case noExports
+        case deleteMismatch
+        case partialFailures
+        case success
+    }
+
+    nonisolated static func classifyArchiveSendOutcome(
+        exportedCount: Int,
+        failedCount: Int,
+        notDeletedCount: Int
+    ) -> ArchiveSendClassification {
+        if exportedCount == 0 { return .noExports }
+        if notDeletedCount > 0 { return .deleteMismatch }
+        if failedCount > 0 { return .partialFailures }
+        return .success
     }
 }
 

@@ -864,6 +864,35 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    struct FileSizeStats {
+        let knownBytes: Int64
+        let unknownCount: Int
+    }
+
+    func fetchFileSizeStats(localIdentifiers: [String]) throws -> FileSizeStats {
+        guard !localIdentifiers.isEmpty else {
+            return FileSizeStats(knownBytes: 0, unknownCount: 0)
+        }
+        return try db.read { db in
+            let placeholders = localIdentifiers.map { _ in "?" }.joined(separator: ",")
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT
+                        COALESCE(SUM(CASE WHEN fileSizeBytes IS NOT NULL THEN fileSizeBytes ELSE 0 END), 0) AS knownBytes,
+                        COALESCE(SUM(CASE WHEN fileSizeBytes IS NULL THEN 1 ELSE 0 END), 0) AS unknownCount
+                    FROM asset
+                    WHERE localIdentifier IN (\(placeholders))
+                """,
+                arguments: StatementArguments(localIdentifiers)
+            )
+            return FileSizeStats(
+                knownBytes: row?["knownBytes"] ?? 0,
+                unknownCount: row?["unknownCount"] ?? 0
+            )
+        }
+    }
+
     func fetchAssetDateSecondIndex() throws -> Set<String> {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

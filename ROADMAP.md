@@ -94,15 +94,15 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
   - [Done] item badges wired through `badgeText` + repository counts
 - Trust-boundary test gate:
   - [Partial] state transitions
-  - [Planned] mixed export outcomes
-  - [Planned] deletion reconciliation
+  - [Done] mixed export outcomes
+  - [Done] deletion reconciliation
   - [Done] interrupted-run recovery
   - [Done] archive move destination safety regression coverage (inside-source blocked, parent-destination allowed, recursive-copy guard)
 - External archive robustness baseline:
   - [Done] archive control folder (`.librarian`) with schema/version metadata and stable archive ID
   - [Partial] archive relink flow for moved archives (internal ↔ external), with archive ID validation
   - [Done] startup/offline handling when archive volume is unavailable
-  - [Partial] write-access and free-space preflight before archive export/import
+  - [Done] write-access and free-space preflight before archive export/import
   - [Done] crash/disconnect-safe control-file writes (atomic writes for archive metadata and run artifacts)
   - [Done] async archive-view/badge/subtitle synchronization after archive index refresh
 
@@ -110,8 +110,7 @@ Status key: `[Done]`, `[Partial]`, `[Planned]`
 
 - Finish keyboard parity (`Cmd+A`, explicit put-back shortcut, Tab pane focus cycle).
 - Implement WhatsApp Box classification + indexing + view wiring.
-- Expand trust-boundary tests for mixed outcomes and deletion reconciliation.
-- Complete external archive robustness follow-through (full relink and free-space preflight coverage across export/import paths).
+- Complete external archive robustness follow-through (full relink coverage across export/import paths).
 - Tune Vision classifiers for Duplicates and Documents boxes (precision/recall and false-positive reduction).
 
 ### Out
