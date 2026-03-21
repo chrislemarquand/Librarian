@@ -85,6 +85,22 @@ SharedUI provides the gallery shell/interaction model, not the thumbnail backend
 - `ContentController` drives gallery/list-like content plus indexing/log/archive contextual panes.
 - Toolbar state is refreshed from model state through `ToolbarDelegate` + shell observation.
 
+## Logging
+
+`AppLog` (defined at the bottom of `AppModel.swift`) is a lightweight structured logger used throughout the app. It writes timestamped `[INFO]` / `[ERROR]` lines to:
+
+```
+~/Library/Application Support/com.chrislemarquand.Librarian/librarian.log
+```
+
+This file is not exposed in the app UI — it is developer-only. To inspect it:
+
+```bash
+tail -f ~/Library/Application\ Support/com.chrislemarquand.Librarian/librarian.log
+```
+
+Or open it in Console.app by navigating to the path above. `AppLog` is not user-facing and has no in-app viewer.
+
 ## Concurrency and safety
 
 - `AppModel` and shell coordination run on `@MainActor`.

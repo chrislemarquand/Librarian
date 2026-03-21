@@ -94,6 +94,16 @@ Do not treat them as design choices — they are bugs to fix.
 | osxphotos invocation boundary | Tool boundary should be isolated and testable | Direct `Process()` subprocess in main app; acceptable for direct distribution, but still architecture debt vs dedicated runner/XPC service | `AppModel.swift` → `runOsxPhotos` |
 | Stale export state | Partial failures visible and recoverable | `exporting` rows survive an app crash and are never retried | `AppModel.swift` → `setup()` (no reset on launch) |
 
+## Logging
+
+`AppLog` (bottom of `AppModel.swift`) writes structured log lines to:
+
+```
+~/Library/Application Support/com.chrislemarquand.Librarian/librarian.log
+```
+
+There is no in-app log viewer. Tail the file or open it in Console.app. See `docs/ARCHITECTURE.md` for details.
+
 ## The one thing that must not go wrong
 
 **Deletion safety.** The candidate list is frozen at execution time. Verification must be complete before deletion fires. Partial failures must be visible and recoverable. In-flight delete sets are immutable. If in doubt, do less and surface the state clearly.

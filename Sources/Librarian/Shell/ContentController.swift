@@ -85,10 +85,6 @@ final class ContentController: NSViewController {
     private var quickLookTempDirectoryURL: URL?
     private var quickLookDisplayURLByID: [String: URL] = [:]
     private var quickLookUnavailableIDs: Set<String> = []
-    private var logPane: NSView!
-    private var logTextView: NSTextView!
-    private let logPlaceholderViewModel = GalleryPlaceholderViewModel()
-    private var logPlaceholderHostingView: NSView?
     private var displayAssets: [DisplayAsset] = []
     private var isLoadingAssets = false
     private var canLoadMoreAssets = true
@@ -179,11 +175,6 @@ final class ContentController: NSViewController {
         archivedNoticeBar.isHidden = true
         container.addSubview(archivedNoticeBar)
 
-        logPane = buildLogPane()
-        logPane.translatesAutoresizingMaskIntoConstraints = false
-        logPane.isHidden = true
-        container.addSubview(logPane)
-
         scrollTopToArchivedNoticeConstraint = scrollView.topAnchor.constraint(equalTo: archivedNoticeBar.bottomAnchor)
         scrollTopToContainerConstraint = scrollView.topAnchor.constraint(equalTo: container.topAnchor)
 
@@ -204,11 +195,6 @@ final class ContentController: NSViewController {
             screenshotActionBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             screenshotActionBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             screenshotActionBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            logPane.topAnchor.constraint(equalTo: container.topAnchor),
-            logPane.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            logPane.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            logPane.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         screenshotActionBarHeightConstraint = screenshotActionBar.heightAnchor.constraint(equalToConstant: 0)
         screenshotActionBarHeightConstraint.isActive = true
@@ -252,12 +238,6 @@ final class ContentController: NSViewController {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(logDidUpdate),
-            name: .librarianLogUpdated,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
             selector: #selector(galleryZoomChanged),
             name: .librarianGalleryZoomChanged,
             object: nil
@@ -296,21 +276,13 @@ final class ContentController: NSViewController {
                 || selectedSidebarKind() != lastLoadedSidebarKind
             loadAssetsIfNeeded(force: shouldForceReload)
         }
-        refreshTaskAndLogPanes()
         updateOverlay()
     }
 
     @objc private func sidebarSelectionChanged() {
         AppLog.shared.info("Sidebar selection: \(selectedSidebarKind().debugName)")
         loadAssetsIfNeeded(force: true)
-        refreshTaskAndLogPanes()
         updateOverlay()
-    }
-
-    @objc private func logDidUpdate() {
-        if selectedSidebarKind() == .log {
-            refreshLogPane()
-        }
     }
 
     @objc private func galleryZoomChanged() {
@@ -339,7 +311,7 @@ final class ContentController: NSViewController {
             guard model.photosAuthState == .authorized else { return }
         }
 
-        if sidebarKind == .indexing || sidebarKind == .log {
+        if sidebarKind == .indexing {
             loadGeneration &+= 1
             canLoadMoreAssets = false
             isLoadingAssets = false
@@ -428,7 +400,7 @@ final class ContentController: NSViewController {
             case .accidental:
                 let rows = (try? database.assetRepository.fetchAccidentalForGrid(limit: pageSize, offset: offset)) ?? []
                 assets = rows.map { .photos($0) }
-            case .indexing, .log:
+            case .indexing:
                 assets = []
             }
             DispatchQueue.main.async {
@@ -515,7 +487,7 @@ final class ContentController: NSViewController {
         guard canLoadMoreAssets else { return }
 
         let sidebarKind = selectedSidebarKind()
-        guard sidebarKind != .indexing, sidebarKind != .log else { return }
+        guard sidebarKind != .indexing else { return }
         guard shouldLoadNextPageForCurrentScrollPosition() else { return }
 
         fetchPage(sidebarKind: sidebarKind, offset: displayAssets.count, replaceExisting: false)
@@ -538,15 +510,12 @@ final class ContentController: NSViewController {
             if isLoadingAssets, displayAssets.isEmpty {
                 showPlaceholder(.loading(title: "Loading", symbolName: symbolName(for: sidebarKind)))
                 collectionView.isHidden = true
-                logPane.isHidden = true
             } else if !displayAssets.isEmpty {
                 hidePlaceholder()
                 collectionView.isHidden = false
-                logPane.isHidden = true
             } else {
                 showPlaceholder(emptyContent(for: sidebarKind))
                 collectionView.isHidden = true
-                logPane.isHidden = true
             }
             updateArchivedNoticeBarState()
             updateScreenshotActionBarState()
@@ -557,52 +526,38 @@ final class ContentController: NSViewController {
         case .notDetermined:
             showPlaceholder(.loading(title: "Requesting Access", symbolName: "key.fill"))
             collectionView.isHidden = true
-            logPane.isHidden = true
         case .denied, .restricted:
             showPlaceholder(.unavailable(
                 title: "Access Required",
                 symbolName: "lock.fill",
                 description: "Open System Settings to grant Librarian access to your photo library."))
             collectionView.isHidden = true
-            logPane.isHidden = true
         case .limited:
             showPlaceholder(.unavailable(
                 title: "Full Access Required",
                 symbolName: "lock.trianglebadge.exclamationmark.fill",
                 description: "Librarian requires full access to your photo library. Please update your privacy settings."))
             collectionView.isHidden = true
-            logPane.isHidden = true
         case .authorized:
-            if sidebarKind == .log {
-                hidePlaceholder()
-                collectionView.isHidden = true
-                logPane.isHidden = false
-                refreshLogPane()
-            } else if sidebarKind == .indexing {
+            if sidebarKind == .indexing {
                 showPlaceholder(.loading(title: "Indexing", symbolName: "arrow.triangle.2.circlepath"))
                 collectionView.isHidden = true
-                logPane.isHidden = true
             } else if model.isIndexing, displayAssets.isEmpty {
                 showPlaceholder(.loading(title: "Indexing", symbolName: "arrow.triangle.2.circlepath"))
                 collectionView.isHidden = true
-                logPane.isHidden = true
             } else if isLoadingAssets, displayAssets.isEmpty {
                 showPlaceholder(.loading(title: "Loading", symbolName: symbolName(for: sidebarKind)))
                 collectionView.isHidden = true
-                logPane.isHidden = true
             } else if !displayAssets.isEmpty {
                 hidePlaceholder()
                 collectionView.isHidden = false
-                logPane.isHidden = true
             } else {
                 showPlaceholder(emptyContent(for: sidebarKind))
                 collectionView.isHidden = true
-                logPane.isHidden = true
             }
             updateScreenshotActionBarState()
         @unknown default:
             hidePlaceholder()
-            logPane.isHidden = true
             updateScreenshotActionBarState()
         }
         updateArchivedNoticeBarState()
@@ -631,7 +586,6 @@ final class ContentController: NSViewController {
         case .receiptsAndDocuments: return "doc.text"
         case .whatsapp: return "message"
         case .accidental: return "photo.badge.exclamationmark"
-        case .log: return "list.bullet.rectangle"
         case .indexing: return "arrow.triangle.2.circlepath"
         }
     }
@@ -686,8 +640,8 @@ final class ContentController: NSViewController {
             return .unavailable(title: "No WhatsApp Media", symbolName: "message", description: "No WhatsApp media found.")
         case .accidental:
             return .unavailable(title: "No Accidental Captures", symbolName: "photo.badge.exclamationmark", description: "No accidental captures found.")
-        case .log, .indexing:
-            return .unavailable(title: "No Log Entries", symbolName: "list.bullet.rectangle", description: "Activity will appear here.")
+        case .indexing:
+            return .unavailable(title: "Indexing", symbolName: "arrow.triangle.2.circlepath", description: "")
         }
     }
 
@@ -934,71 +888,6 @@ final class ContentController: NSViewController {
         archivedNoticeDismissButton.isEnabled = !isOrganizingArchivedFiles
     }
 
-    private func buildLogPane() -> NSView {
-        let pane = NSView()
-
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-
-        logTextView = NSTextView()
-        logTextView.isEditable = false
-        logTextView.isRichText = false
-        logTextView.isVerticallyResizable = true
-        logTextView.isHorizontallyResizable = false
-        logTextView.autoresizingMask = [.width]
-        logTextView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        logTextView.backgroundColor = .clear
-        logTextView.textColor = .labelColor
-        logTextView.textContainer?.widthTracksTextView = true
-        scroll.documentView = logTextView
-        pane.addSubview(scroll)
-
-        let logPlaceholderHost = NSHostingController(rootView: GalleryPlaceholderView(viewModel: logPlaceholderViewModel))
-        logPlaceholderHost.sizingOptions = []
-        addChild(logPlaceholderHost)
-        let lpView = logPlaceholderHost.view
-        lpView.translatesAutoresizingMaskIntoConstraints = false
-        lpView.isHidden = true
-        pane.addSubview(lpView)
-        logPlaceholderHostingView = lpView
-
-        NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: pane.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: pane.bottomAnchor),
-
-            lpView.topAnchor.constraint(equalTo: pane.topAnchor),
-            lpView.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
-            lpView.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
-            lpView.bottomAnchor.constraint(equalTo: pane.bottomAnchor),
-        ])
-
-        return pane
-    }
-
-    private func refreshTaskAndLogPanes() {
-        if selectedSidebarKind() == .log {
-            refreshLogPane()
-        }
-    }
-
-    private func refreshLogPane() {
-        let text = AppLog.shared.readRecentLines(maxLines: 800)
-        logTextView.string = text
-        logTextView.sizeToFit()
-        let isEmpty = text.isEmpty
-        logTextView.enclosingScrollView?.isHidden = isEmpty
-        logPlaceholderHostingView?.isHidden = !isEmpty
-        logPlaceholderViewModel.content = isEmpty ? .unavailable(
-            title: "No Log Entries",
-            symbolName: "list.bullet.rectangle",
-            description: "Activity will appear here.") : nil
-    }
-
     func openSelectionInPhotos() {
         guard let selectedIndex = collectionView.selectionIndexPaths.first?.item,
               selectedIndex >= 0,
@@ -1141,13 +1030,14 @@ final class ContentController: NSViewController {
         alert.runSheetOrModal(for: view.window) { _ in }
     }
 
-    @objc private func markScreenshotsKeep() {
-        let kind = selectedSidebarKind()
+    func keepSelectedAssets() {
+        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
         let identifiers = selectedAssetIdentifiers()
         guard !identifiers.isEmpty else { return }
         do {
-            try model.database.assetRepository.keepAssetsInQueue(identifiers, queueKind: kind.debugName)
-            AppLog.shared.info("Kept \(identifiers.count) items in queue '\(kind.debugName)'")
+            try model.database.assetRepository.keepAssetsInQueue(identifiers, queueKind: keepKind)
+            AppLog.shared.info("Kept \(identifiers.count) items in queue '\(keepKind)'")
+            model.setStatusMessage("Kept \(identifiers.count) photos.", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
             loadAssetsIfNeeded(force: true)
@@ -1155,6 +1045,44 @@ final class ContentController: NSViewController {
             AppLog.shared.error("Failed to keep assets in queue: \(error.localizedDescription)")
         }
         updateScreenshotActionBarState()
+    }
+
+    func resetSelectedAssetsDecision() {
+        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
+        let identifiers = selectedAssetIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.database.assetRepository.removeKeepDecisions(for: identifiers, queueKind: keepKind)
+            AppLog.shared.info("Reset decisions for \(identifiers.count) items in queue '\(keepKind)'")
+            model.setStatusMessage("Reset \(identifiers.count) decisions.", autoClearAfterSuccess: true)
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+        } catch {
+            AppLog.shared.error("Failed to reset keep decisions: \(error.localizedDescription)")
+        }
+    }
+
+    var hasSelectedArchiveItems: Bool {
+        !selectedArchiveURLs().isEmpty
+    }
+
+    func revealArchiveSelectionInFinder() {
+        let urls = selectedArchiveURLs()
+        guard !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    private func selectedArchiveURLs() -> [URL] {
+        collectionView.selectionIndexPaths
+            .map(\.item)
+            .filter { $0 >= 0 && $0 < displayAssets.count }
+            .compactMap { displayAssets[$0].archivedItem }
+            .map { URL(fileURLWithPath: $0.absolutePath) }
+    }
+
+    @objc private func markScreenshotsKeep() {
+        keepSelectedAssets()
     }
 
     @objc private func markScreenshotsArchiveCandidate() {
@@ -1289,12 +1217,20 @@ final class ContentController: NSViewController {
         switch kind {
         case .setAsideForArchive:
             menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Send to Archive…",
+                action: #selector(sendSelectedToArchiveFromContextMenu(_:)),
+                target: self,
+                symbolName: "archivebox",
+                isEnabled: hasPhotoTargets && !model.isSendingArchive
+            ))
+            menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Put Back",
                 action: #selector(putBackFromContextMenu(_:)),
                 target: self,
                 symbolName: "arrow.uturn.left.circle",
                 isEnabled: hasPhotoTargets
             ))
+            menu.addItem(.separator())
             menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Open in Photos",
                 action: #selector(openInPhotosFromContextMenu(_:)),
@@ -1302,13 +1238,12 @@ final class ContentController: NSViewController {
                 symbolName: "photo",
                 isEnabled: hasPhotoTargets
             ))
-            menu.addItem(.separator())
             menu.addItem(ContextMenuSupport.makeMenuItem(
-                title: "Send Selected to Archive",
-                action: #selector(sendSelectedToArchiveFromContextMenu(_:)),
+                title: "Quick Look",
+                action: #selector(quickLookFromContextMenu(_:)),
                 target: self,
-                symbolName: "archivebox",
-                isEnabled: hasPhotoTargets && !model.isSendingArchive
+                symbolName: "eye",
+                isEnabled: hasPhotoTargets
             ))
 
         case .archived:
@@ -1319,8 +1254,61 @@ final class ContentController: NSViewController {
                 symbolName: "folder",
                 isEnabled: hasArchiveTargets
             ))
+            menu.addItem(.separator())
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Open in Photos",
+                action: #selector(openInPhotosFromContextMenu(_:)),
+                target: self,
+                symbolName: "photo",
+                isEnabled: false
+            ))
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Quick Look",
+                action: #selector(quickLookFromContextMenu(_:)),
+                target: self,
+                symbolName: "eye",
+                isEnabled: hasArchiveTargets
+            ))
 
-        case .allPhotos, .recents, .favourites, .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
+        case .allPhotos, .recents, .favourites:
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Keep",
+                action: #selector(keepFromContextMenu(_:)),
+                target: self,
+                symbolName: "checkmark.circle",
+                isEnabled: false
+            ))
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Set Aside",
+                action: #selector(setAsideFromContextMenu(_:)),
+                target: self,
+                symbolName: "tray.and.arrow.down",
+                isEnabled: hasPhotoTargets && !model.isSendingArchive
+            ))
+            menu.addItem(.separator())
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Open in Photos",
+                action: #selector(openInPhotosFromContextMenu(_:)),
+                target: self,
+                symbolName: "photo",
+                isEnabled: hasPhotoTargets
+            ))
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Quick Look",
+                action: #selector(quickLookFromContextMenu(_:)),
+                target: self,
+                symbolName: "eye",
+                isEnabled: hasPhotoTargets
+            ))
+
+        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Keep",
+                action: #selector(keepFromContextMenu(_:)),
+                target: self,
+                symbolName: "checkmark.circle",
+                isEnabled: hasPhotoTargets
+            ))
             menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Set Aside",
                 action: #selector(setAsideFromContextMenu(_:)),
@@ -1329,14 +1317,29 @@ final class ContentController: NSViewController {
                 isEnabled: hasPhotoTargets && !model.isSendingArchive
             ))
             menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Reset Decision",
+                action: #selector(resetDecisionFromContextMenu(_:)),
+                target: self,
+                symbolName: "arrow.counterclockwise",
+                isEnabled: hasPhotoTargets
+            ))
+            menu.addItem(.separator())
+            menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Open in Photos",
                 action: #selector(openInPhotosFromContextMenu(_:)),
                 target: self,
                 symbolName: "photo",
                 isEnabled: hasPhotoTargets
             ))
+            menu.addItem(ContextMenuSupport.makeMenuItem(
+                title: "Quick Look",
+                action: #selector(quickLookFromContextMenu(_:)),
+                target: self,
+                symbolName: "eye",
+                isEnabled: hasPhotoTargets
+            ))
 
-        case .indexing, .log:
+        case .indexing:
             return nil
         }
 
@@ -1402,6 +1405,46 @@ final class ContentController: NSViewController {
         let urls = contextMenuArchiveURLs()
         guard !urls.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    @objc
+    private func keepFromContextMenu(_: Any?) {
+        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
+        let identifiers = contextMenuPhotoIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.database.assetRepository.keepAssetsInQueue(identifiers, queueKind: keepKind)
+            AppLog.shared.info("Kept \(identifiers.count) items in queue '\(keepKind)'")
+            model.setStatusMessage("Kept \(identifiers.count) photos.", autoClearAfterSuccess: true)
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+        } catch {
+            AppLog.shared.error("Failed to keep assets in queue: \(error.localizedDescription)")
+        }
+        updateScreenshotActionBarState()
+    }
+
+    @objc
+    private func resetDecisionFromContextMenu(_: Any?) {
+        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
+        let identifiers = contextMenuPhotoIdentifiers()
+        guard !identifiers.isEmpty else { return }
+        do {
+            try model.database.assetRepository.removeKeepDecisions(for: identifiers, queueKind: keepKind)
+            AppLog.shared.info("Reset decisions for \(identifiers.count) items in queue '\(keepKind)'")
+            model.setStatusMessage("Reset \(identifiers.count) decisions.", autoClearAfterSuccess: true)
+            collectionView.deselectAll(nil)
+            model.setSelectedAsset(nil)
+            loadAssetsIfNeeded(force: true)
+        } catch {
+            AppLog.shared.error("Failed to reset keep decisions: \(error.localizedDescription)")
+        }
+    }
+
+    @objc
+    private func quickLookFromContextMenu(_: Any?) {
+        quickLookSelection()
     }
 
     @objc

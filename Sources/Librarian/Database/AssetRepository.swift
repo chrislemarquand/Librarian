@@ -736,7 +736,7 @@ final class AssetRepository: @unchecked Sendable {
                 """) ?? 0
             case .archived:
                 return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM archived_item") ?? 0
-            case .indexing, .log:
+            case .indexing:
                 return 0
             }
         }
@@ -810,6 +810,18 @@ final class AssetRepository: @unchecked Sendable {
                         ON CONFLICT(assetLocalIdentifier, queueKind) DO UPDATE SET decidedAt = excluded.decidedAt
                     """,
                     arguments: [identifier, queueKind, date]
+                )
+            }
+        }
+    }
+
+    func removeKeepDecisions(for identifiers: [String], queueKind: String) throws {
+        guard !identifiers.isEmpty else { return }
+        try db.write { db in
+            for identifier in identifiers {
+                try db.execute(
+                    sql: "DELETE FROM queue_keep_decision WHERE assetLocalIdentifier = ? AND queueKind = ?",
+                    arguments: [identifier, queueKind]
                 )
             }
         }

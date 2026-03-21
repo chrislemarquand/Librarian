@@ -48,6 +48,10 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             self?.model.setSelectedSidebarItem(item)
         }
 
+        sc.menuProvider = { [weak self] item in
+            self?.sidebarContextMenu(for: item)
+        }
+
         onPaneStateChanged = { [weak self] in
             guard let self else { return }
             self.model.isInspectorCollapsed = self.isInspectorCollapsed
@@ -72,7 +76,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         inspectorKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 34, modifiers == [.command, .control] else { return event } // ⌘⌃I
+            guard event.keyCode == 34, modifiers == [.command, .option] else { return event } // ⌘⌥I
             self.toggleInspector(nil)
             return nil
         }
@@ -306,7 +310,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         let count = (try? model.database.assetRepository.countForSidebarKind(kind)) ?? 0
         let text: String
         switch kind {
-        case .log, .indexing:
+        case .indexing:
             text = ""
         case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots, .whatsapp, .accidental:
             text = count == 1 ? "1 item" : "\(count.formatted()) items"
@@ -382,6 +386,128 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         toolbarDelegate.refresh(model: model)
     }
 
+    @objc func keepSelectionAction(_ sender: Any?) {
+        contentController.keepSelectedAssets()
+        toolbarDelegate.refresh(model: model)
+    }
+
+    @objc func resetDecisionAction(_ sender: Any?) {
+        contentController.resetSelectedAssetsDecision()
+        toolbarDelegate.refresh(model: model)
+    }
+
+    @objc func revealSelectionInFinderAction(_ sender: Any?) {
+        contentController.revealArchiveSelectionInFinder()
+    }
+
+    @objc func setArchiveLocationAction(_ sender: Any?) {
+        guard let chosen = promptForArchiveRoot() else { return }
+        _ = model.updateArchiveRoot(chosen)
+    }
+
+    // MARK: - Sidebar context menus
+
+    private func sidebarContextMenu(for item: SidebarItem) -> NSMenu? {
+        switch item.kind {
+        case .allPhotos, .recents, .favourites, .indexing:
+            return nil
+
+        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
+            guard let keepKind = item.keepDecisionKind else { return nil }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let resetItem = NSMenuItem(
+                title: "Reset All Decisions…",
+                action: #selector(resetAllDecisionsForQueueAction(_:)),
+                keyEquivalent: ""
+            )
+            resetItem.representedObject = keepKind
+            resetItem.target = self
+            resetItem.isEnabled = true
+            menu.addItem(resetItem)
+            return menu
+
+        case .setAsideForArchive:
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let hasCandidates = model.pendingArchiveCandidateCount > 0
+            let sendItem = NSMenuItem(
+                title: "Send All to Archive…",
+                action: #selector(sendToArchiveAction(_:)),
+                keyEquivalent: ""
+            )
+            sendItem.target = self
+            sendItem.isEnabled = hasCandidates && !model.isSendingArchive
+            menu.addItem(sendItem)
+            let clearItem = NSMenuItem(
+                title: "Clear Set Aside…",
+                action: #selector(clearSetAsideAction(_:)),
+                keyEquivalent: ""
+            )
+            clearItem.target = self
+            clearItem.isEnabled = hasCandidates && !model.isSendingArchive
+            menu.addItem(clearItem)
+            return menu
+
+        case .archived:
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let revealItem = NSMenuItem(
+                title: "Open Archive Folder in Finder",
+                action: #selector(openArchiveFolderInFinderAction(_:)),
+                keyEquivalent: ""
+            )
+            revealItem.target = self
+            revealItem.isEnabled = model.archiveRootURL != nil
+            menu.addItem(revealItem)
+            return menu
+        }
+    }
+
+    @objc private func resetAllDecisionsForQueueAction(_ sender: NSMenuItem) {
+        guard let keepKind = sender.representedObject as? String else { return }
+        let alert = NSAlert()
+        alert.messageText = "Reset All Decisions?"
+        alert.informativeText = "All keep decisions for this queue will be cleared. Photos will reappear as unreviewed."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        alert.runSheetOrModal(for: view.window) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn else { return }
+            do {
+                try self.model.database.assetRepository.clearKeepDecisions(for: keepKind)
+                self.contentController.refreshDisplayedAssets()
+            } catch {
+                self.showArchiveAlert(title: "Reset Failed", message: error.localizedDescription)
+            }
+        }
+    }
+
+    @objc private func clearSetAsideAction(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Clear Set Aside?"
+        alert.informativeText = "All photos in Set Aside will be returned to their queues."
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+        alert.runSheetOrModal(for: view.window) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn else { return }
+            do {
+                let identifiers = try self.model.database.assetRepository
+                    .fetchArchiveCandidateIdentifiers(statuses: [.pending, .failed])
+                guard !identifiers.isEmpty else { return }
+                try self.model.unqueueAssetsForArchive(localIdentifiers: identifiers)
+                self.contentController.refreshDisplayedAssets()
+                self.toolbarDelegate.refresh(model: self.model)
+            } catch {
+                self.showArchiveAlert(title: "Clear Set Aside Failed", message: error.localizedDescription)
+            }
+        }
+    }
+
+    @objc private func openArchiveFolderInFinderAction(_ sender: Any?) {
+        guard let url = model.archiveRootURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     @objc func addPhotosToArchiveAction(_ sender: Any?) {
         archiveImportSheetPresenter?.present(mode: .pathAUserPick)
     }
@@ -419,7 +545,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
              .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
             return true
-        case .indexing, .log:
+        case .indexing:
             return false
         }
     }
@@ -437,6 +563,18 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         model.selectedSidebarItem?.kind == .setAsideForArchive
             && model.failedArchiveCandidateCount > 0
             && !model.isSendingArchive
+    }
+
+    var canKeepSelection: Bool {
+        model.selectedSidebarItem?.keepDecisionKind != nil && contentController.hasSelectedAssets
+    }
+
+    var canResetDecision: Bool {
+        model.selectedSidebarItem?.keepDecisionKind != nil && contentController.hasSelectedAssets
+    }
+
+    var canRevealInFinder: Bool {
+        model.selectedSidebarItem?.kind == .archived && contentController.hasSelectedArchiveItems
     }
 
     private func installKeyboardParityMonitorIfNeeded() {
@@ -461,13 +599,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             if event.charactersIgnoringModifiers == "a", modifiers == [.command] {
                 self.contentController.selectAllVisibleAssets()
                 self.toolbarDelegate.refresh(model: self.model)
-                return nil
-            }
-
-            if (event.keyCode == KeyCode.delete || event.keyCode == KeyCode.forwardDelete),
-               modifiers == [.command, .option],
-               (self.canPutBackSelection || self.canPutBackFailedItems) {
-                self.putBackSelectionAction(nil)
                 return nil
             }
 
@@ -649,6 +780,30 @@ extension MainSplitViewController {
             return canPutBackSelection || canPutBackFailedItems
         }
         if item.action == #selector(selectAll(_:)) {
+            return isGallerySidebarSelection
+        }
+        if item.action == #selector(keepSelectionAction(_:)) {
+            return canKeepSelection
+        }
+        if item.action == #selector(setAsideSelectionAction(_:)) {
+            return canSetAsideSelection
+        }
+        if item.action == #selector(resetDecisionAction(_:)) {
+            return canResetDecision
+        }
+        if item.action == #selector(revealSelectionInFinderAction(_:)) {
+            return canRevealInFinder
+        }
+        if item.action == #selector(sendToArchiveAction(_:)) {
+            return model.pendingArchiveCandidateCount > 0 && !model.isSendingArchive
+        }
+        if item.action == #selector(openSelectionInPhotos(_:)) {
+            return isGallerySidebarSelection && contentController.hasSelectedAssets
+        }
+        if item.action == #selector(quickLookSelectionAction(_:)) {
+            return isGallerySidebarSelection && contentController.hasSelectedAssets
+        }
+        if item.action == #selector(zoomInAction(_:)) || item.action == #selector(zoomOutAction(_:)) {
             return isGallerySidebarSelection
         }
         return super.validateUserInterfaceItem(item)

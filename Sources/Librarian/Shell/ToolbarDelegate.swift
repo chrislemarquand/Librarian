@@ -229,7 +229,7 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
         case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
              .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
             isGalleryContext = true
-        case .indexing, .log:
+        case .indexing:
             isGalleryContext = false
         }
         zoomOutItem?.isEnabled = isGalleryContext && model.canDecreaseGalleryZoom

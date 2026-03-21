@@ -7,7 +7,6 @@ enum SidebarSection: String, CaseIterable, AppKitSidebarSectionType {
     case library = "Library"
     case queues  = "Boxes"
     case archive = "Archive"
-    case tasks   = "Tasks"
 
     var title: String { rawValue }
 }
@@ -26,7 +25,6 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         case whatsapp
         case accidental
         case indexing
-        case log
     }
 
     let section: SidebarSection
@@ -51,7 +49,6 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         SidebarItem(section: .queues,  kind: .accidental,           title: "Accidental",  symbolName: "photo.badge.exclamationmark", badgeText: nil, keepDecisionKind: "accidental"),
         SidebarItem(section: .archive, kind: .setAsideForArchive,   title: "Set Aside",   symbolName: "tray.full",                 badgeText: nil),
         SidebarItem(section: .archive, kind: .archived,             title: "Archive",     symbolName: "archivebox",                badgeText: nil),
-        SidebarItem(section: .tasks,   kind: .log,                  title: "Log",         symbolName: "list.bullet.rectangle",     badgeText: nil),
     ]
 
     static var allItems: [SidebarItem] { baseItems }
@@ -76,7 +73,6 @@ extension SidebarItem.Kind {
         case .whatsapp: return "whatsapp"
         case .accidental: return "accidental"
         case .indexing: return "indexing"
-        case .log: return "log"
         }
     }
 }

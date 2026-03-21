@@ -170,37 +170,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
         fileItem.submenu = fileMenu
-        let setAsideItem = NSMenuItem(title: "Set Aside Selection", action: #selector(MainSplitViewController.setAsideSelectionAction(_:)), keyEquivalent: "a")
-        setAsideItem.keyEquivalentModifierMask = [.command, .option]
-        fileMenu.addItem(setAsideItem)
-        let putBackItem = NSMenuItem(title: "Put Back from Set Aside", action: #selector(MainSplitViewController.putBackSelectionAction(_:)), keyEquivalent: "\u{8}")
-        putBackItem.keyEquivalentModifierMask = [.command, .option]
-        fileMenu.addItem(putBackItem)
-        let sendToArchiveItem = NSMenuItem(title: "Send to Archive", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "a")
-        sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
-        fileMenu.addItem(sendToArchiveItem)
         fileMenu.addItem(NSMenuItem(title: "Import Photos into Archive…", action: #selector(MainSplitViewController.addPhotosToArchiveAction(_:)), keyEquivalent: ""))
+        fileMenu.addItem(NSMenuItem(title: "Set Archive Location…", action: #selector(MainSplitViewController.setArchiveLocationAction(_:)), keyEquivalent: ""))
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o"))
+        let revealItem = NSMenuItem(title: "Reveal in Finder", action: #selector(MainSplitViewController.revealSelectionInFinderAction(_:)), keyEquivalent: "r")
+        revealItem.keyEquivalentModifierMask = [.command, .option]
+        fileMenu.addItem(revealItem)
         let quickLookItem = NSMenuItem(title: "Quick Look", action: #selector(MainSplitViewController.quickLookSelectionAction(_:)), keyEquivalent: "y")
         quickLookItem.keyEquivalentModifierMask = .command
         fileMenu.addItem(quickLookItem)
-        fileMenu.addItem(.separator())
-        fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+
+        // Edit menu
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editItem.submenu = editMenu
+        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector("undo:"), keyEquivalent: "z"))
+        let redoItem = NSMenuItem(title: "Redo", action: Selector("redo:"), keyEquivalent: "z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redoItem)
+        editMenu.addItem(.separator())
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a"))
+
+        // Photo menu
+        let photoItem = NSMenuItem(title: "Photo", action: nil, keyEquivalent: "")
+        mainMenu.addItem(photoItem)
+        let photoMenu = NSMenu(title: "Photo")
+        photoItem.submenu = photoMenu
+        photoMenu.addItem(NSMenuItem(title: "Keep", action: #selector(MainSplitViewController.keepSelectionAction(_:)), keyEquivalent: "k"))
+        let setAsideItem = NSMenuItem(title: "Set Aside", action: #selector(MainSplitViewController.setAsideSelectionAction(_:)), keyEquivalent: "d")
+        photoMenu.addItem(setAsideItem)
+        let putBackItem = NSMenuItem(title: "Put Back", action: #selector(MainSplitViewController.putBackSelectionAction(_:)), keyEquivalent: "d")
+        putBackItem.keyEquivalentModifierMask = [.command, .option]
+        photoMenu.addItem(putBackItem)
+        let resetItem = NSMenuItem(title: "Reset Decision", action: #selector(MainSplitViewController.resetDecisionAction(_:)), keyEquivalent: "\u{8}")
+        resetItem.keyEquivalentModifierMask = .command
+        photoMenu.addItem(resetItem)
+        photoMenu.addItem(.separator())
+        let sendToArchiveItem = NSMenuItem(title: "Send Selected to Archive…", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "s")
+        sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        photoMenu.addItem(sendToArchiveItem)
 
         // View menu
         let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
         mainMenu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewItem.submenu = viewMenu
+        let zoomInItem = NSMenuItem(title: "Zoom In", action: #selector(MainSplitViewController.zoomInAction(_:)), keyEquivalent: "+")
+        zoomInItem.keyEquivalentModifierMask = .command
+        viewMenu.addItem(zoomInItem)
+        let zoomOutItem = NSMenuItem(title: "Zoom Out", action: #selector(MainSplitViewController.zoomOutAction(_:)), keyEquivalent: "-")
+        zoomOutItem.keyEquivalentModifierMask = .command
+        viewMenu.addItem(zoomOutItem)
+        viewMenu.addItem(.separator())
         let toggleSidebarItem = NSMenuItem(title: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
-        toggleSidebarItem.keyEquivalentModifierMask = [.command, .control]
+        toggleSidebarItem.keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(toggleSidebarItem)
         let toggleInspectorItem = NSMenuItem(title: "Toggle Inspector", action: #selector(MainSplitViewController.toggleInspector(_:)), keyEquivalent: "i")
-        toggleInspectorItem.keyEquivalentModifierMask = [.command, .control]
+        toggleInspectorItem.keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(toggleInspectorItem)
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(NSMenuItem(title: "Refresh View", action: #selector(MainSplitViewController.refreshCurrentViewAction(_:)), keyEquivalent: "r"))
 
         // Window menu
         let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
