@@ -325,6 +325,42 @@ import Foundation
     #expect(resolved?.standardizedFileURL == parent.standardizedFileURL)
 }
 
+@Test func archiveRootResolutionIsNotConfiguredWithoutBookmark() {
+    let defaults = UserDefaults.standard
+    let bookmarkBackup = defaults.object(forKey: ArchiveSettings.bookmarkKey)
+    let archiveIDBackup = defaults.object(forKey: ArchiveSettings.archiveIDKey)
+    defer {
+        if let bookmarkBackup {
+            defaults.set(bookmarkBackup, forKey: ArchiveSettings.bookmarkKey)
+        } else {
+            defaults.removeObject(forKey: ArchiveSettings.bookmarkKey)
+        }
+        if let archiveIDBackup {
+            defaults.set(archiveIDBackup, forKey: ArchiveSettings.archiveIDKey)
+        } else {
+            defaults.removeObject(forKey: ArchiveSettings.archiveIDKey)
+        }
+    }
+
+    defaults.removeObject(forKey: ArchiveSettings.bookmarkKey)
+    defaults.removeObject(forKey: ArchiveSettings.archiveIDKey)
+
+    let resolution = ArchiveSettings.currentArchiveRootResolution()
+    #expect(resolution.rootURL == nil)
+    #expect(resolution.availability == .notConfigured)
+}
+
+@Test func archiveRootResolutionMarksMissingArchiveFolderAsUnavailable() throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-resolution-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fm.removeItem(at: root) }
+
+    try fm.createDirectory(at: root, withIntermediateDirectories: true)
+    let resolution = ArchiveSettings.archiveRootResolution(for: root)
+    #expect(resolution.rootURL?.standardizedFileURL == root.standardizedFileURL)
+    #expect(resolution.availability == .unavailable)
+}
+
 @Test @MainActor func archiveImportFlowIsBlockedWhenLibraryBindingRequiresResolution() async throws {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-gate-import-\(UUID().uuidString)", isDirectory: true)
