@@ -385,11 +385,11 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     private func resolveOrPromptArchiveRoot() -> URL? {
-        if let existing = ArchiveSettings.restoreArchiveRootURL() {
-            let availability = ArchiveSettings.archiveRootAvailability(for: existing)
-            if availability == .available {
-                return existing
-            }
+        let availability = model.refreshArchiveRootAvailability()
+        if availability == .available, let existing = model.archiveRootURL {
+            return existing
+        }
+        if availability != .notConfigured {
             showArchiveAlert(
                 title: "Archive Unavailable",
                 message: "\(availability.userVisibleDescription) Choose a new archive destination."
@@ -475,7 +475,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 extension MainSplitViewController {
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(addPhotosToArchiveAction(_:)) {
-            return !model.isImportingArchive && ArchiveSettings.restoreArchiveRootURL() != nil
+            return !model.isImportingArchive && model.archiveRootURL != nil
         }
         return super.validateUserInterfaceItem(item)
     }

@@ -30,6 +30,13 @@ enum AppBrand {
 }
 
 enum ArchiveSettings {
+    struct ArchiveRootResolution: Equatable {
+        let rootURL: URL?
+        let availability: ArchiveRootAvailability
+
+        var isAvailable: Bool { availability == .available }
+    }
+
     enum ArchiveRootAvailability: Equatable {
         case notConfigured
         case available
@@ -375,13 +382,33 @@ enum ArchiveSettings {
     }
 
     static func currentArchiveTreeRootURL() -> URL? {
-        guard let root = restoreArchiveRootURL() else { return nil }
+        let resolution = currentArchiveRootResolution()
+        guard let root = resolution.rootURL else { return nil }
         return archiveTreeRootURL(from: root)
     }
 
     static func currentArchiveRootAvailability() -> ArchiveRootAvailability {
-        guard let rootURL = restoreArchiveRootURL() else { return .notConfigured }
-        return archiveRootAvailability(for: rootURL)
+        currentArchiveRootResolution().availability
+    }
+
+    static func currentArchiveRootResolution() -> ArchiveRootResolution {
+        guard let rootURL = restoreArchiveRootURL() else {
+            return ArchiveRootResolution(rootURL: nil, availability: .notConfigured)
+        }
+        return ArchiveRootResolution(
+            rootURL: rootURL,
+            availability: archiveRootAvailability(for: rootURL)
+        )
+    }
+
+    static func archiveRootResolution(for rootURL: URL?) -> ArchiveRootResolution {
+        guard let rootURL else {
+            return ArchiveRootResolution(rootURL: nil, availability: .notConfigured)
+        }
+        return ArchiveRootResolution(
+            rootURL: rootURL,
+            availability: archiveRootAvailability(for: rootURL)
+        )
     }
 
     static func currentPhotoLibraryFingerprint() throws -> PhotoLibraryFingerprint {
@@ -519,7 +546,7 @@ final class AppModel: ObservableObject {
     @Published var activeInspectorFieldCatalog: [InspectorFieldCatalogEntry] = AppModel.defaultInspectorFieldCatalog()
     @Published var indexingProgress: IndexingProgress = .idle
     @Published var archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability = .notConfigured
-    @Published var archiveRootURL: URL? = ArchiveSettings.restoreArchiveRootURL()
+    @Published var archiveRootURL: URL? = ArchiveSettings.currentArchiveRootResolution().rootURL
     @Published var currentSystemPhotoLibraryPath: String?
     @Published var currentSystemPhotoLibraryFingerprint: String?
     @Published var latestArchiveLibraryBindingEvaluation: ArchiveLibraryBindingEvaluation?
@@ -780,9 +807,10 @@ final class AppModel: ObservableObject {
     @discardableResult
     func refreshArchiveRootAvailability() -> ArchiveSettings.ArchiveRootAvailability {
         let previous = archiveRootAvailability
-        let current = ArchiveSettings.currentArchiveRootAvailability()
+        let resolution = ArchiveSettings.currentArchiveRootResolution()
+        let current = resolution.availability
         archiveRootAvailability = current
-        archiveRootURL = ArchiveSettings.restoreArchiveRootURL()
+        archiveRootURL = resolution.rootURL
         if previous != current {
             AppLog.shared.info("Archive root availability changed: \(String(describing: previous)) -> \(String(describing: current))")
         }
@@ -1198,7 +1226,10 @@ final class AppModel: ObservableObject {
         for operation: ArchiveWriteOperation,
         preferredRootURL: URL? = nil
     ) -> ArchiveWriteGateDecision {
-        guard let archiveRoot = preferredRootURL ?? ArchiveSettings.restoreArchiveRootURL() else {
+        let rootResolution = preferredRootURL == nil
+            ? ArchiveSettings.currentArchiveRootResolution()
+            : ArchiveSettings.archiveRootResolution(for: preferredRootURL)
+        guard let archiveRoot = rootResolution.rootURL else {
             return ArchiveWriteGateDecision(
                 status: .error,
                 rootURL: nil,
@@ -1207,7 +1238,7 @@ final class AppModel: ObservableObject {
             )
         }
 
-        let availability = ArchiveSettings.archiveRootAvailability(for: archiveRoot)
+        let availability = rootResolution.availability
         guard availability == .available else {
             return ArchiveWriteGateDecision(
                 status: .error,
