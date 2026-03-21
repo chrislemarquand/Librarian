@@ -1674,29 +1674,49 @@ nonisolated private func shouldRetryWithoutExifTool(outputText: String) -> Bool 
 }
 
 nonisolated private func runOsxPhotos(arguments: [String]) -> (exitCode: Int32, outputText: String) {
+    let bundledExifTool = try? resolveBundledExifToolExecutable()
+    let processEnvironment = makeOsxPhotosEnvironment(exiftoolExecutableURL: bundledExifTool)
+
     if let bundledExecutable = try? resolveBundledOsxPhotosExecutable() {
-        let bundledResult = runProcess(executableURL: bundledExecutable, arguments: arguments)
+        let bundledResult = runProcess(
+            executableURL: bundledExecutable,
+            arguments: arguments,
+            environment: processEnvironment
+        )
         if bundledResult.exitCode != 0,
            isPyInstallerSemaphoreError(outputText: bundledResult.outputText),
            let externalExecutable = resolveExternalOsxPhotosExecutable() {
             logInfoAsync("Bundled osxphotos failed with sandboxed PyInstaller semaphore error. Retrying with external osxphotos at \(externalExecutable.path)")
-            return runProcess(executableURL: externalExecutable, arguments: arguments)
+            return runProcess(
+                executableURL: externalExecutable,
+                arguments: arguments,
+                environment: processEnvironment
+            )
         }
         return bundledResult
     }
 
     if let externalExecutable = resolveExternalOsxPhotosExecutable() {
         logInfoAsync("Bundled osxphotos executable not found. Using external osxphotos at \(externalExecutable.path)")
-        return runProcess(executableURL: externalExecutable, arguments: arguments)
+        return runProcess(
+            executableURL: externalExecutable,
+            arguments: arguments,
+            environment: processEnvironment
+        )
     }
 
     return (1, "Bundled osxphotos executable not found in app resources, and no external osxphotos executable was found.")
 }
 
-nonisolated private func runProcess(executableURL: URL, arguments: [String]) -> (exitCode: Int32, outputText: String) {
+nonisolated private func runProcess(
+    executableURL: URL,
+    arguments: [String],
+    environment: [String: String]? = nil
+) -> (exitCode: Int32, outputText: String) {
     let process = Process()
     process.executableURL = executableURL
     process.arguments = arguments
+    process.environment = environment
     let fileManager = FileManager.default
     let logURL = fileManager.temporaryDirectory
         .appendingPathComponent("librarian-osxphotos-\(UUID().uuidString).log", isDirectory: false)
@@ -1758,6 +1778,47 @@ nonisolated private func resolveBundledOsxPhotosExecutable() throws -> URL {
     throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 5, userInfo: [
         NSLocalizedDescriptionKey: "Bundled osxphotos executable not found in app resources."
     ])
+}
+
+nonisolated private func resolveBundledExifToolExecutable() throws -> URL {
+    let fm = FileManager.default
+    let bundle = Bundle.main
+
+    var candidates: [URL] = []
+    if let resourceRoot = bundle.resourceURL {
+        candidates.append(resourceRoot.appendingPathComponent("Tools/exiftool/bin/exiftool", isDirectory: false))
+        candidates.append(resourceRoot.appendingPathComponent("exiftool/bin/exiftool", isDirectory: false))
+    }
+
+    for url in candidates where fm.isExecutableFile(atPath: url.path) {
+        return url
+    }
+
+    throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 6, userInfo: [
+        NSLocalizedDescriptionKey: "Bundled exiftool executable not found in app resources."
+    ])
+}
+
+nonisolated private func makeOsxPhotosEnvironment(exiftoolExecutableURL: URL?) -> [String: String] {
+    var environment = ProcessInfo.processInfo.environment
+    guard let exiftoolExecutableURL else {
+        return environment
+    }
+
+    environment["EXIFTOOL_PATH"] = exiftoolExecutableURL.path
+
+    // Bundled exiftool is a Perl script that expects Image::ExifTool modules
+    // under a sibling "lib" folder.
+    let bundledLibPath = exiftoolExecutableURL
+        .deletingLastPathComponent()
+        .appendingPathComponent("lib", isDirectory: true)
+        .path
+    if FileManager.default.fileExists(atPath: bundledLibPath) {
+        let existing = environment["PERL5LIB"] ?? ""
+        environment["PERL5LIB"] = existing.isEmpty ? bundledLibPath : "\(bundledLibPath):\(existing)"
+    }
+
+    return environment
 }
 
 nonisolated private func resolveExternalOsxPhotosExecutable() -> URL? {
