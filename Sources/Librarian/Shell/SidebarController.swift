@@ -34,20 +34,24 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
     var title: String
     var symbolName: String
     var badgeText: String?
+    /// The database kind string used for keep-decision storage, if this item is a box.
+    /// Populate this for every `.queues` section item. `BoxesSettingsViewController`
+    /// uses it to auto-populate the reset rows — just fill it in when adding a new box.
+    var keepDecisionKind: String?
 
     static let baseItems: [SidebarItem] = [
-        SidebarItem(section: .library, kind: .allPhotos,             title: "All Photos",  symbolName: "photo.on.rectangle.angled", badgeText: nil),
-        SidebarItem(section: .library, kind: .recents,               title: "Recents",     symbolName: "clock", badgeText: nil),
-        SidebarItem(section: .library, kind: .favourites,            title: "Favourites",  symbolName: "heart", badgeText: nil),
-        SidebarItem(section: .queues,  kind: .screenshots,           title: "Screenshots", symbolName: "camera.viewfinder", badgeText: nil),
-        SidebarItem(section: .queues,  kind: .duplicates,            title: "Duplicates",  symbolName: "photo.on.rectangle", badgeText: nil),
-        SidebarItem(section: .queues,  kind: .lowQuality,            title: "Low Quality", symbolName: "wand.and.stars.inverse", badgeText: nil),
-        SidebarItem(section: .queues,  kind: .receiptsAndDocuments,  title: "Documents",   symbolName: "doc.text", badgeText: nil),
-        SidebarItem(section: .queues,  kind: .whatsapp,              title: "WhatsApp",    symbolName: "message", badgeText: nil),
-        SidebarItem(section: .queues,  kind: .accidental,            title: "Accidental",  symbolName: "photo.badge.exclamationmark", badgeText: nil),
-        SidebarItem(section: .archive, kind: .setAsideForArchive,    title: "Set Aside",   symbolName: "tray.full", badgeText: nil),
-        SidebarItem(section: .archive, kind: .archived,              title: "Archive",     symbolName: "archivebox", badgeText: nil),
-        SidebarItem(section: .tasks,   kind: .log,                   title: "Log",         symbolName: "list.bullet.rectangle", badgeText: nil),
+        SidebarItem(section: .library, kind: .allPhotos,            title: "All Photos",  symbolName: "photo.on.rectangle.angled", badgeText: nil),
+        SidebarItem(section: .library, kind: .recents,              title: "Recents",     symbolName: "clock",                     badgeText: nil),
+        SidebarItem(section: .library, kind: .favourites,           title: "Favourites",  symbolName: "heart",                     badgeText: nil),
+        SidebarItem(section: .queues,  kind: .screenshots,          title: "Screenshots", symbolName: "camera.viewfinder",         badgeText: nil, keepDecisionKind: "screenshots"),
+        SidebarItem(section: .queues,  kind: .duplicates,           title: "Duplicates",  symbolName: "photo.on.rectangle",        badgeText: nil, keepDecisionKind: "duplicates"),
+        SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality", symbolName: "wand.and.stars.inverse",    badgeText: nil, keepDecisionKind: "lowQuality"),
+        SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Documents",   symbolName: "doc.text",                  badgeText: nil, keepDecisionKind: "receiptsAndDocuments"),
+        SidebarItem(section: .queues,  kind: .whatsapp,             title: "WhatsApp",    symbolName: "message",                   badgeText: nil, keepDecisionKind: "whatsapp"),
+        SidebarItem(section: .queues,  kind: .accidental,           title: "Accidental",  symbolName: "photo.badge.exclamationmark", badgeText: nil, keepDecisionKind: "accidental"),
+        SidebarItem(section: .archive, kind: .setAsideForArchive,   title: "Set Aside",   symbolName: "tray.full",                 badgeText: nil),
+        SidebarItem(section: .archive, kind: .archived,             title: "Archive",     symbolName: "archivebox",                badgeText: nil),
+        SidebarItem(section: .tasks,   kind: .log,                  title: "Log",         symbolName: "list.bullet.rectangle",     badgeText: nil),
     ]
 
     static var allItems: [SidebarItem] { baseItems }
@@ -91,4 +95,5 @@ extension Notification.Name {
     static let librarianAnalysisStateChanged = Notification.Name("\(prefix).analysisStateChanged")
     static let librarianContentDataChanged = Notification.Name("\(prefix).contentDataChanged")
     static let librarianInspectorFieldsChanged = Notification.Name("\(prefix).inspectorFieldsChanged")
+    static let librarianArchiveNeedsRelink = Notification.Name("\(prefix).archiveNeedsRelink")
 }

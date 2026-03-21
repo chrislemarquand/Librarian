@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController = SettingsWindowController(tabs: [
             SettingsTabDescriptor(symbolName: "photo.stack", label: "Library",
                 viewController: LibrarySettingsViewController(model: model)),
+            SettingsTabDescriptor(symbolName: "shippingbox", label: "Boxes",
+                viewController: BoxesSettingsViewController(model: model)),
             SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                 viewController: ArchiveSettingsViewController(model: model)),
             SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",
@@ -56,6 +58,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindowController = windowController
         windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        NotificationCenter.default.addObserver(
+            forName: .librarianArchiveNeedsRelink,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await runArchiveRelinkFlow(
+                    model: model,
+                    presentingWindow: self.mainWindowController?.window
+                )
+            }
+        }
 
         Task { await model.setup() }
     }
@@ -155,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sendToArchiveItem = NSMenuItem(title: "Send to Archive", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "a")
         sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
         fileMenu.addItem(sendToArchiveItem)
+        fileMenu.addItem(NSMenuItem(title: "Add Photos to Archive…", action: #selector(MainSplitViewController.addPhotosToArchiveAction(_:)), keyEquivalent: ""))
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o"))
         let quickLookItem = NSMenuItem(title: "Quick Look", action: #selector(MainSplitViewController.quickLookSelectionAction(_:)), keyEquivalent: "y")
@@ -193,6 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsWindowController = SettingsWindowController(tabs: [
                 SettingsTabDescriptor(symbolName: "photo.stack", label: "Library",
                     viewController: LibrarySettingsViewController(model: appModel)),
+                SettingsTabDescriptor(symbolName: "shippingbox", label: "Boxes",
+                    viewController: BoxesSettingsViewController(model: appModel)),
                 SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                     viewController: ArchiveSettingsViewController(model: appModel)),
                 SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",

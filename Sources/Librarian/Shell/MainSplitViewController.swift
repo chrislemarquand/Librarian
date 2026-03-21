@@ -255,6 +255,13 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         toolbarDelegate.refresh(model: model)
     }
 
+    @objc func addPhotosToArchiveAction(_ sender: Any?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await runAddPhotosToArchiveFlow(model: model, presentingWindow: view.window)
+        }
+    }
+
     @objc func sendToArchiveAction(_ sender: Any?) {
         guard model.pendingArchiveCandidateCount > 0 else { return }
         guard let archiveRoot = resolveOrPromptArchiveRoot() else { return }
@@ -388,5 +395,14 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         archiveExportSheetWindow = nil
         contentController.refreshDisplayedAssets()
         toolbarDelegate.refresh(model: model)
+    }
+}
+
+extension MainSplitViewController {
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(addPhotosToArchiveAction(_:)) {
+            return !model.isImportingArchive && ArchiveSettings.restoreArchiveRootURL() != nil
+        }
+        return super.validateUserInterfaceItem(item)
     }
 }

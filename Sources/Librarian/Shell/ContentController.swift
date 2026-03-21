@@ -333,8 +333,11 @@ final class ContentController: NSViewController {
     }
 
     private func loadAssetsIfNeeded(force: Bool) {
-        guard model.photosAuthState == .authorized else { return }
         let sidebarKind = selectedSidebarKind()
+        // Archive view reads from the local database and filesystem — Photos authorization is not required.
+        if sidebarKind != .archived {
+            guard model.photosAuthState == .authorized else { return }
+        }
 
         if sidebarKind == .indexing || sidebarKind == .log {
             loadGeneration &+= 1
@@ -350,7 +353,10 @@ final class ContentController: NSViewController {
             return
         }
 
-        guard !model.isIndexing else { return }
+        // Archive content is independent of Photos indexing; don't block it.
+        if sidebarKind != .archived {
+            guard !model.isIndexing else { return }
+        }
         let shouldReload = force || displayAssets.isEmpty || lastLoadedSidebarKind != sidebarKind
         if shouldReload {
             resetPagedLoadState(for: sidebarKind)
@@ -500,7 +506,10 @@ final class ContentController: NSViewController {
     }
 
     private func loadNextPageIfNeeded() {
-        guard model.photosAuthState == .authorized else { return }
+        let sidebarKindForAuth = selectedSidebarKind()
+        if sidebarKindForAuth != .archived {
+            guard model.photosAuthState == .authorized else { return }
+        }
         guard !model.isIndexing else { return }
         guard !isLoadingAssets else { return }
         guard canLoadMoreAssets else { return }
@@ -522,6 +531,28 @@ final class ContentController: NSViewController {
 
     private func updateOverlay() {
         let sidebarKind = selectedSidebarKind()
+
+        // The archive view reads from the local database — it does not depend on Photos authorization.
+        // Show its real state immediately, bypassing the auth-pending placeholder.
+        if sidebarKind == .archived {
+            if isLoadingAssets, displayAssets.isEmpty {
+                showPlaceholder(.loading(title: "Loading", symbolName: symbolName(for: sidebarKind)))
+                collectionView.isHidden = true
+                logPane.isHidden = true
+            } else if !displayAssets.isEmpty {
+                hidePlaceholder()
+                collectionView.isHidden = false
+                logPane.isHidden = true
+            } else {
+                showPlaceholder(emptyContent(for: sidebarKind))
+                collectionView.isHidden = true
+                logPane.isHidden = true
+            }
+            updateArchivedNoticeBarState()
+            updateScreenshotActionBarState()
+            return
+        }
+
         switch model.photosAuthState {
         case .notDetermined:
             showPlaceholder(.loading(title: "Requesting Access", symbolName: "key.fill"))
@@ -629,7 +660,13 @@ final class ContentController: NSViewController {
                     symbolName: "externaldrive.badge.questionmark",
                     description: "Set an archive destination in Settings to view archived photos."
                 )
-            case .unavailable, .readOnly, .permissionDenied:
+            case .unavailable:
+                return .unavailable(
+                    title: "Archive Missing",
+                    symbolName: "externaldrive.badge.exclamationmark",
+                    description: "Your archive folder can't be found — it may have been moved or renamed. Use Settings to locate it."
+                )
+            case .readOnly, .permissionDenied:
                 return .unavailable(
                     title: "Archive Unavailable",
                     symbolName: "externaldrive.badge.exclamationmark",
@@ -1787,8 +1824,11 @@ struct ArchiveOrganizationResult {
     let collisionCount: Int
 }
 
-enum ArchiveOrganizationLayout: String {
+enum ArchiveOrganizationLayout {
+    /// `Archive/YYYY/MM/DD` — flat date buckets under a single `Archive` folder.
     case rootDateBuckets
+    /// `Photos/YYYY/MM/DD` for photos; `Other/{type}/YYYY/MM/DD` for categorised content.
+    case kindDateBuckets
 }
 
 final class ArchiveOrganizer: @unchecked Sendable {
@@ -1796,8 +1836,11 @@ final class ArchiveOrganizer: @unchecked Sendable {
     private let imageExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
     private let layout: ArchiveOrganizationLayout
 
-    init(layout: ArchiveOrganizationLayout = .rootDateBuckets) {
-        self.layout = layout
+    init() {
+        switch ArchiveSettings.folderLayout {
+        case .dateOnly:     self.layout = .rootDateBuckets
+        case .kindThenDate: self.layout = .kindDateBuckets
+        }
     }
 
     func scanUnorganizedCount(in archiveTreeRoot: URL) throws -> Int {
@@ -1926,6 +1969,16 @@ final class ArchiveOrganizer: @unchecked Sendable {
         switch layout {
         case .rootDateBuckets:
             return components.count == 3 && isOrganizedDatePath(components)
+        case .kindDateBuckets:
+            // Photos/YYYY/MM/DD
+            if components.count == 4 && components[0] == "Photos" {
+                return isOrganizedDatePath(Array(components.suffix(3)))
+            }
+            // Other/{category}/YYYY/MM/DD
+            if components.count == 5 && components[0] == "Other" {
+                return isOrganizedDatePath(Array(components.suffix(3)))
+            }
+            return false
         }
     }
 
@@ -1933,6 +1986,11 @@ final class ArchiveOrganizer: @unchecked Sendable {
         switch layout {
         case .rootDateBuckets:
             return datePath
+        case .kindDateBuckets:
+            // Unrecognised files from the organizer go to Photos/ by default.
+            // Queue-aware routing (Other/Screenshots, Other/Documents, etc.) is handled
+            // by the export pipeline at the osxphotos template level (see ROADMAP).
+            return ["Photos"] + datePath
         }
     }
 

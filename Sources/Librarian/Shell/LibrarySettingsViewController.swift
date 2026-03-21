@@ -12,13 +12,6 @@ final class LibrarySettingsViewController: SettingsGridViewController {
     private lazy var analyseStatusLabel = makeDescriptionLabel("Imports quality scores, file sizes, labels, and duplicate fingerprints.")
     private lazy var showInFinderButton = makeActionButton(title: "Show in Finder", action: #selector(showLibraryInFinder))
 
-    private static let queues: [(title: String, kind: String)] = [
-        ("Screenshots", "screenshots"),
-        ("Low Quality", "lowQuality"),
-        ("Documents", "receiptsAndDocuments"),
-        ("Duplicates", "duplicates"),
-    ]
-
     init(model: AppModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
@@ -62,18 +55,6 @@ final class LibrarySettingsViewController: SettingsGridViewController {
             [makeCategoryLabel(title: "Library analysis:"), analyseStatusLabel,  analyseButton],
         ]
 
-        let keepsNote = makeDescriptionLabel("Reset which items have been marked Keep in each box.")
-        rows.append([makeCategoryLabel(title: "Box keep decisions:"), keepsNote, NSView()])
-
-        for (index, queue) in Self.queues.enumerated() {
-            let count = (try? model.database.assetRepository?.countKeepDecisions(for: queue.kind)) ?? 0
-            let countLabel = makeDescriptionLabel(count == 0 ? "No items kept" : "\(count) kept")
-            let button = makeActionButton(title: "Reset", action: #selector(resetKeepDecisions(_:)))
-            button.tag = index
-            button.isEnabled = count > 0
-            rows.append([makeCategoryLabel(title: "\(queue.title):"), countLabel, button])
-        }
-
         return rows
     }
 
@@ -109,18 +90,6 @@ final class LibrarySettingsViewController: SettingsGridViewController {
             guard let self else { return }
             await self.model.runLibraryAnalysis()
             self.refreshAnalyseButtonState()
-        }
-    }
-
-    @objc private func resetKeepDecisions(_ sender: NSButton) {
-        guard sender.tag < Self.queues.count else { return }
-        let kind = Self.queues[sender.tag].kind
-        do {
-            try model.database.assetRepository.clearKeepDecisions(for: kind)
-            NotificationCenter.default.post(name: .librarianIndexingStateChanged, object: nil)
-            rebuildGrid()
-        } catch {
-            AppLog.shared.error("Failed to reset keep decisions for \(kind): \(error.localizedDescription)")
         }
     }
 

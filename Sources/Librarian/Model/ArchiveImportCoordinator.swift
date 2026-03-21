@@ -134,7 +134,7 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
         candidates: [URL],
         onProgress: @escaping (Int, Int) -> Void
     ) throws -> ImportResult {
-        let archiveTreeRoot = archiveRoot.appendingPathComponent("Archive", isDirectory: true)
+        let archiveTreeRoot = ArchiveSettings.importDestinationRoot(from: archiveRoot)
 
         let archiveAccess = archiveRoot.startAccessingSecurityScopedResource()
         defer { if archiveAccess { archiveRoot.stopAccessingSecurityScopedResource() } }
