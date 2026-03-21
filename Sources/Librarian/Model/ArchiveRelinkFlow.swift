@@ -8,10 +8,15 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = "Archive Not Found"
-    alert.informativeText = "Librarian can't find your archive at its last known location. It may have been moved or renamed.\n\nLocate it to continue using your archive."
+    alert.informativeText = "Librarian can't find your archive at its last known location. It may have been moved, renamed, deleted, or disconnected.\n\nLocate it, or create a new archive."
     alert.addButton(withTitle: "Locate Archive…")
+    alert.addButton(withTitle: "Create New Archive…")
     alert.addButton(withTitle: "Not Now")
     let response = await alert.runSheetOrModal(for: presentingWindow)
+    if response == .alertSecondButtonReturn {
+        await runNewArchiveFlow(model: model, presentingWindow: presentingWindow)
+        return
+    }
     guard response == .alertFirstButtonReturn else { return }
 
     let panel = NSOpenPanel()
@@ -45,4 +50,42 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
         _ = await errorAlert.runSheetOrModal(for: presentingWindow)
         return
     }
+}
+
+@MainActor
+private func runNewArchiveFlow(model: AppModel, presentingWindow: NSWindow?) async {
+    let panel = NSOpenPanel()
+    panel.title = "Create New Archive"
+    panel.message = "Choose a folder for a new Librarian archive."
+    panel.prompt = "Use Location"
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.allowsMultipleSelection = false
+    panel.canCreateDirectories = true
+    panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+
+    guard panel.runModal() == .OK, let selectedURL = panel.url?.standardizedFileURL else { return }
+    let rootURL = normalizeRootForNewArchiveSelection(selectedURL)
+
+    if ArchiveSettings.archiveID(for: rootURL) == nil,
+       !ArchiveRootPrompts.confirmInitializeArchive(at: rootURL) {
+        return
+    }
+
+    guard model.updateArchiveRoot(rootURL) else {
+        let errorAlert = NSAlert()
+        errorAlert.alertStyle = .warning
+        errorAlert.messageText = "Could Not Create Archive"
+        errorAlert.informativeText = "Librarian was unable to save the new archive location."
+        errorAlert.addButton(withTitle: "OK")
+        _ = await errorAlert.runSheetOrModal(for: presentingWindow)
+        return
+    }
+}
+
+private func normalizeRootForNewArchiveSelection(_ selected: URL) -> URL {
+    guard selected.lastPathComponent == ArchiveSettings.archiveFolderName else {
+        return selected
+    }
+    return selected.deletingLastPathComponent().standardizedFileURL
 }

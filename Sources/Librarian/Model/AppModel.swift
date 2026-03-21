@@ -540,6 +540,7 @@ final class AppModel: ObservableObject {
     private var pendingUnknownReconcileTask: Task<Void, Never>?
     private var pendingLibraryIdentityCheckTask: Task<Void, Never>?
     private var libraryMonitorTimer: Timer?
+    private var didNotifyArchiveNeedsRelinkForCurrentOutage = false
     private var suppressChangeSyncUntil: Date = .distantPast
     private var suppressChangeSyncReason: String?
     private var pendingUpsertsByIdentifier: [String: IndexedAsset] = [:]
@@ -598,7 +599,7 @@ final class AppModel: ObservableObject {
         // the OS silently resolved to a new path (e.g. archive moved in Finder).
         NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
         if availability == .unavailable {
-            NotificationCenter.default.post(name: .librarianArchiveNeedsRelink, object: nil)
+            didNotifyArchiveNeedsRelinkForCurrentOutage = true
         }
         startSystemPhotoLibraryMonitoring()
         scheduleSystemPhotoLibraryRefresh(reason: "startup", debounceMilliseconds: 0)
@@ -784,6 +785,14 @@ final class AppModel: ObservableObject {
         archiveRootURL = ArchiveSettings.restoreArchiveRootURL()
         if previous != current {
             AppLog.shared.info("Archive root availability changed: \(String(describing: previous)) -> \(String(describing: current))")
+        }
+        if current == .unavailable {
+            if !didNotifyArchiveNeedsRelinkForCurrentOutage {
+                didNotifyArchiveNeedsRelinkForCurrentOutage = true
+                NotificationCenter.default.post(name: .librarianArchiveNeedsRelink, object: nil)
+            }
+        } else {
+            didNotifyArchiveNeedsRelinkForCurrentOutage = false
         }
         return current
     }
