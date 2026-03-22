@@ -77,11 +77,25 @@ struct AssetIndexer {
     }
 
     nonisolated static func isWhatsAppFilename(_ filename: String) -> Bool {
+        isWhatsAppFilename(
+            filename,
+            creationDate: nil,
+            pixelWidth: 0,
+            pixelHeight: 0
+        )
+    }
+
+    nonisolated static func isWhatsAppFilename(
+        _ filename: String,
+        creationDate: Date?,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) -> Bool {
         let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
         let lowercased = trimmed.lowercased()
-        if lowercased.hasPrefix("whatsapp image ") || lowercased.hasPrefix("whatsapp video ") {
+        if lowercased.contains("whatsapp") {
             return true
         }
 
@@ -95,12 +109,49 @@ struct AssetIndexer {
             with: "",
             options: .regularExpression
         )
-        return UUID(uuidString: normalizedStem) != nil
+        guard UUID(uuidString: normalizedStem) != nil else { return false }
+
+        return isResolutionPlausibleForWhatsAppShare(
+            creationDate: creationDate,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight
+        )
     }
 
     private nonisolated static let whatsAppUUIDFilenameExtensions: Set<String> = [
         "jpg", "jpeg", "heic", "png", "webp"
     ]
+
+    // WhatsApp upload quality eras:
+    // - Before HD photos rollout (Aug 17, 2023): aggressively downscaled ("standard") shares.
+    // - HD photos rollout onward: high-quality shares commonly land around 11-12 MP ceilings.
+    private nonisolated static let whatsappHDRolloutCutoverUTC: Date = {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        components.year = 2023
+        components.month = 8
+        components.day = 17
+        return components.date ?? .distantFuture
+    }()
+
+    private nonisolated static let preHDMaxMegapixels = 2.2
+    private nonisolated static let postHDMaxMegapixels = 12.6
+
+    private nonisolated static func isResolutionPlausibleForWhatsAppShare(
+        creationDate: Date?,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) -> Bool {
+        guard pixelWidth > 0, pixelHeight > 0 else { return false }
+        let megapixels = (Double(pixelWidth) * Double(pixelHeight)) / 1_000_000.0
+        let maxMegapixels = if let creationDate, creationDate < whatsappHDRolloutCutoverUTC {
+            preHDMaxMegapixels
+        } else {
+            postHDMaxMegapixels
+        }
+        return megapixels <= maxMegapixels
+    }
 
     private nonisolated static func fetchOptions() -> PHFetchOptions {
         let options = PHFetchOptions()
@@ -127,7 +178,12 @@ extension IndexedAsset {
             return true
         }
         let primaryFilename = resources.first?.originalFilename ?? ""
-        let isWhatsApp = AssetIndexer.isWhatsAppFilename(primaryFilename)
+        let isWhatsApp = AssetIndexer.isWhatsAppFilename(
+            primaryFilename,
+            creationDate: asset.creationDate,
+            pixelWidth: asset.pixelWidth,
+            pixelHeight: asset.pixelHeight
+        )
 
         self.init(
             localIdentifier: asset.localIdentifier,
