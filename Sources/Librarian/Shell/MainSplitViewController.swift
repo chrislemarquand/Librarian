@@ -53,6 +53,9 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         sc.menuProvider = { [weak self] item in
             self?.sidebarContextMenu(for: item)
         }
+        sc.onItemsReordered = { reorderedItems in
+            SidebarItem.persistQueueOrder(from: reorderedItems)
+        }
 
         onPaneStateChanged = { [weak self] in
             guard let self else { return }

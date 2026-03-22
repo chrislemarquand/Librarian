@@ -36,6 +36,8 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
     /// Populate this for every `.queues` section item. `BoxesSettingsViewController`
     /// uses it to auto-populate the reset rows — just fill it in when adding a new box.
     var keepDecisionKind: String?
+    var sidebarReorderID: String? { kind.orderToken }
+    var isSidebarReorderable: Bool { keepDecisionKind != nil }
 
     static let baseItems: [SidebarItem] = [
         SidebarItem(section: .library, kind: .allPhotos,            title: "All Photos",  symbolName: "photo.on.rectangle.angled", badgeText: nil),
@@ -51,14 +53,66 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         SidebarItem(section: .archive, kind: .archived,             title: "Archive",     symbolName: "archivebox",                badgeText: nil),
     ]
 
-    static var allItems: [SidebarItem] { baseItems }
+    private static let queueOrderDefaultsKey = "\(AppBrand.identifierPrefix).Sidebar.QueuesOrder.v1"
+
+    static var allItems: [SidebarItem] { orderedItemsApplyingPersistedQueueOrder(baseItems) }
 
     static func items(in section: SidebarSection) -> [SidebarItem] {
         allItems.filter { $0.section == section }
     }
+
+    static func persistQueueOrder(from items: [SidebarItem]) {
+        let orderedQueueTokens = items
+            .filter { $0.section == .queues && $0.isSidebarReorderable }
+            .map { $0.kind.orderToken }
+        guard !orderedQueueTokens.isEmpty else { return }
+        UserDefaults.standard.set(orderedQueueTokens, forKey: queueOrderDefaultsKey)
+    }
+
+    private static func orderedItemsApplyingPersistedQueueOrder(_ items: [SidebarItem]) -> [SidebarItem] {
+        let savedTokens = UserDefaults.standard.stringArray(forKey: queueOrderDefaultsKey) ?? []
+        guard !savedTokens.isEmpty else { return items }
+
+        var queueItemsByToken: [String: SidebarItem] = [:]
+        for item in items where item.section == .queues && item.isSidebarReorderable {
+            queueItemsByToken[item.kind.orderToken] = item
+        }
+        guard !queueItemsByToken.isEmpty else { return items }
+
+        let orderedQueues = savedTokens.compactMap { queueItemsByToken.removeValue(forKey: $0) }
+        let trailingQueues = items.filter { item in
+            item.section == .queues && item.isSidebarReorderable && queueItemsByToken[item.kind.orderToken] != nil
+        }
+        let finalQueueItems = orderedQueues + trailingQueues
+
+        var queueIterator = finalQueueItems.makeIterator()
+        return items.map { item in
+            if item.section == .queues, item.isSidebarReorderable {
+                return queueIterator.next() ?? item
+            }
+            return item
+        }
+    }
 }
 
 extension SidebarItem.Kind {
+    var orderToken: String {
+        switch self {
+        case .allPhotos: return "allPhotos"
+        case .recents: return "recents"
+        case .favourites: return "favourites"
+        case .screenshots: return "screenshots"
+        case .setAsideForArchive: return "setAsideForArchive"
+        case .archived: return "archived"
+        case .duplicates: return "duplicates"
+        case .lowQuality: return "lowQuality"
+        case .receiptsAndDocuments: return "receiptsAndDocuments"
+        case .whatsapp: return "whatsapp"
+        case .accidental: return "accidental"
+        case .indexing: return "indexing"
+        }
+    }
+
     var debugName: String {
         switch self {
         case .allPhotos: return "allPhotos"
