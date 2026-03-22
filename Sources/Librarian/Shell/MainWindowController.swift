@@ -5,6 +5,7 @@ import SharedUI
 final class MainWindowController: NSWindowController {
 
     let appModel: AppModel
+    private var framePersistenceController: WindowFramePersistenceController?
 
     var splitController: MainSplitViewController? {
         contentViewController as? MainSplitViewController
@@ -14,14 +15,16 @@ final class MainWindowController: NSWindowController {
         appModel = model
         let splitVC = MainSplitViewController(model: model)
         let window = NSWindow(contentViewController: splitVC)
-        window.setContentSize(ThreePaneSplitViewController.Metrics.windowDefault)
-        window.minSize = ThreePaneSplitViewController.Metrics.windowMinimum
         window.title = AppBrand.displayName
         window.isReleasedWhenClosed = false
         window.isRestorable = true
-        window.setFrameAutosaveName("\(AppBrand.identifierPrefix).MainWindow")
-        window.center()
         super.init(window: window)
+        framePersistenceController = WindowFramePersistenceController(
+            window: window,
+            autosaveName: "\(AppBrand.identifierPrefix).MainWindow",
+            minSize: ThreePaneSplitViewController.Metrics.windowMinimum,
+            defaultContentSize: ThreePaneSplitViewController.Metrics.windowDefault
+        )
     }
 
     @available(*, unavailable)

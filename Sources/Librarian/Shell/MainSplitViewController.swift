@@ -20,7 +20,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var lastBindingPromptSignature: String?
     private var isShowingBindingPrompt = false
     private var subtitleObservers: Set<AnyCancellable> = []
-    private var toolbarAppearanceAdapter: ToolbarAppearanceAdapter?
+    private var toolbarShellController: ToolbarShellController?
     private var didConfigureToolbar = false
 
     init(model: AppModel) {
@@ -57,7 +57,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         onPaneStateChanged = { [weak self] in
             guard let self else { return }
             self.model.isInspectorCollapsed = self.isInspectorCollapsed
-            self.toolbarDelegate.refresh(model: self.model)
+            self.refreshToolbarState()
         }
     }
 
@@ -83,7 +83,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             return nil
         }
         installKeyboardParityMonitorIfNeeded()
-        toolbarDelegate.refresh(model: model)
+        refreshToolbarState()
     }
 
     override func viewWillAppear() {
@@ -94,17 +94,11 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         didConfigureToolbar = true
         configureWindowForToolbar(window)
         installToolbar(resetDelegateState: true)
+        refreshToolbarState()
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        // Create the adapter here — after the window is fully on screen and its
-        // effectiveAppearance is stable — matching Ledger's working pattern exactly.
-        if toolbarAppearanceAdapter == nil, let window = view.window {
-            toolbarAppearanceAdapter = ToolbarAppearanceAdapter(window: window) { [weak self] in
-                self?.rebuildToolbarForCurrentAppearance()
-            }
-        }
         if archiveImportSheetPresenter == nil {
             archiveImportSheetPresenter = ArchiveImportSheetPresenter(
                 model: model,
@@ -112,7 +106,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
                 onDismiss: { [weak self] in
                     guard let self else { return }
                     self.contentController.refreshDisplayedAssets()
-                    self.toolbarDelegate.refresh(model: self.model)
+                    self.refreshToolbarState()
                 }
             )
         }
@@ -136,18 +130,20 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         if resetDelegateState {
             toolbarDelegate.resetCachedToolbarReferences()
         }
-        let toolbar = NSToolbar(identifier: "\(AppBrand.identifierPrefix).MainToolbar.v1")
-        toolbar.delegate = toolbarDelegate
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        window.toolbar = toolbar
+        let shell = toolbarShellController ?? ToolbarShellController(content: toolbarDelegate)
+        shell.setContent(toolbarDelegate)
+        toolbarShellController = shell
+        _ = shell.installToolbar(
+            on: window,
+            identifier: "\(AppBrand.identifierPrefix).MainToolbar.v1",
+            displayMode: .iconOnly,
+            allowsUserCustomization: false,
+            autosavesConfiguration: false
+        )
     }
 
-    private func rebuildToolbarForCurrentAppearance() {
-        installToolbar(resetDelegateState: true)
-        toolbarDelegate.refresh(model: model)
-        view.window?.toolbar?.validateVisibleItems()
+    private func refreshToolbarState() {
+        toolbarShellController?.syncAndValidate(window: view.window)
     }
 
     // MARK: - Model observation

@@ -15,7 +15,7 @@ extension NSToolbarItem.Identifier {
 }
 
 @MainActor
-final class ToolbarDelegate: NSObject, NSToolbarDelegate {
+final class ToolbarDelegate: NSObject, ToolbarShellContent {
 
     private weak var splitVC: MainSplitViewController?
     private weak var progressSpinner: NSProgressIndicator?
@@ -251,5 +251,35 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
         let hasQueuedItems = model.pendingArchiveCandidateCount > 0
         sendToArchiveItem?.isEnabled = hasQueuedItems && !model.isSendingArchive
         sendToArchiveItem?.style = hasQueuedItems ? .prominent : .plain
+    }
+
+    func syncToolbarState() {
+        guard let model = splitVC?.model else { return }
+        refresh(model: model)
+    }
+
+    func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        guard let model = splitVC?.model else { return false }
+        updateProgressSpinner(model: model)
+        updateZoomItems(model: model)
+        updateArchiveItems(model: model)
+        updateInspectorToggle(model: model)
+
+        switch item.itemIdentifier {
+        case .librarianZoomOut:
+            return zoomOutItem?.isEnabled ?? false
+        case .librarianZoomIn:
+            return zoomInItem?.isEnabled ?? false
+        case .librarianSetAside:
+            return setAsideItem?.isEnabled ?? false
+        case .librarianPutBack:
+            return putBackItem?.isEnabled ?? false
+        case .librarianSendToArchive:
+            return sendToArchiveItem?.isEnabled ?? false
+        case .librarianToggleInspector, .librarianSidebarSeparator, .librarianInspectorSeparator, .librarianIndexingProgress:
+            return true
+        default:
+            return true
+        }
     }
 }
