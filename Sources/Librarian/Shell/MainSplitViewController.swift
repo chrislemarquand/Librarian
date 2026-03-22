@@ -20,6 +20,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var lastBindingPromptSignature: String?
     private var isShowingBindingPrompt = false
     private var subtitleObservers: Set<AnyCancellable> = []
+    private var toolbarAppearanceAdapter: ToolbarAppearanceAdapter?
+    private var didConfigureToolbar = false
 
     init(model: AppModel) {
         self.model = model
@@ -84,12 +86,24 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         toolbarDelegate.refresh(model: model)
     }
 
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        // Install toolbar before the window becomes visible — same timing as Ledger.
+        // Doing this in viewDidAppear causes a compositor flash on macOS 26.
+        guard !didConfigureToolbar, let window = view.window else { return }
+        didConfigureToolbar = true
+        configureWindowForToolbar(window)
+        installToolbar(resetDelegateState: true)
+    }
+
     override func viewDidAppear() {
         super.viewDidAppear()
-        // Set up the toolbar appearance adapter now that the window is fully on screen
-        // and its effectiveAppearance is stable. Must not happen earlier — see MainWindowController.
-        if let window = view.window {
-            (window.windowController as? MainWindowController)?.setUpToolbarAppearanceAdapterIfNeeded(window: window)
+        // Create the adapter here — after the window is fully on screen and its
+        // effectiveAppearance is stable — matching Ledger's working pattern exactly.
+        if toolbarAppearanceAdapter == nil, let window = view.window {
+            toolbarAppearanceAdapter = ToolbarAppearanceAdapter(window: window) { [weak self] in
+                self?.rebuildToolbarForCurrentAppearance()
+            }
         }
         if archiveImportSheetPresenter == nil {
             archiveImportSheetPresenter = ArchiveImportSheetPresenter(
@@ -113,6 +127,27 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         super.viewWillDisappear()
         if let m = inspectorKeyMonitor { NSEvent.removeMonitor(m); inspectorKeyMonitor = nil }
         if let m = keyboardParityMonitor { NSEvent.removeMonitor(m); keyboardParityMonitor = nil }
+    }
+
+    // MARK: - Toolbar
+
+    private func installToolbar(resetDelegateState: Bool) {
+        guard let window = view.window else { return }
+        if resetDelegateState {
+            toolbarDelegate.resetCachedToolbarReferences()
+        }
+        let toolbar = NSToolbar(identifier: "\(AppBrand.identifierPrefix).MainToolbar.v1")
+        toolbar.delegate = toolbarDelegate
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        window.toolbar = toolbar
+    }
+
+    private func rebuildToolbarForCurrentAppearance() {
+        installToolbar(resetDelegateState: true)
+        toolbarDelegate.refresh(model: model)
+        view.window?.toolbar?.validateVisibleItems()
     }
 
     // MARK: - Model observation
