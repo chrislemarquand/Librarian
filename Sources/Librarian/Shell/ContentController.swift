@@ -95,6 +95,9 @@ final class ContentController: NSViewController {
     private var zoomRestoreToken = 0
     private let pinchZoomAccumulator = PinchZoomAccumulator()
     private var selectionAnchorIndex: Int?
+    /// Set before a forced reload to restore focus to the next item after the
+    /// reloaded data source drops the previously selected items (e.g. Set Aside).
+    private var pendingPostReloadIndex: Int?
     private let archivedIndexer: ArchiveIndexer
     private let archiveOrganizer = ArchiveOrganizer()
     private let archivedThumbnailService = ArchivedThumbnailService()
@@ -421,6 +424,14 @@ final class ContentController: NSViewController {
                     }
                     self.model.photosService.stopAllThumbnailCaching()
                     self.collectionView.reloadData()
+                    if let index = self.pendingPostReloadIndex {
+                        self.pendingPostReloadIndex = nil
+                        let count = self.displayAssets.count
+                        if count > 0 {
+                            let clamped = IndexPath(item: min(index, count - 1), section: 0)
+                            self.collectionView.selectItems(at: [clamped], scrollPosition: .nearestHorizontalEdge)
+                        }
+                    }
                     self.syncModelSelectionFromCollection()
                     if self.collectionView.selectionIndexPaths.isEmpty {
                         self.selectionAnchorIndex = nil
@@ -1148,12 +1159,14 @@ final class ContentController: NSViewController {
     func queueSelectedAssetsForArchive() {
         let identifiers = selectedAssetIdentifiers()
         guard !identifiers.isEmpty else { return }
+        let lowestSelectedIndex = collectionView.selectionIndexPaths.map(\.item).min()
         do {
             try model.queueAssetsForArchive(localIdentifiers: identifiers)
             AppLog.shared.info("Set aside \(identifiers.count) selected photos for archive")
             model.setStatusMessage("Set aside \(identifiers.count) photos.", autoClearAfterSuccess: true)
             collectionView.deselectAll(nil)
             model.setSelectedAsset(nil)
+            pendingPostReloadIndex = lowestSelectedIndex
             loadAssetsIfNeeded(force: true)
         } catch {
             AppLog.shared.error("Failed to set aside photos for archive: \(error.localizedDescription)")

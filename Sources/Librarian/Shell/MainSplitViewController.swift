@@ -151,6 +151,12 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(modelStateChanged),
+            name: .librarianAnalysisStateChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(contentDataChanged),
             name: .librarianContentDataChanged,
             object: nil
