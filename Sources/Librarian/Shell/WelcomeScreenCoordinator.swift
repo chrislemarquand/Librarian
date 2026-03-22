@@ -12,8 +12,10 @@ final class WelcomeScreenCoordinator {
         self.onComplete = onComplete
     }
 
+    private weak var viewController: AppWelcomeViewController?
+
     func makeViewController() -> AppWelcomeViewController {
-        AppWelcomeViewController(
+        let vc = AppWelcomeViewController(
             appName: AppBrand.displayName,
             features: Self.features,
             primaryButtonTitle: "Get Started",
@@ -21,6 +23,8 @@ final class WelcomeScreenCoordinator {
             onSecondaryAction: { [weak self] in self?.chooseArchiveLocation() },
             onDismiss: { [weak self] in self?.handleGetStarted() }
         )
+        viewController = vc
+        return vc
     }
 
     // MARK: - Features
@@ -65,6 +69,11 @@ final class WelcomeScreenCoordinator {
     }
 
     private func handleGetStarted() {
+        // SwiftUI's presentationMode.dismiss() is a no-op when the VC was
+        // presented via AppKit's presentAsSheet — dismiss explicitly via AppKit.
+        if let vc = viewController {
+            vc.presentingViewController?.dismiss(vc)
+        }
         AppDelegate.markWelcomeScreenComplete()
         model.scheduleAnalysisAfterInitialIndex()
         onComplete()
