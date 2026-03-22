@@ -552,6 +552,13 @@ final class AppModel: ObservableObject {
     let database: DatabaseManager
     let systemNotifications: SystemNotificationService
 
+    // MARK: - First-run analysis scheduling
+
+    /// Set by the welcome screen coordinator before `setup()` is called.
+    /// When true, `startIndexing` will automatically trigger `runLibraryAnalysis`
+    /// once the initial index pass completes.
+    private var shouldAutoAnalyseAfterIndex = false
+
     // MARK: - Published state
 
     @Published var photosAuthState: PHAuthorizationStatus = .notDetermined
@@ -766,6 +773,11 @@ final class AppModel: ObservableObject {
         indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
         assetDataVersion &+= 1
         notifyIndexingStateChanged()
+
+        if reason == "initial" && shouldAutoAnalyseAfterIndex {
+            shouldAutoAnalyseAfterIndex = false
+            Task { await runLibraryAnalysis() }
+        }
     }
 
     private func notifyIndexingStateChanged() {
@@ -918,6 +930,17 @@ final class AppModel: ObservableObject {
 
     private func notifyAnalysisStateChanged() {
         NotificationCenter.default.post(name: .librarianAnalysisStateChanged, object: nil)
+    }
+
+    /// Called by the welcome screen on first run. Schedules an analysis pass to
+    /// run automatically once the initial index completes (or immediately if the
+    /// index already exists).
+    func scheduleAnalysisAfterInitialIndex() {
+        if indexedAssetCount > 0 && !isIndexing {
+            Task { await runLibraryAnalysis() }
+        } else {
+            shouldAutoAnalyseAfterIndex = true
+        }
     }
 
     func runArchiveImport(

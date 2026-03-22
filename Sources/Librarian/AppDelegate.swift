@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var mainWindowController: MainWindowController?
     private var settingsWindowController: SettingsWindowController?
+    private var welcomeCoordinator: WelcomeScreenCoordinator?
     private var isShowingTerminateConfirmation = false
     private var isPresentingArchiveRelinkFlow = false
     private var allowImmediateTermination = false
@@ -78,7 +79,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        Task { await model.setup() }
+        if Self.isFirstRun() {
+            let coordinator = WelcomeScreenCoordinator(model: model) {
+                Task { await model.setup() }
+            }
+            windowController.window?.contentViewController?.presentAsSheet(
+                coordinator.makeViewController()
+            )
+            // Retain coordinator for the lifetime of the sheet
+            self.welcomeCoordinator = coordinator
+        } else {
+            Task { await model.setup() }
+        }
+    }
+
+    // MARK: - First-run detection
+
+    private static let firstRunKey = "hasCompletedWelcomeScreen"
+
+    private static func isFirstRun() -> Bool {
+        !UserDefaults.standard.bool(forKey: firstRunKey)
+    }
+
+    static func markWelcomeScreenComplete() {
+        UserDefaults.standard.set(true, forKey: firstRunKey)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
