@@ -119,6 +119,7 @@ private struct VisionCandidateResult {
     let pixelHeight: Int
     let ocrText: String?
     let barcodeDetected: Bool
+    let saliencyScore: Double?
     let featurePrint: VNFeaturePrintObservation?
 }
 
@@ -127,54 +128,89 @@ private nonisolated func runVisionAnalysisStage(
     visionBatchLimit: Int,
     continuation: AsyncThrowingStream<AnalysisProgressUpdate, Error>.Continuation
 ) async throws {
-    let candidates = try database.assetRepository.fetchVisionAnalysisCandidates(
-        limit: visionBatchLimit,
-        includePreviouslyAnalysed: true
+    let totalCandidates = try database.assetRepository.countVisionAnalysisCandidates(
+        includePreviouslyAnalysed: false
     )
-    guard !candidates.isEmpty else { return }
+    guard totalCandidates > 0 else { return }
 
     continuation.yield(
-        AnalysisProgressUpdate(phase: .visionAnalysing(completed: 0, total: candidates.count))
+        AnalysisProgressUpdate(phase: .visionAnalysing(completed: 0, total: totalCandidates))
     )
 
     var analysed: [VisionCandidateResult] = []
-    analysed.reserveCapacity(candidates.count)
+    analysed.reserveCapacity(min(totalCandidates, visionBatchLimit))
     let imageManager = PHImageManager.default()
     let progressInterval = 25
+    var failedCount = 0
+    var attemptedCount = 0
 
-    for (index, candidate) in candidates.enumerated() {
-        if Task.isCancelled { break }
-        autoreleasepool {
-            if let result = analyseVisionCandidate(candidate, imageManager: imageManager) {
-                analysed.append(result)
+    while !Task.isCancelled {
+        let candidates = try database.assetRepository.fetchVisionAnalysisCandidates(
+            limit: visionBatchLimit,
+            includePreviouslyAnalysed: false
+        )
+        guard !candidates.isEmpty else { break }
+
+        var batchAnalysed: [VisionCandidateResult] = []
+        batchAnalysed.reserveCapacity(candidates.count)
+
+        for candidate in candidates {
+            if Task.isCancelled { break }
+            autoreleasepool {
+                if let result = analyseVisionCandidate(candidate, imageManager: imageManager) {
+                    batchAnalysed.append(result)
+                } else {
+                    failedCount += 1
+                }
+            }
+            attemptedCount += 1
+            if attemptedCount % progressInterval == 0 || attemptedCount >= totalCandidates {
+                continuation.yield(
+                    AnalysisProgressUpdate(
+                        phase: .visionAnalysing(completed: min(attemptedCount, totalCandidates), total: totalCandidates)
+                    )
+                )
             }
         }
-        let completed = index + 1
-        if completed % progressInterval == 0 || completed == candidates.count {
-            continuation.yield(
-                AnalysisProgressUpdate(
-                    phase: .visionAnalysing(completed: completed, total: candidates.count)
-                )
+
+        let analysedAt = Date()
+        let writeResults = batchAnalysed.map {
+            VisionAnalysisWriteResult(
+                localIdentifier: $0.localIdentifier,
+                ocrText: $0.ocrText,
+                barcodeDetected: $0.barcodeDetected,
+                saliencyScore: $0.saliencyScore
             )
+        }
+        try await database.assetRepository.upsertVisionAnalysisData(writeResults, analysedAt: analysedAt)
+        analysed.append(contentsOf: batchAnalysed)
+
+        if attemptedCount >= totalCandidates {
+            break
         }
     }
 
-    let analysedAt = Date()
-    let writeResults = analysed.map {
-        VisionAnalysisWriteResult(
-            localIdentifier: $0.localIdentifier,
-            ocrText: $0.ocrText,
-            barcodeDetected: $0.barcodeDetected
-        )
+    var clusterAssignments: [NearDuplicateClusterAssignment] = []
+    if !Task.isCancelled, !analysed.isEmpty {
+        try await database.assetRepository.clearNearDuplicateClusters(for: analysed.map(\.localIdentifier))
+        clusterAssignments = buildNearDuplicateAssignments(results: analysed)
+        try await database.assetRepository.assignNearDuplicateClusters(clusterAssignments)
     }
-    try await database.assetRepository.upsertVisionAnalysisData(writeResults, analysedAt: analysedAt)
-
-    let clusterAssignments = buildNearDuplicateAssignments(results: analysed)
-    try await database.assetRepository.assignNearDuplicateClusters(clusterAssignments)
 
     Task { @MainActor in
+        let saliencyCount = analysed.reduce(into: 0) { partialResult, row in
+            if row.saliencyScore != nil {
+                partialResult += 1
+            }
+        }
         AppLog.shared.info(
-            "Vision analysis complete: \(analysed.count) assets scanned, \(Set(clusterAssignments.map(\.clusterID)).count) near-duplicate clusters."
+            "Vision analysis scan summary: candidates=\(totalCandidates), attempted=\(attemptedCount), successful=\(analysed.count), failed=\(failedCount), saliency=\(saliencyCount), cancelled=\(Task.isCancelled)"
+        )
+        if analysed.isEmpty {
+            AppLog.shared.error("Vision analysis produced 0 successful results from \(totalCandidates) candidates.")
+        }
+        AppLog.shared.info(
+            "Vision analysis complete: \(analysed.count) assets scanned, \(Set(clusterAssignments.map(\.clusterID)).count) near-duplicate clusters. Cancelled=\(Task.isCancelled)"
         )
     }
 }
@@ -192,11 +228,12 @@ private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandi
     textRequest.usesLanguageCorrection = false
 
     let barcodeRequest = VNDetectBarcodesRequest()
+    let saliencyRequest = VNGenerateAttentionBasedSaliencyImageRequest()
     let featurePrintRequest = VNGenerateImageFeaturePrintRequest()
 
     let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
     do {
-        try handler.perform([textRequest, barcodeRequest, featurePrintRequest])
+        try handler.perform([textRequest, barcodeRequest, saliencyRequest, featurePrintRequest])
     } catch {
         return nil
     }
@@ -208,6 +245,7 @@ private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandi
     let cappedText = String(recognizedText.prefix(4000))
     let ocrText = cappedText.isEmpty ? nil : cappedText
     let barcodeDetected = !(barcodeRequest.results ?? []).isEmpty
+    let saliencyScore = attentionSaliencyScore(from: saliencyRequest.results)
     let featurePrint = (featurePrintRequest.results?.first as? VNFeaturePrintObservation)
 
     return VisionCandidateResult(
@@ -217,8 +255,22 @@ private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandi
         pixelHeight: candidate.pixelHeight,
         ocrText: ocrText,
         barcodeDetected: barcodeDetected,
+        saliencyScore: saliencyScore,
         featurePrint: featurePrint
     )
+}
+
+private nonisolated func attentionSaliencyScore(from results: [VNObservation]?) -> Double? {
+    guard let observations = results as? [VNSaliencyImageObservation],
+          let first = observations.first else {
+        return nil
+    }
+    let confidences = first.salientObjects?.map(\.confidence) ?? []
+    guard let maxConfidence = confidences.max() else {
+        // No salient objects found is a valid signal for accidental captures.
+        return 0.0
+    }
+    return Double(maxConfidence)
 }
 
 private nonisolated func requestCIImage(for asset: PHAsset, imageManager: PHImageManager) -> CIImage? {

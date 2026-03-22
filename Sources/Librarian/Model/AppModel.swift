@@ -568,6 +568,7 @@ final class AppModel: ObservableObject {
     @Published var isSendingArchive = false
     @Published var archiveSendStatusText: String = ""
     @Published var isAnalysing = false
+    @Published private(set) var isAnalysisInNonResumableStage = false
     @Published var analysisStatusText: String = ""
     @Published var isImportingArchive = false
     @Published var importStatusText: String = ""
@@ -898,12 +899,19 @@ final class AppModel: ObservableObject {
     func runLibraryAnalysis() async {
         guard !isAnalysing else { return }
         isAnalysing = true
+        isAnalysisInNonResumableStage = true
         analysisStatusText = "Analysing…"
         notifyAnalysisStateChanged()
 
         let analyser = LibraryAnalyser(database: database)
         do {
             for try await progress in analyser.run() {
+                switch progress.phase {
+                case .querying, .importing:
+                    isAnalysisInNonResumableStage = true
+                case .visionAnalysing:
+                    isAnalysisInNonResumableStage = false
+                }
                 analysisStatusText = progress.statusText
                 notifyAnalysisStateChanged()
             }
@@ -924,6 +932,7 @@ final class AppModel: ObservableObject {
             )
         }
 
+        isAnalysisInNonResumableStage = false
         isAnalysing = false
         notifyAnalysisStateChanged()
     }
@@ -2013,9 +2022,9 @@ struct IndexingProgress: Equatable {
             return "Idle"
         case .running(let completed, let total):
             if total > 0 {
-                return "Running (\(completed.formatted()) / \(total.formatted()))"
+                return "Indexing photos library (\(completed.formatted()) / \(total.formatted()))"
             }
-            return "Running"
+            return "Indexing photos library"
         case .failed(let message):
             return "Failed: \(message)"
         }

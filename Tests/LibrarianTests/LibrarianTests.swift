@@ -285,6 +285,23 @@ import Foundation
     #expect(config?.photoLibraryBinding?.lastSeenMatchAt == now)
 }
 
+@Test func whatsAppFilenameDetectionMatchesLegacyPrefixes() {
+    #expect(AssetIndexer.isWhatsAppFilename("WhatsApp Image 2026-03-22 at 20.00.00.jpg"))
+    #expect(AssetIndexer.isWhatsAppFilename("WhatsApp Video 2026-03-22 at 20.00.00.mp4"))
+}
+
+@Test func whatsAppFilenameDetectionMatchesUUIDStyleBasenames() {
+    #expect(AssetIndexer.isWhatsAppFilename("054742c5-4789-454d-b223-cc6a3ba2f578.jpg"))
+    #expect(AssetIndexer.isWhatsAppFilename("3b159952-8a6a-4fcc-a420-712584139f72 (1).jpg"))
+    #expect(AssetIndexer.isWhatsAppFilename("A656B73D-558C-420E-81BB-890C041BBF66.HEIC"))
+}
+
+@Test func whatsAppFilenameDetectionRejectsNonWhatsAppLikeNames() {
+    #expect(!AssetIndexer.isWhatsAppFilename("IMG_1234.JPG"))
+    #expect(!AssetIndexer.isWhatsAppFilename("photo-from-camera-roll.jpg"))
+    #expect(!AssetIndexer.isWhatsAppFilename("3b159952-8a6a-4fcc-a420-712584139f72.txt"))
+}
+
 @Test func archiveLibraryBindingEvaluatorReturnsUnknownWhenFingerprintUnavailable() throws {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-bind-unknown-\(UUID().uuidString)", isDirectory: true)

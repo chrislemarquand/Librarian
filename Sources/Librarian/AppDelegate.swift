@@ -128,7 +128,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let appModel,
-              appModel.isSendingArchive || appModel.isIndexing || appModel.isAnalysing || appModel.isImportingArchive
+              appModel.isSendingArchive
+                || appModel.isIndexing
+                || appModel.isAnalysisInNonResumableStage
+                || appModel.isImportingArchive
         else {
             return .terminateNow
         }

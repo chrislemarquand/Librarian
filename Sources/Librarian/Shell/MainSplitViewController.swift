@@ -317,9 +317,9 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     private static func buildSidebarItemsWithBadges(model: AppModel) -> [SidebarItem] {
         guard let repository = model.database.assetRepository else {
-            return SidebarItem.baseItems
+            return SidebarItem.allItems
         }
-        return SidebarItem.baseItems.map { item in
+        return SidebarItem.allItems.map { item in
             var updated = item
             let count = (try? repository.countForSidebarKind(item.kind)) ?? 0
             updated.badgeText = compactBadgeText(for: count)

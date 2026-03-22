@@ -77,8 +77,30 @@ struct AssetIndexer {
     }
 
     nonisolated static func isWhatsAppFilename(_ filename: String) -> Bool {
-        filename.hasPrefix("WhatsApp Image ") || filename.hasPrefix("WhatsApp Video ")
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let lowercased = trimmed.lowercased()
+        if lowercased.hasPrefix("whatsapp image ") || lowercased.hasPrefix("whatsapp video ") {
+            return true
+        }
+
+        let nsName = lowercased as NSString
+        let ext = nsName.pathExtension
+        guard Self.whatsAppUUIDFilenameExtensions.contains(ext) else { return false }
+
+        let stem = nsName.deletingPathExtension
+        let normalizedStem = stem.replacingOccurrences(
+            of: #" \(\d+\)$"#,
+            with: "",
+            options: .regularExpression
+        )
+        return UUID(uuidString: normalizedStem) != nil
     }
+
+    private nonisolated static let whatsAppUUIDFilenameExtensions: Set<String> = [
+        "jpg", "jpeg", "heic", "png", "webp"
+    ]
 
     private nonisolated static func fetchOptions() -> PHFetchOptions {
         let options = PHFetchOptions()

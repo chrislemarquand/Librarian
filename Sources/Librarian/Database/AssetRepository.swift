@@ -74,6 +74,7 @@ struct VisionAnalysisWriteResult {
     let localIdentifier: String
     let ocrText: String?
     let barcodeDetected: Bool
+    let saliencyScore: Double?
 }
 
 struct NearDuplicateClusterAssignment {
@@ -604,7 +605,7 @@ final class AssetRepository: @unchecked Sendable {
                     LEFT JOIN queue_keep_decision qk
                         ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'accidental'
                     WHERE a.visionSaliencyScore IS NOT NULL
-                      AND a.visionSaliencyScore < 0.05
+                      AND a.visionSaliencyScore < 0.10
                       AND a.isFavorite = 0
                       AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
@@ -725,7 +726,7 @@ final class AssetRepository: @unchecked Sendable {
                     LEFT JOIN queue_keep_decision qk
                         ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'accidental'
                     WHERE a.visionSaliencyScore IS NOT NULL
-                      AND a.visionSaliencyScore < 0.05
+                      AND a.visionSaliencyScore < 0.10
                       AND a.isFavorite = 0
                       AND qk.assetLocalIdentifier IS NULL
                 """) ?? 0
@@ -1139,6 +1140,31 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func countVisionAnalysisCandidates(includePreviouslyAnalysed: Bool) throws -> Int {
+        try db.read { db in
+            if includePreviouslyAnalysed {
+                return try Int.fetchOne(
+                    db,
+                    sql: """
+                        SELECT COUNT(*)
+                        FROM asset_active a
+                        WHERE a.hasLocalOriginal = 1
+                    """
+                ) ?? 0
+            } else {
+                return try Int.fetchOne(
+                    db,
+                    sql: """
+                        SELECT COUNT(*)
+                        FROM asset_active a
+                        WHERE a.hasLocalOriginal = 1
+                          AND a.visionAnalysedAt IS NULL
+                    """
+                ) ?? 0
+            }
+        }
+    }
+
     func upsertVisionAnalysisData(_ results: [VisionAnalysisWriteResult], analysedAt: Date) async throws {
         guard !results.isEmpty else { return }
         let batchSize = 500
@@ -1152,18 +1178,36 @@ final class AssetRepository: @unchecked Sendable {
                             UPDATE asset
                             SET visionOcrText = ?,
                                 visionBarcodeDetected = ?,
-                                nearDuplicateClusterID = NULL,
+                                visionSaliencyScore = ?,
                                 visionAnalysedAt = ?
                             WHERE localIdentifier = ?
                         """,
                         arguments: [
                             result.ocrText,
                             result.barcodeDetected,
+                            result.saliencyScore,
                             analysedAt,
                             result.localIdentifier
                         ]
                     )
                 }
+            }
+            offset += batchSize
+        }
+    }
+
+    func clearNearDuplicateClusters(for localIdentifiers: [String]) async throws {
+        guard !localIdentifiers.isEmpty else { return }
+        let batchSize = 500
+        var offset = 0
+        while offset < localIdentifiers.count {
+            let batch = Array(localIdentifiers[offset ..< min(offset + batchSize, localIdentifiers.count)])
+            let placeholders = Array(repeating: "?", count: batch.count).joined(separator: ", ")
+            try await db.write { db in
+                try db.execute(
+                    sql: "UPDATE asset SET nearDuplicateClusterID = NULL WHERE localIdentifier IN (\(placeholders))",
+                    arguments: StatementArguments(batch)
+                )
             }
             offset += batchSize
         }
