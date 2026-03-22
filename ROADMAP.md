@@ -71,6 +71,9 @@ Goal: stable daily-driver release with trustworthy archive behavior and distribu
 
 ### Remaining To Close v1.0
 
+- Indexing & analysis UX (see `docs/indexing-analysis-ux.md`):
+  - [Planned] hide Low Quality queue until analysis has run at least once (spec-mandated correctness fix)
+  - [Planned] post-index non-modal info bar prompting user to run analysis
 - Boxes quality pass (single coordinated sweep across all boxes):
   - [In Progress] Duplicates tuning and regression checks
   - [In Progress] Documents OCR/vision false-positive tuning
@@ -108,7 +111,7 @@ Goal: remove rough edges from 1.0 usage and improve resilience/clarity without w
 
 ## v1.2+
 
-- Analysis lifecycle improvements (rerun policy, last-analysed visibility, refresh recommendations).
+- Analysis lifecycle improvements (last-analysed date in Settings, `.indexing` sidebar item removal) — see `docs/indexing-analysis-ux.md` for full plan.
 - Smart/query view expansion and incremental indexing/reconciliation tooling.
 - Workflow expansion and richer archive auditing/reporting.
 
