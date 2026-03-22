@@ -62,7 +62,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
 
         rows += [
             [makeCategoryLabel(title: "Index:"),            rebuildStatusLabel,  rebuildButton],
-            [makeCategoryLabel(title: "Library analysis:"), analyseStatusLabel,  analyseButton],
+            [makeCategoryLabel(title: "Analysis:"),         analyseStatusLabel,  analyseButton],
         ]
 
         return rows
@@ -123,7 +123,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
         analyseButton.isEnabled = !model.isAnalysing
         analyseButton.title = model.isAnalysing ? "Analysing…" : "Analyse Library"
         analyseStatusLabel.stringValue = model.isAnalysing
-            ? (model.analysisStatusText.isEmpty ? "Running…" : model.analysisStatusText)
-            : "Imports quality scores, file sizes, labels, and duplicate fingerprints."
+            ? (model.analysisStatusText.isEmpty ? "Analysing…" : model.analysisStatusText)
+            : "Scores quality, detects near-duplicates, and imports content labels."
     }
 }

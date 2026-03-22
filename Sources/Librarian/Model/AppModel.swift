@@ -886,7 +886,7 @@ final class AppModel: ObservableObject {
     func runLibraryAnalysis() async {
         guard !isAnalysing else { return }
         isAnalysing = true
-        analysisStatusText = "Starting…"
+        analysisStatusText = "Analysing…"
         notifyAnalysisStateChanged()
 
         let analyser = LibraryAnalyser(database: database)
@@ -899,7 +899,7 @@ final class AppModel: ObservableObject {
             assetDataVersion &+= 1
             systemNotifications.postIfBackground(
                 title: "Library Analysis Complete",
-                body: "Librarian finished analyzing your photo library.",
+                body: "Librarian finished analysing your photo library.",
                 identifier: "analysis-complete"
             )
         } catch {
