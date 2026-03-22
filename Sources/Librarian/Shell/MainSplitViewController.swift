@@ -86,6 +86,11 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        // Set up the toolbar appearance adapter now that the window is fully on screen
+        // and its effectiveAppearance is stable. Must not happen earlier — see MainWindowController.
+        if let window = view.window {
+            (window.windowController as? MainWindowController)?.setUpToolbarAppearanceAdapterIfNeeded(window: window)
+        }
         if archiveImportSheetPresenter == nil {
             archiveImportSheetPresenter = ArchiveImportSheetPresenter(
                 model: model,

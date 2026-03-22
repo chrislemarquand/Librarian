@@ -41,14 +41,20 @@ final class MainWindowController: NSWindowController {
             configureWindowForToolbar(window)
             installToolbar(resetDelegateState: true)
         }
-        if toolbarAppearanceAdapter == nil, let window {
-            toolbarAppearanceAdapter = ToolbarAppearanceAdapter(window: window) { [weak self] in
-                self?.rebuildToolbarForCurrentAppearance()
-            }
-        }
         super.showWindow(sender)
         window?.makeKeyAndOrderFront(sender)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Called from MainSplitViewController.viewDidAppear once the window is fully on screen.
+    /// Must not be called earlier — the adapter must not be created before the window's
+    /// effectiveAppearance is stable, or it captures a stale appearance and fires a spurious
+    /// rebuild during the compositor's initial pass.
+    func setUpToolbarAppearanceAdapterIfNeeded(window: NSWindow) {
+        guard toolbarAppearanceAdapter == nil else { return }
+        toolbarAppearanceAdapter = ToolbarAppearanceAdapter(window: window) { [weak self] in
+            self?.rebuildToolbarForCurrentAppearance()
+        }
     }
 
     // MARK: - Toolbar
