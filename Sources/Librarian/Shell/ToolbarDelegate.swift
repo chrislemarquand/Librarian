@@ -160,7 +160,6 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             item.paletteLabel = "Set Aside"
             item.image = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: "Set Aside for Archive")
             item.autovalidates = false
-            item.isBordered = true
             item.target = splitVC
             item.action = #selector(MainSplitViewController.setAsideSelectionAction(_:))
             item.toolTip = "Set selected photos aside for archive"
@@ -176,7 +175,6 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             item.paletteLabel = "Send to Archive"
             item.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: "Send to Archive")
             item.autovalidates = false
-            item.isBordered = true
             item.target = splitVC
             item.action = #selector(MainSplitViewController.sendToArchiveAction(_:))
             item.toolTip = "Export set-aside photos and delete from Photos"
@@ -192,7 +190,6 @@ final class ToolbarDelegate: NSObject, NSToolbarDelegate {
             item.paletteLabel = "Put Back"
             item.image = NSImage(systemSymbolName: "arrow.uturn.left.circle", accessibilityDescription: "Put Back")
             item.autovalidates = false
-            item.isBordered = true
             item.target = splitVC
             item.action = #selector(MainSplitViewController.putBackSelectionAction(_:))
             item.toolTip = "Remove selected photos from set-aside archive box"

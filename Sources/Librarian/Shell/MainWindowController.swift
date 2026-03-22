@@ -58,7 +58,7 @@ final class MainWindowController: NSWindowController {
         if resetDelegateState {
             splitVC.toolbarDelegate.resetCachedToolbarReferences()
         }
-        let toolbar = NSToolbar(identifier: "\(AppBrand.identifierPrefix).MainToolbar")
+        let toolbar = NSToolbar(identifier: "\(AppBrand.identifierPrefix).MainToolbar.v1")
         toolbar.delegate = splitVC.toolbarDelegate
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
