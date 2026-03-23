@@ -40,6 +40,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
         super.viewDidAppear()
         refreshRebuildButtonState()
         refreshAnalyseButtonState()
+        model.scheduleSystemPhotoLibraryRefresh(reason: "settingsOpened", debounceMilliseconds: 0)
     }
 
     deinit {
@@ -122,8 +123,17 @@ final class LibrarySettingsViewController: SettingsGridViewController {
     private func refreshAnalyseButtonState() {
         analyseButton.isEnabled = !model.isAnalysing
         analyseButton.title = model.isAnalysing ? "Analysing…" : "Analyse Library"
-        analyseStatusLabel.stringValue = model.isAnalysing
-            ? (model.analysisStatusText.isEmpty ? "Analysing…" : model.analysisStatusText)
-            : "Scores quality, detects near-duplicates, and imports content labels."
+        if model.isAnalysing {
+            analyseStatusLabel.stringValue = model.analysisStatusText.isEmpty ? "Analysing…" : model.analysisStatusText
+        } else {
+            let base = "Analyses quality, duplicates, and labels"
+            if model.pendingAnalysisCount > 0 {
+                analyseStatusLabel.stringValue = "\(base) · \(model.pendingAnalysisCount.formatted()) pending"
+            } else if model.analysisHasRunBefore {
+                analyseStatusLabel.stringValue = "\(base) · Up to date"
+            } else {
+                analyseStatusLabel.stringValue = base
+            }
+        }
     }
 }

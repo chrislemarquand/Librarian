@@ -121,6 +121,15 @@ private struct VisionCandidateResult {
     let barcodeDetected: Bool
     let saliencyScore: Double?
     let featurePrint: VNFeaturePrintObservation?
+    let featurePrintData: Data?
+}
+
+private struct FeaturePrintEntry {
+    let localIdentifier: String
+    let creationDate: Date?
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let featurePrint: VNFeaturePrintObservation
 }
 
 private nonisolated func runVisionAnalysisStage(
@@ -179,7 +188,8 @@ private nonisolated func runVisionAnalysisStage(
                 localIdentifier: $0.localIdentifier,
                 ocrText: $0.ocrText,
                 barcodeDetected: $0.barcodeDetected,
-                saliencyScore: $0.saliencyScore
+                saliencyScore: $0.saliencyScore,
+                featurePrintData: $0.featurePrintData
             )
         }
         try await database.assetRepository.upsertVisionAnalysisData(writeResults, analysedAt: analysedAt)
@@ -191,9 +201,27 @@ private nonisolated func runVisionAnalysisStage(
     }
 
     var clusterAssignments: [NearDuplicateClusterAssignment] = []
+    var deserialiseFailures = 0
     if !Task.isCancelled, !analysed.isEmpty {
-        try await database.assetRepository.clearNearDuplicateClusters(for: analysed.map(\.localIdentifier))
-        clusterAssignments = buildNearDuplicateAssignments(results: analysed)
+        // Load ALL stored feature prints so clustering spans the full library,
+        // not just the assets analysed in this pass.
+        let storedPrints = try database.assetRepository.fetchAllFeaturePrints()
+        let allEntries: [FeaturePrintEntry] = storedPrints.compactMap { stored in
+            guard let observation = deserialiseFeaturePrint(from: stored.featurePrintData) else {
+                deserialiseFailures += 1
+                return nil
+            }
+            return FeaturePrintEntry(
+                localIdentifier: stored.localIdentifier,
+                creationDate: stored.creationDate,
+                pixelWidth: stored.pixelWidth,
+                pixelHeight: stored.pixelHeight,
+                featurePrint: observation
+            )
+        }
+        // Build fresh assignments before clearing so a bug here preserves the old data.
+        clusterAssignments = buildNearDuplicateAssignments(entries: allEntries)
+        try await database.assetRepository.clearAllNearDuplicateClusters()
         try await database.assetRepository.assignNearDuplicateClusters(clusterAssignments)
     }
 
@@ -210,7 +238,7 @@ private nonisolated func runVisionAnalysisStage(
             AppLog.shared.error("Vision analysis produced 0 successful results from \(totalCandidates) candidates.")
         }
         AppLog.shared.info(
-            "Vision analysis complete: \(analysed.count) assets scanned, \(Set(clusterAssignments.map(\.clusterID)).count) near-duplicate clusters. Cancelled=\(Task.isCancelled)"
+            "Vision analysis complete: \(analysed.count) assets scanned, \(Set(clusterAssignments.map(\.clusterID)).count) near-duplicate clusters, \(deserialiseFailures) feature print deserialise failures. Cancelled=\(Task.isCancelled)"
         )
     }
 }
@@ -256,7 +284,8 @@ private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandi
         ocrText: ocrText,
         barcodeDetected: barcodeDetected,
         saliencyScore: saliencyScore,
-        featurePrint: featurePrint
+        featurePrint: featurePrint,
+        featurePrintData: featurePrint.flatMap { serialiseFeaturePrint($0) }
     )
 }
 
@@ -298,11 +327,18 @@ private nonisolated func requestCIImage(for asset: PHAsset, imageManager: PHImag
     return CIImage(data: resultData)
 }
 
-private nonisolated func buildNearDuplicateAssignments(results: [VisionCandidateResult]) -> [NearDuplicateClusterAssignment] {
-    let withFeature = results.filter { $0.featurePrint != nil }
-    guard withFeature.count > 1 else { return [] }
+private nonisolated func serialiseFeaturePrint(_ observation: VNFeaturePrintObservation) -> Data? {
+    try? NSKeyedArchiver.archivedData(withRootObject: observation, requiringSecureCoding: true)
+}
 
-    let sorted = withFeature.sorted {
+private nonisolated func deserialiseFeaturePrint(from data: Data) -> VNFeaturePrintObservation? {
+    try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: data)
+}
+
+private nonisolated func buildNearDuplicateAssignments(entries: [FeaturePrintEntry]) -> [NearDuplicateClusterAssignment] {
+    guard entries.count > 1 else { return [] }
+
+    let sorted = entries.sorted {
         let lhs = $0.creationDate ?? .distantPast
         let rhs = $1.creationDate ?? .distantPast
         if lhs == rhs { return $0.localIdentifier < $1.localIdentifier }
@@ -310,10 +346,10 @@ private nonisolated func buildNearDuplicateAssignments(results: [VisionCandidate
     }
     let unionFind = UnionFind(count: sorted.count)
     let maxTimeDelta: TimeInterval = 10
-    let distanceThreshold: Float = 6.5
+    let distanceThreshold: Float = 3.5
 
     for i in 0..<sorted.count {
-        guard let leftPrint = sorted[i].featurePrint else { continue }
+        let leftPrint = sorted[i].featurePrint
         let leftDate = sorted[i].creationDate ?? .distantPast
         var j = i + 1
         while j < sorted.count {
@@ -321,10 +357,7 @@ private nonisolated func buildNearDuplicateAssignments(results: [VisionCandidate
             if rightDate.timeIntervalSince(leftDate) > maxTimeDelta {
                 break
             }
-            guard let rightPrint = sorted[j].featurePrint else {
-                j += 1
-                continue
-            }
+            let rightPrint = sorted[j].featurePrint
             if !areComparableDimensions(lhs: sorted[i], rhs: sorted[j]) {
                 j += 1
                 continue
@@ -357,7 +390,7 @@ private nonisolated func buildNearDuplicateAssignments(results: [VisionCandidate
     return assignments
 }
 
-private nonisolated func areComparableDimensions(lhs: VisionCandidateResult, rhs: VisionCandidateResult) -> Bool {
+private nonisolated func areComparableDimensions(lhs: FeaturePrintEntry, rhs: FeaturePrintEntry) -> Bool {
     let lw = max(lhs.pixelWidth, 1)
     let lh = max(lhs.pixelHeight, 1)
     let rw = max(rhs.pixelWidth, 1)

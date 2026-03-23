@@ -231,5 +231,20 @@ enum LibrarianMigrations {
             try db.create(index: "asset_contentHashSHA256", on: "asset", columns: ["contentHashSHA256"])
             try db.create(index: "asset_fileSizeBytes_creationDate", on: "asset", columns: ["fileSizeBytes", "creationDate"])
         }
+
+        migrator.registerMigration("v16_drop_queue_keep_decision") { db in
+            // Keep decisions removed from product — boxes show all matching assets by default.
+            try db.execute(sql: "DROP TABLE IF EXISTS queue_keep_decision")
+        }
+
+        migrator.registerMigration("v15_add_vision_feature_print") { db in
+            // Persisted VNFeaturePrintObservation blob — enables global near-duplicate
+            // re-clustering across analysis runs rather than per-batch only.
+            // Nullable: NULL until Vision analysis has run on the asset.
+            // No index: fetched in bulk, never used in a WHERE clause.
+            try db.alter(table: "asset") { t in
+                t.add(column: "visionFeaturePrint", .blob)
+            }
+        }
     }
 }

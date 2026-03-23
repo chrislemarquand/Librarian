@@ -231,6 +231,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         observe(model.$indexingProgress)
         observe(model.$isAnalysing)
         observe(model.$analysisStatusText)
+        observe(model.$pendingAnalysisCount)
         observe(model.$statusMessage)
         observe(model.$archiveRootAvailability)
         observe(model.$latestArchiveLibraryBindingEvaluation)
@@ -357,7 +358,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         switch kind {
         case .indexing:
             text = ""
-        case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots, .whatsapp, .accidental:
+        case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots, .whatsapp:
             text = count == 1 ? "1 item" : "\(count.formatted()) items"
         case .allPhotos, .recents, .favourites:
             text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
@@ -374,6 +375,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             indexingStatusText: model.indexingProgress.statusText,
             isAnalysing: model.isAnalysing,
             analysisStatusText: model.analysisStatusText,
+            pendingAnalysisCount: model.pendingAnalysisCount,
             archiveRootAvailability: model.archiveRootAvailability,
             archiveBindingState: model.latestArchiveLibraryBindingEvaluation?.state,
             statusMessage: model.statusMessage
@@ -431,16 +433,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         toolbarDelegate.refresh(model: model)
     }
 
-    @objc func keepSelectionAction(_ sender: Any?) {
-        contentController.keepSelectedAssets()
-        toolbarDelegate.refresh(model: model)
-    }
-
-    @objc func resetDecisionAction(_ sender: Any?) {
-        contentController.resetSelectedAssetsDecision()
-        toolbarDelegate.refresh(model: model)
-    }
-
     @objc func revealSelectionInFinderAction(_ sender: Any?) {
         contentController.revealArchiveSelectionInFinder()
     }
@@ -457,21 +449,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         case .allPhotos, .recents, .favourites, .indexing:
             return nil
 
-        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
-            guard let keepKind = item.keepDecisionKind else { return nil }
-            let menu = NSMenu()
-            menu.autoenablesItems = false
-            let resetItem = NSMenuItem(
-                title: "Reset All Decisions…",
-                action: #selector(resetAllDecisionsForQueueAction(_:)),
-                keyEquivalent: ""
-            )
-            resetItem.representedObject = keepKind
-            resetItem.target = self
-            resetItem.isEnabled = true
-            resetItem.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
-            menu.addItem(resetItem)
-            return menu
+        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
+            return nil
 
         case .setAsideForArchive:
             let menu = NSMenu()
@@ -510,24 +489,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             revealItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             menu.addItem(revealItem)
             return menu
-        }
-    }
-
-    @objc private func resetAllDecisionsForQueueAction(_ sender: NSMenuItem) {
-        guard let keepKind = sender.representedObject as? String else { return }
-        let alert = NSAlert()
-        alert.messageText = "Reset All Decisions?"
-        alert.informativeText = "All keep decisions for this queue will be cleared. Photos will reappear as unreviewed."
-        alert.addButton(withTitle: "Reset")
-        alert.addButton(withTitle: "Cancel")
-        alert.runSheetOrModal(for: view.window) { [weak self] response in
-            guard let self, response == .alertFirstButtonReturn else { return }
-            do {
-                try self.model.database.assetRepository.clearKeepDecisions(for: keepKind)
-                self.contentController.refreshDisplayedAssets()
-            } catch {
-                self.showArchiveAlert(title: "Reset Failed", message: error.localizedDescription)
-            }
         }
     }
 
@@ -592,7 +553,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var isGallerySidebarSelection: Bool {
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
         case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
-             .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
+             .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
             return true
         case .indexing:
             return false
@@ -612,14 +573,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         model.selectedSidebarItem?.kind == .setAsideForArchive
             && model.failedArchiveCandidateCount > 0
             && !model.isSendingArchive
-    }
-
-    var canKeepSelection: Bool {
-        model.selectedSidebarItem?.keepDecisionKind != nil && contentController.hasSelectedAssets
-    }
-
-    var canResetDecision: Bool {
-        model.selectedSidebarItem?.keepDecisionKind != nil && contentController.hasSelectedAssets
     }
 
     var canRevealInFinder: Bool {
@@ -772,6 +725,7 @@ enum LibrarianWindowSubtitlePriority {
         indexingStatusText: String,
         isAnalysing: Bool,
         analysisStatusText: String,
+        pendingAnalysisCount: Int,
         archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability,
         archiveBindingState: ArchiveLibraryBindingState?,
         statusMessage: String
@@ -790,6 +744,10 @@ enum LibrarianWindowSubtitlePriority {
         if isAnalysing {
             let message = analysisStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
             return message.isEmpty ? "Analysing Library…" : message
+        }
+
+        if pendingAnalysisCount > 0 {
+            return "\(pendingAnalysisCount.formatted()) photos to analyse"
         }
 
         if archiveRootAvailability == .unavailable
@@ -831,14 +789,8 @@ extension MainSplitViewController {
         if item.action == #selector(selectAll(_:)) {
             return isGallerySidebarSelection
         }
-        if item.action == #selector(keepSelectionAction(_:)) {
-            return canKeepSelection
-        }
         if item.action == #selector(setAsideSelectionAction(_:)) {
             return canSetAsideSelection
-        }
-        if item.action == #selector(resetDecisionAction(_:)) {
-            return canResetDecision
         }
         if item.action == #selector(revealSelectionInFinderAction(_:)) {
             return canRevealInFinder

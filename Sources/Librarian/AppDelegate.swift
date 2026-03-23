@@ -49,8 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController = SettingsWindowController(tabs: [
             SettingsTabDescriptor(symbolName: "photo.stack", label: "Library",
                 viewController: LibrarySettingsViewController(model: model)),
-            SettingsTabDescriptor(symbolName: "shippingbox", label: "Boxes",
-                viewController: BoxesSettingsViewController(model: model)),
             SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                 viewController: ArchiveSettingsViewController(model: model)),
             SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",
@@ -236,9 +234,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(photoItem)
         let photoMenu = NSMenu(title: "Photo")
         photoItem.submenu = photoMenu
-        let keepItem = NSMenuItem(title: "Keep", action: #selector(MainSplitViewController.keepSelectionAction(_:)), keyEquivalent: "k")
-        keepItem.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: nil)
-        photoMenu.addItem(keepItem)
         let setAsideItem = NSMenuItem(title: "Set Aside", action: #selector(MainSplitViewController.setAsideSelectionAction(_:)), keyEquivalent: "d")
         setAsideItem.image = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: nil)
         photoMenu.addItem(setAsideItem)
@@ -246,10 +241,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         putBackItem.keyEquivalentModifierMask = [.command, .option]
         putBackItem.image = NSImage(systemSymbolName: "arrow.uturn.left.circle", accessibilityDescription: nil)
         photoMenu.addItem(putBackItem)
-        let resetItem = NSMenuItem(title: "Reset Decision", action: #selector(MainSplitViewController.resetDecisionAction(_:)), keyEquivalent: "\u{8}")
-        resetItem.keyEquivalentModifierMask = .command
-        resetItem.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
-        photoMenu.addItem(resetItem)
         photoMenu.addItem(.separator())
         let sendToArchiveItem = NSMenuItem(title: "Send Selected to Archive…", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "s")
         sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
@@ -295,8 +286,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsWindowController = SettingsWindowController(tabs: [
                 SettingsTabDescriptor(symbolName: "photo.stack", label: "Library",
                     viewController: LibrarySettingsViewController(model: appModel)),
-                SettingsTabDescriptor(symbolName: "shippingbox", label: "Boxes",
-                    viewController: BoxesSettingsViewController(model: appModel)),
                 SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                     viewController: ArchiveSettingsViewController(model: appModel)),
                 SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",

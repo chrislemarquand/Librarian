@@ -69,7 +69,6 @@ final class ContentController: NSViewController {
     private var placeholderHostingView: NSView?
     private var screenshotActionBar: NSView!
     private var screenshotSelectionLabel: NSTextField!
-    private var screenshotKeepButton: NSButton!
     private var screenshotArchiveButton: NSButton!
     private var screenshotActionBarHeightConstraint: NSLayoutConstraint!
     private var archivedNoticeBar: NSView!
@@ -400,9 +399,6 @@ final class ContentController: NSViewController {
             case .whatsapp:
                 let rows = (try? database.assetRepository.fetchWhatsAppForGrid(limit: pageSize, offset: offset)) ?? []
                 assets = rows.map { .photos($0) }
-            case .accidental:
-                let rows = (try? database.assetRepository.fetchAccidentalForGrid(limit: pageSize, offset: offset)) ?? []
-                assets = rows.map { .photos($0) }
             case .indexing:
                 assets = []
             }
@@ -596,7 +592,6 @@ final class ContentController: NSViewController {
         case .lowQuality: return "wand.and.stars.inverse"
         case .receiptsAndDocuments: return "doc.text"
         case .whatsapp: return "message"
-        case .accidental: return "photo.badge.exclamationmark"
         case .indexing: return "arrow.triangle.2.circlepath"
         }
     }
@@ -649,8 +644,6 @@ final class ContentController: NSViewController {
             return .unavailable(title: "No Documents", symbolName: "doc.text", description: "No document-focused photos found.")
         case .whatsapp:
             return .unavailable(title: "No WhatsApp Media", symbolName: "message", description: "No WhatsApp media found.")
-        case .accidental:
-            return .unavailable(title: "No Accidental Captures", symbolName: "photo.badge.exclamationmark", description: "No accidental captures found.")
         case .indexing:
             return .unavailable(title: "Indexing", symbolName: "arrow.triangle.2.circlepath", description: "")
         }
@@ -791,10 +784,6 @@ final class ContentController: NSViewController {
         screenshotArchiveButton.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(screenshotArchiveButton)
 
-        screenshotKeepButton = NSButton(title: "Keep", target: self, action: #selector(markScreenshotsKeep))
-        screenshotKeepButton.bezelStyle = .rounded
-        screenshotKeepButton.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(screenshotKeepButton)
 
         NSLayoutConstraint.activate([
             divider.topAnchor.constraint(equalTo: bar.topAnchor),
@@ -807,9 +796,6 @@ final class ContentController: NSViewController {
 
             screenshotArchiveButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12),
             screenshotArchiveButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-
-            screenshotKeepButton.trailingAnchor.constraint(equalTo: screenshotArchiveButton.leadingAnchor, constant: -8),
-            screenshotKeepButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
         ])
 
         return bar
@@ -944,7 +930,8 @@ final class ContentController: NSViewController {
             },
             onWillClose: { [weak self] in
                 self?.cleanupQuickLookSession()
-            }
+            },
+            itemTitle: ""
         )
     }
 
@@ -1041,39 +1028,6 @@ final class ContentController: NSViewController {
         alert.runSheetOrModal(for: view.window) { _ in }
     }
 
-    func keepSelectedAssets() {
-        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
-        let identifiers = selectedAssetIdentifiers()
-        guard !identifiers.isEmpty else { return }
-        do {
-            try model.database.assetRepository.keepAssetsInQueue(identifiers, queueKind: keepKind)
-            AppLog.shared.info("Kept \(identifiers.count) items in queue '\(keepKind)'")
-            model.setStatusMessage("Kept \(identifiers.count) photos.", autoClearAfterSuccess: true)
-            collectionView.deselectAll(nil)
-            model.setSelectedAsset(nil)
-            loadAssetsIfNeeded(force: true)
-        } catch {
-            AppLog.shared.error("Failed to keep assets in queue: \(error.localizedDescription)")
-        }
-        updateScreenshotActionBarState()
-    }
-
-    func resetSelectedAssetsDecision() {
-        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
-        let identifiers = selectedAssetIdentifiers()
-        guard !identifiers.isEmpty else { return }
-        do {
-            try model.database.assetRepository.removeKeepDecisions(for: identifiers, queueKind: keepKind)
-            AppLog.shared.info("Reset decisions for \(identifiers.count) items in queue '\(keepKind)'")
-            model.setStatusMessage("Reset \(identifiers.count) decisions.", autoClearAfterSuccess: true)
-            collectionView.deselectAll(nil)
-            model.setSelectedAsset(nil)
-            loadAssetsIfNeeded(force: true)
-        } catch {
-            AppLog.shared.error("Failed to reset keep decisions: \(error.localizedDescription)")
-        }
-    }
-
     var hasSelectedArchiveItems: Bool {
         !selectedArchiveURLs().isEmpty
     }
@@ -1090,10 +1044,6 @@ final class ContentController: NSViewController {
             .filter { $0 >= 0 && $0 < displayAssets.count }
             .compactMap { displayAssets[$0].archivedItem }
             .map { URL(fileURLWithPath: $0.absolutePath) }
-    }
-
-    @objc private func markScreenshotsKeep() {
-        keepSelectedAssets()
     }
 
     @objc private func markScreenshotsArchiveCandidate() {
@@ -1285,13 +1235,6 @@ final class ContentController: NSViewController {
 
         case .allPhotos, .recents, .favourites:
             menu.addItem(ContextMenuSupport.makeMenuItem(
-                title: "Keep",
-                action: #selector(keepFromContextMenu(_:)),
-                target: self,
-                symbolName: "checkmark.circle",
-                isEnabled: false
-            ))
-            menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Set Aside",
                 action: #selector(setAsideFromContextMenu(_:)),
                 target: self,
@@ -1314,27 +1257,13 @@ final class ContentController: NSViewController {
                 isEnabled: hasPhotoTargets
             ))
 
-        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp, .accidental:
-            menu.addItem(ContextMenuSupport.makeMenuItem(
-                title: "Keep",
-                action: #selector(keepFromContextMenu(_:)),
-                target: self,
-                symbolName: "checkmark.circle",
-                isEnabled: hasPhotoTargets
-            ))
+        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
             menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Set Aside",
                 action: #selector(setAsideFromContextMenu(_:)),
                 target: self,
                 symbolName: "tray.and.arrow.down",
                 isEnabled: hasPhotoTargets && !model.isSendingArchive
-            ))
-            menu.addItem(ContextMenuSupport.makeMenuItem(
-                title: "Reset Decision",
-                action: #selector(resetDecisionFromContextMenu(_:)),
-                target: self,
-                symbolName: "arrow.counterclockwise",
-                isEnabled: hasPhotoTargets
             ))
             menu.addItem(.separator())
             menu.addItem(ContextMenuSupport.makeMenuItem(
@@ -1421,41 +1350,6 @@ final class ContentController: NSViewController {
     }
 
     @objc
-    private func keepFromContextMenu(_: Any?) {
-        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
-        let identifiers = contextMenuPhotoIdentifiers()
-        guard !identifiers.isEmpty else { return }
-        do {
-            try model.database.assetRepository.keepAssetsInQueue(identifiers, queueKind: keepKind)
-            AppLog.shared.info("Kept \(identifiers.count) items in queue '\(keepKind)'")
-            model.setStatusMessage("Kept \(identifiers.count) photos.", autoClearAfterSuccess: true)
-            collectionView.deselectAll(nil)
-            model.setSelectedAsset(nil)
-            loadAssetsIfNeeded(force: true)
-        } catch {
-            AppLog.shared.error("Failed to keep assets in queue: \(error.localizedDescription)")
-        }
-        updateScreenshotActionBarState()
-    }
-
-    @objc
-    private func resetDecisionFromContextMenu(_: Any?) {
-        guard let keepKind = model.selectedSidebarItem?.keepDecisionKind else { return }
-        let identifiers = contextMenuPhotoIdentifiers()
-        guard !identifiers.isEmpty else { return }
-        do {
-            try model.database.assetRepository.removeKeepDecisions(for: identifiers, queueKind: keepKind)
-            AppLog.shared.info("Reset decisions for \(identifiers.count) items in queue '\(keepKind)'")
-            model.setStatusMessage("Reset \(identifiers.count) decisions.", autoClearAfterSuccess: true)
-            collectionView.deselectAll(nil)
-            model.setSelectedAsset(nil)
-            loadAssetsIfNeeded(force: true)
-        } catch {
-            AppLog.shared.error("Failed to reset keep decisions: \(error.localizedDescription)")
-        }
-    }
-
-    @objc
     private func quickLookFromContextMenu(_: Any?) {
         quickLookSelection()
     }
@@ -1495,7 +1389,6 @@ final class ContentController: NSViewController {
         let selectionCount = selectedAssetIdentifiers().count
         let emptyLabel = kind == .screenshots ? "Select screenshots to review" : "Select photos to review"
         screenshotSelectionLabel.stringValue = selectionCount > 0 ? "\(selectionCount) selected" : emptyLabel
-        screenshotKeepButton.isEnabled = selectionCount > 0
         screenshotArchiveButton.isEnabled = selectionCount > 0
     }
 }

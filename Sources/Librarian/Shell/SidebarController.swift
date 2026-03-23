@@ -23,7 +23,6 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         case lowQuality
         case receiptsAndDocuments
         case whatsapp
-        case accidental
         case indexing
     }
 
@@ -32,23 +31,18 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
     var title: String
     var symbolName: String
     var badgeText: String?
-    /// The database kind string used for keep-decision storage, if this item is a box.
-    /// Populate this for every `.queues` section item. `BoxesSettingsViewController`
-    /// uses it to auto-populate the reset rows — just fill it in when adding a new box.
-    var keepDecisionKind: String?
     var sidebarReorderID: String? { kind.orderToken }
-    var isSidebarReorderable: Bool { keepDecisionKind != nil }
+    var isSidebarReorderable: Bool { section == .queues }
 
     static let baseItems: [SidebarItem] = [
         SidebarItem(section: .library, kind: .allPhotos,            title: "All Photos",  symbolName: "photo.on.rectangle.angled", badgeText: nil),
         SidebarItem(section: .library, kind: .recents,              title: "Recents",     symbolName: "clock",                     badgeText: nil),
         SidebarItem(section: .library, kind: .favourites,           title: "Favourites",  symbolName: "heart",                     badgeText: nil),
-        SidebarItem(section: .queues,  kind: .accidental,           title: "Accidental",  symbolName: "photo.badge.exclamationmark", badgeText: nil, keepDecisionKind: "accidental"),
-        SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Documents",   symbolName: "doc.text",                  badgeText: nil, keepDecisionKind: "receiptsAndDocuments"),
-        SidebarItem(section: .queues,  kind: .duplicates,           title: "Duplicates",  symbolName: "photo.on.rectangle",        badgeText: nil, keepDecisionKind: "duplicates"),
-        SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality", symbolName: "wand.and.stars.inverse",    badgeText: nil, keepDecisionKind: "lowQuality"),
-        SidebarItem(section: .queues,  kind: .screenshots,          title: "Screenshots", symbolName: "camera.viewfinder",         badgeText: nil, keepDecisionKind: "screenshots"),
-        SidebarItem(section: .queues,  kind: .whatsapp,             title: "WhatsApp",    symbolName: "message",                   badgeText: nil, keepDecisionKind: "whatsapp"),
+        SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Documents",   symbolName: "doc.text",             badgeText: nil),
+        SidebarItem(section: .queues,  kind: .duplicates,           title: "Duplicates",  symbolName: "photo.on.rectangle",   badgeText: nil),
+        SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality", symbolName: "wand.and.stars.inverse", badgeText: nil),
+        SidebarItem(section: .queues,  kind: .screenshots,          title: "Screenshots", symbolName: "camera.viewfinder",     badgeText: nil),
+        SidebarItem(section: .queues,  kind: .whatsapp,             title: "WhatsApp",    symbolName: "message",               badgeText: nil),
         SidebarItem(section: .archive, kind: .setAsideForArchive,   title: "Set Aside",   symbolName: "tray.full",                 badgeText: nil),
         SidebarItem(section: .archive, kind: .archived,             title: "Archive",     symbolName: "archivebox",                badgeText: nil),
     ]
@@ -108,7 +102,6 @@ extension SidebarItem.Kind {
         case .lowQuality: return "lowQuality"
         case .receiptsAndDocuments: return "receiptsAndDocuments"
         case .whatsapp: return "whatsapp"
-        case .accidental: return "accidental"
         case .indexing: return "indexing"
         }
     }
@@ -125,7 +118,6 @@ extension SidebarItem.Kind {
         case .lowQuality: return "lowQuality"
         case .receiptsAndDocuments: return "receiptsAndDocuments"
         case .whatsapp: return "whatsapp"
-        case .accidental: return "accidental"
         case .indexing: return "indexing"
         }
     }

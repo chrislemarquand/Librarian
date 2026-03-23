@@ -570,6 +570,8 @@ final class AppModel: ObservableObject {
     @Published var isAnalysing = false
     @Published private(set) var isAnalysisInNonResumableStage = false
     @Published var analysisStatusText: String = ""
+    @Published private(set) var pendingAnalysisCount: Int = 0
+    @Published private(set) var analysisHasRunBefore: Bool = false
     @Published var isImportingArchive = false
     @Published var importStatusText: String = ""
     @Published var statusMessage: String = "Ready"
@@ -661,6 +663,8 @@ final class AppModel: ObservableObject {
         indexedAssetCount = (try? database.assetRepository.count()) ?? 0
         pendingArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.pending, .exporting, .failed])) ?? 0
         failedArchiveCandidateCount = (try? database.assetRepository.countArchiveCandidates(statuses: [.failed])) ?? 0
+        pendingAnalysisCount = (try? database.assetRepository.countVisionAnalysisCandidates(includePreviouslyAnalysed: false)) ?? 0
+        analysisHasRunBefore = (try? database.assetRepository.analysisHasRunBefore()) ?? false
         AppLog.shared.info("Loaded persisted index count: \(indexedAssetCount)")
         let availability = refreshArchiveRootAvailability()
         if availability == .unavailable {
@@ -774,9 +778,12 @@ final class AppModel: ObservableObject {
         indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
         assetDataVersion &+= 1
         notifyIndexingStateChanged()
+        refreshAnalysisStatus()
 
         if reason == "initial" && shouldAutoAnalyseAfterIndex {
             shouldAutoAnalyseAfterIndex = false
+            Task { await runLibraryAnalysis() }
+        } else if reason == "initial" && !isAnalysing && analysisHasRunBefore && pendingAnalysisCount > 0 {
             Task { await runLibraryAnalysis() }
         }
     }
@@ -934,11 +941,18 @@ final class AppModel: ObservableObject {
 
         isAnalysisInNonResumableStage = false
         isAnalysing = false
-        notifyAnalysisStateChanged()
+        refreshAnalysisStatus()
     }
 
     private func notifyAnalysisStateChanged() {
         NotificationCenter.default.post(name: .librarianAnalysisStateChanged, object: nil)
+    }
+
+    private func refreshAnalysisStatus() {
+        guard let repo = database.assetRepository else { return }
+        pendingAnalysisCount = (try? repo.countVisionAnalysisCandidates(includePreviouslyAnalysed: false)) ?? pendingAnalysisCount
+        analysisHasRunBefore = (try? repo.analysisHasRunBefore()) ?? analysisHasRunBefore
+        notifyAnalysisStateChanged()
     }
 
     /// Called by the welcome screen on first run. Schedules an analysis pass to

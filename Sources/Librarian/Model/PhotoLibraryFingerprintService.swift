@@ -62,27 +62,43 @@ enum PhotoLibraryFingerprintService {
         return (heuristicURL.standardizedFileURL, picturesDirectoryHeuristicSource)
     }
 
-    private static func defaultPhotosLibraryURLFromPreferences() -> URL? {
-        guard let defaults = UserDefaults(suiteName: photosDefaultsDomain),
-              let bookmarkData = defaults.data(forKey: photosDefaultLibraryBookmarkKey)
-        else {
-            return nil
-        }
+    // Candidate plist paths in preference order. Photos.app is sandboxed on macOS
+    // so its prefs live in the container; the non-container path is a fallback for
+    // older OS versions or edge cases.
+    private static var preferencesPlistCandidates: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(
+                "Library/Containers/com.apple.Photos/Data/Library/Preferences/com.apple.Photos.plist"
+            ),
+            home.appendingPathComponent("Library/Preferences/com.apple.Photos.plist"),
+        ]
+    }
 
-        var isStale = false
-        guard let resolvedURL = try? URL(
-            resolvingBookmarkData: bookmarkData,
-            options: [.withoutUI, .withoutMounting],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ) else {
-            return nil
+    private static func defaultPhotosLibraryURLFromPreferences() -> URL? {
+        // Read the plist file directly from disk on every call to bypass the
+        // CFPreferences / UserDefaults in-process cache, which does not reliably
+        // reflect writes made by Photos.app after our process started.
+        for plistURL in preferencesPlistCandidates {
+            guard let data = try? Data(contentsOf: plistURL),
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+                  let dict = plist as? [String: Any],
+                  let bookmarkData = dict[photosDefaultLibraryBookmarkKey] as? Data
+            else { continue }
+
+            var isStale = false
+            guard let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: [.withoutUI, .withoutMounting],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) else { continue }
+
+            let standardized = resolvedURL.standardizedFileURL
+            guard standardized.pathExtension == "photoslibrary" else { continue }
+            return standardized
         }
-        let standardized = resolvedURL.standardizedFileURL
-        guard standardized.pathExtension == "photoslibrary" else {
-            return nil
-        }
-        return standardized
+        return nil
     }
 
     private static func buildFingerprintInput(for libraryURL: URL) -> String {

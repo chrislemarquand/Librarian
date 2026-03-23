@@ -75,11 +75,20 @@ struct VisionAnalysisWriteResult {
     let ocrText: String?
     let barcodeDetected: Bool
     let saliencyScore: Double?
+    let featurePrintData: Data?
 }
 
 struct NearDuplicateClusterAssignment {
     let localIdentifier: String
     let clusterID: String
+}
+
+struct StoredFeaturePrint {
+    let localIdentifier: String
+    let creationDate: Date?
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let featurePrintData: Data
 }
 
 struct ArchivedItem: Codable, FetchableRecord, PersistableRecord {
@@ -195,10 +204,7 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'screenshots'
                     WHERE a.isScreenshot = 1
-                      AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
@@ -507,8 +513,6 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'duplicates'
                     WHERE (
                         (
                             a.fingerprint IS NOT NULL
@@ -533,7 +537,6 @@ final class AssetRepository: @unchecked Sendable {
                             )
                         )
                     )
-                      AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
@@ -549,12 +552,9 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'lowQuality'
                     WHERE a.overallScore IS NOT NULL
                       AND a.overallScore < 0.3
                       AND a.isFavorite = 0
-                      AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
@@ -570,8 +570,6 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'receiptsAndDocuments'
                     WHERE (
                         a.visionOcrText IS NOT NULL
                         AND LENGTH(TRIM(a.visionOcrText)) >= ?
@@ -586,32 +584,10 @@ final class AssetRepository: @unchecked Sendable {
                             OR LOWER(a.visionOcrText) LIKE '%certificate%'
                         )
                     )
-                      AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
                 arguments: [minimumDocumentOCRCharacters, limit, offset]
-            )
-            return try request.fetchAll(db)
-        }
-    }
-
-    func fetchAccidentalForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
-        try db.read { db in
-            let request = SQLRequest<IndexedAsset>(
-                sql: """
-                    SELECT a.*
-                    FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'accidental'
-                    WHERE a.visionSaliencyScore IS NOT NULL
-                      AND a.visionSaliencyScore < 0.10
-                      AND a.isFavorite = 0
-                      AND qk.assetLocalIdentifier IS NULL
-                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
-                    LIMIT ? OFFSET ?
-                """,
-                arguments: [limit, offset]
             )
             return try request.fetchAll(db)
         }
@@ -623,10 +599,7 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'whatsapp'
                     WHERE a.isWhatsApp = 1
-                      AND qk.assetLocalIdentifier IS NULL
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
@@ -648,16 +621,11 @@ final class AssetRepository: @unchecked Sendable {
                 return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active WHERE isFavorite = 1") ?? 0
             case .screenshots:
                 return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'screenshots'
-                    WHERE a.isScreenshot = 1 AND qk.assetLocalIdentifier IS NULL
+                    SELECT COUNT(*) FROM asset_active WHERE isScreenshot = 1
                 """) ?? 0
             case .duplicates:
                 return try Int.fetchOne(db, sql: """
                     SELECT COUNT(*) FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'duplicates'
                     WHERE (
                         (
                             a.fingerprint IS NOT NULL
@@ -682,21 +650,15 @@ final class AssetRepository: @unchecked Sendable {
                             )
                         )
                     )
-                      AND qk.assetLocalIdentifier IS NULL
                 """) ?? 0
             case .lowQuality:
                 return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'lowQuality'
-                    WHERE a.overallScore IS NOT NULL AND a.overallScore < 0.3 AND a.isFavorite = 0
-                      AND qk.assetLocalIdentifier IS NULL
+                    SELECT COUNT(*) FROM asset_active
+                    WHERE overallScore IS NOT NULL AND overallScore < 0.3 AND isFavorite = 0
                 """) ?? 0
             case .receiptsAndDocuments:
                 return try Int.fetchOne(db, sql: """
                     SELECT COUNT(*) FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'receiptsAndDocuments'
                     WHERE (
                         a.visionOcrText IS NOT NULL
                         AND LENGTH(TRIM(a.visionOcrText)) >= ?
@@ -711,24 +673,10 @@ final class AssetRepository: @unchecked Sendable {
                             OR LOWER(a.visionOcrText) LIKE '%certificate%'
                         )
                     )
-                      AND qk.assetLocalIdentifier IS NULL
                 """, arguments: [minimumDocumentOCRCharacters]) ?? 0
             case .whatsapp:
                 return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'whatsapp'
-                    WHERE a.isWhatsApp = 1 AND qk.assetLocalIdentifier IS NULL
-                """) ?? 0
-            case .accidental:
-                return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active a
-                    LEFT JOIN queue_keep_decision qk
-                        ON qk.assetLocalIdentifier = a.localIdentifier AND qk.queueKind = 'accidental'
-                    WHERE a.visionSaliencyScore IS NOT NULL
-                      AND a.visionSaliencyScore < 0.10
-                      AND a.isFavorite = 0
-                      AND qk.assetLocalIdentifier IS NULL
+                    SELECT COUNT(*) FROM asset_active WHERE isWhatsApp = 1
                 """) ?? 0
             case .setAsideForArchive:
                 return try Int.fetchOne(db, sql: """
@@ -796,43 +744,6 @@ final class AssetRepository: @unchecked Sendable {
                     WHERE relativePath IN (\(relativePaths.map { _ in "?" }.joined(separator: ",")))
                 """,
                 arguments: StatementArguments(relativePaths)
-            )
-        }
-    }
-
-    func keepAssetsInQueue(_ identifiers: [String], queueKind: String, at date: Date = Date()) throws {
-        guard !identifiers.isEmpty else { return }
-        try db.write { db in
-            for identifier in identifiers {
-                try db.execute(
-                    sql: """
-                        INSERT INTO queue_keep_decision (assetLocalIdentifier, queueKind, decidedAt)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(assetLocalIdentifier, queueKind) DO UPDATE SET decidedAt = excluded.decidedAt
-                    """,
-                    arguments: [identifier, queueKind, date]
-                )
-            }
-        }
-    }
-
-    func removeKeepDecisions(for identifiers: [String], queueKind: String) throws {
-        guard !identifiers.isEmpty else { return }
-        try db.write { db in
-            for identifier in identifiers {
-                try db.execute(
-                    sql: "DELETE FROM queue_keep_decision WHERE assetLocalIdentifier = ? AND queueKind = ?",
-                    arguments: [identifier, queueKind]
-                )
-            }
-        }
-    }
-
-    func clearKeepDecisions(for queueKind: String) throws {
-        try db.write { db in
-            try db.execute(
-                sql: "DELETE FROM queue_keep_decision WHERE queueKind = ?",
-                arguments: [queueKind]
             )
         }
     }
@@ -1055,15 +966,6 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
-    func countKeepDecisions(for queueKind: String) throws -> Int {
-        try db.read { db in
-            try Int.fetchOne(
-                db,
-                sql: "SELECT COUNT(*) FROM queue_keep_decision WHERE queueKind = ?",
-                arguments: [queueKind]
-            ) ?? 0
-        }
-    }
 
     func upsertAnalysisData(_ results: [AssetAnalysisResult], analysedAt: Date) async throws {
         let batchSize = 500
@@ -1165,6 +1067,21 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func analysisHasRunBefore() throws -> Bool {
+        try db.read { db in
+            let count = try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT COUNT(*)
+                    FROM asset_active a
+                    WHERE a.visionAnalysedAt IS NOT NULL
+                    LIMIT 1
+                """
+            ) ?? 0
+            return count > 0
+        }
+    }
+
     func upsertVisionAnalysisData(_ results: [VisionAnalysisWriteResult], analysedAt: Date) async throws {
         guard !results.isEmpty else { return }
         let batchSize = 500
@@ -1179,6 +1096,7 @@ final class AssetRepository: @unchecked Sendable {
                             SET visionOcrText = ?,
                                 visionBarcodeDetected = ?,
                                 visionSaliencyScore = ?,
+                                visionFeaturePrint = ?,
                                 visionAnalysedAt = ?
                             WHERE localIdentifier = ?
                         """,
@@ -1186,6 +1104,7 @@ final class AssetRepository: @unchecked Sendable {
                             result.ocrText,
                             result.barcodeDetected,
                             result.saliencyScore,
+                            result.featurePrintData,
                             analysedAt,
                             result.localIdentifier
                         ]
@@ -1210,6 +1129,35 @@ final class AssetRepository: @unchecked Sendable {
                 )
             }
             offset += batchSize
+        }
+    }
+
+    func clearAllNearDuplicateClusters() async throws {
+        try await db.write { db in
+            try db.execute(
+                sql: "UPDATE asset SET nearDuplicateClusterID = NULL WHERE nearDuplicateClusterID IS NOT NULL"
+            )
+        }
+    }
+
+    func fetchAllFeaturePrints() throws -> [StoredFeaturePrint] {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT a.localIdentifier, a.creationDate, a.pixelWidth, a.pixelHeight, a.visionFeaturePrint
+                FROM asset_active a
+                WHERE a.visionFeaturePrint IS NOT NULL
+                ORDER BY a.creationDate ASC, a.localIdentifier ASC
+            """)
+            return rows.compactMap { row -> StoredFeaturePrint? in
+                guard let data = row["visionFeaturePrint"] as? Data else { return nil }
+                return StoredFeaturePrint(
+                    localIdentifier: row["localIdentifier"],
+                    creationDate: row["creationDate"],
+                    pixelWidth: row["pixelWidth"],
+                    pixelHeight: row["pixelHeight"],
+                    featurePrintData: data
+                )
+            }
         }
     }
 
