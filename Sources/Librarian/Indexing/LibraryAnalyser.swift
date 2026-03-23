@@ -200,7 +200,7 @@ private nonisolated func runVisionAnalysisStage(
 
     var clusterAssignments: [NearDuplicateClusterAssignment] = []
     var deserialiseFailures = 0
-    if !Task.isCancelled, !analysed.isEmpty {
+    if !Task.isCancelled {
         // Load ALL stored feature prints so clustering spans the full library,
         // not just the assets analysed in this pass.
         let storedPrints = try database.assetRepository.fetchAllFeaturePrints()
@@ -326,7 +326,7 @@ private nonisolated func buildNearDuplicateAssignments(entries: [FeaturePrintEnt
     }
     let unionFind = UnionFind(count: sorted.count)
     let maxTimeDelta: TimeInterval = 10
-    let distanceThreshold: Float = 3.5
+    let distanceThreshold: Float = 3.0
 
     for i in 0..<sorted.count {
         let leftPrint = sorted[i].featurePrint
