@@ -326,7 +326,7 @@ private nonisolated func buildNearDuplicateAssignments(entries: [FeaturePrintEnt
     }
     let unionFind = UnionFind(count: sorted.count)
     let maxTimeDelta: TimeInterval = 10
-    let distanceThreshold: Float = 3.0
+    let distanceThreshold: Float = 2.0
 
     for i in 0..<sorted.count {
         let leftPrint = sorted[i].featurePrint
