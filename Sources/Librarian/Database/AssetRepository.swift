@@ -73,7 +73,6 @@ struct VisionAnalysisCandidate {
 struct VisionAnalysisWriteResult {
     let localIdentifier: String
     let ocrText: String?
-    let barcodeDetected: Bool
     let saliencyScore: Double?
     let featurePrintData: Data?
 }
@@ -1094,7 +1093,6 @@ final class AssetRepository: @unchecked Sendable {
                         sql: """
                             UPDATE asset
                             SET visionOcrText = ?,
-                                visionBarcodeDetected = ?,
                                 visionSaliencyScore = ?,
                                 visionFeaturePrint = ?,
                                 visionAnalysedAt = ?
@@ -1102,7 +1100,6 @@ final class AssetRepository: @unchecked Sendable {
                         """,
                         arguments: [
                             result.ocrText,
-                            result.barcodeDetected,
                             result.saliencyScore,
                             result.featurePrintData,
                             analysedAt,

@@ -118,7 +118,6 @@ private struct VisionCandidateResult {
     let pixelWidth: Int
     let pixelHeight: Int
     let ocrText: String?
-    let barcodeDetected: Bool
     let saliencyScore: Double?
     let featurePrint: VNFeaturePrintObservation?
     let featurePrintData: Data?
@@ -187,7 +186,6 @@ private nonisolated func runVisionAnalysisStage(
             VisionAnalysisWriteResult(
                 localIdentifier: $0.localIdentifier,
                 ocrText: $0.ocrText,
-                barcodeDetected: $0.barcodeDetected,
                 saliencyScore: $0.saliencyScore,
                 featurePrintData: $0.featurePrintData
             )
@@ -255,13 +253,11 @@ private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandi
     textRequest.recognitionLevel = .fast
     textRequest.usesLanguageCorrection = false
 
-    let barcodeRequest = VNDetectBarcodesRequest()
-    let saliencyRequest = VNGenerateAttentionBasedSaliencyImageRequest()
     let featurePrintRequest = VNGenerateImageFeaturePrintRequest()
 
     let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
     do {
-        try handler.perform([textRequest, barcodeRequest, saliencyRequest, featurePrintRequest])
+        try handler.perform([textRequest, featurePrintRequest])
     } catch {
         return nil
     }
@@ -272,8 +268,6 @@ private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandi
         .trimmingCharacters(in: .whitespacesAndNewlines)
     let cappedText = String(recognizedText.prefix(4000))
     let ocrText = cappedText.isEmpty ? nil : cappedText
-    let barcodeDetected = !(barcodeRequest.results ?? []).isEmpty
-    let saliencyScore = attentionSaliencyScore(from: saliencyRequest.results)
     let featurePrint = (featurePrintRequest.results?.first as? VNFeaturePrintObservation)
 
     return VisionCandidateResult(
@@ -282,24 +276,10 @@ private nonisolated func analyseVisionCandidate(_ candidate: VisionAnalysisCandi
         pixelWidth: candidate.pixelWidth,
         pixelHeight: candidate.pixelHeight,
         ocrText: ocrText,
-        barcodeDetected: barcodeDetected,
-        saliencyScore: saliencyScore,
+        saliencyScore: nil,
         featurePrint: featurePrint,
         featurePrintData: featurePrint.flatMap { serialiseFeaturePrint($0) }
     )
-}
-
-private nonisolated func attentionSaliencyScore(from results: [VNObservation]?) -> Double? {
-    guard let observations = results as? [VNSaliencyImageObservation],
-          let first = observations.first else {
-        return nil
-    }
-    let confidences = first.salientObjects?.map(\.confidence) ?? []
-    guard let maxConfidence = confidences.max() else {
-        // No salient objects found is a valid signal for accidental captures.
-        return 0.0
-    }
-    return Double(maxConfidence)
 }
 
 private nonisolated func requestCIImage(for asset: PHAsset, imageManager: PHImageManager) -> CIImage? {
