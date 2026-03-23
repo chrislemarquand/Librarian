@@ -1,8 +1,6 @@
 import Cocoa
 import SharedUI
-#if !SWIFT_PACKAGE
 import UserNotifications
-#endif
 
 @MainActor
 @main
@@ -47,9 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
         configureApplicationMenu()
-#if !SWIFT_PACKAGE
         UNUserNotificationCenter.current().delegate = self
-#endif
 
         let model = AppModel()
         settingsWindowController = SettingsWindowController(tabs: [
@@ -313,7 +309,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 }
 
-#if !SWIFT_PACKAGE
 @MainActor
 extension AppDelegate: UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
@@ -332,7 +327,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
     }
 }
-#endif
 
 private struct AboutCredit {
     let text: String
