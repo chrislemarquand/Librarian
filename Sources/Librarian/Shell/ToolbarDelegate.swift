@@ -113,10 +113,8 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
             let item = ToolbarItemFactory.makeInspectorToggleItem(
                 identifier: itemIdentifier,
                 label: label,
-                target: splitVC,
                 action: #selector(MainSplitViewController.toggleInspector(_:)),
-                toolTip: label,
-                isBordered: true
+                toolTip: label
             )
             item.isEnabled = true
             inspectorToggleItem = item

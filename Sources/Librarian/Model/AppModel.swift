@@ -570,6 +570,7 @@ final class AppModel: ObservableObject {
     @Published var isAnalysing = false
     @Published private(set) var isAnalysisInNonResumableStage = false
     @Published var analysisStatusText: String = ""
+    private var lastAnalysisProgressNotificationDate: Date = .distantPast
     @Published private(set) var pendingAnalysisCount: Int = 0
     @Published private(set) var analysisHasRunBefore: Bool = false
     @Published var isImportingArchive = false
@@ -920,7 +921,11 @@ final class AppModel: ObservableObject {
                     isAnalysisInNonResumableStage = false
                 }
                 analysisStatusText = progress.statusText
-                notifyAnalysisStateChanged()
+                let now = Date()
+                if now.timeIntervalSince(lastAnalysisProgressNotificationDate) >= 0.25 {
+                    lastAnalysisProgressNotificationDate = now
+                    notifyAnalysisStateChanged()
+                }
             }
             analysisStatusText = ""
             assetDataVersion &+= 1

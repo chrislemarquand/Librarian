@@ -610,83 +610,91 @@ final class AssetRepository: @unchecked Sendable {
 
     func countForSidebarKind(_ kind: SidebarItem.Kind) throws -> Int {
         let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
-        return try db.read { db in
-            switch kind {
-            case .allPhotos:
-                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active") ?? 0
-            case .recents:
-                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active WHERE creationDate IS NOT NULL AND creationDate >= ?", arguments: [recentCutoff]) ?? 0
-            case .favourites:
-                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active WHERE isFavorite = 1") ?? 0
-            case .screenshots:
-                return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active WHERE isScreenshot = 1
-                """) ?? 0
-            case .duplicates:
-                return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active a
-                    WHERE (
-                        (
-                            a.fingerprint IS NOT NULL
-                            AND a.fingerprint IN (
-                                SELECT fingerprint
-                                FROM asset
-                                WHERE isDeletedFromPhotos = 0
-                                  AND fingerprint IS NOT NULL
-                                GROUP BY fingerprint
-                                HAVING COUNT(*) > 1
-                            )
-                        )
-                        OR (
-                            a.nearDuplicateClusterID IS NOT NULL
-                            AND a.nearDuplicateClusterID IN (
-                                SELECT nearDuplicateClusterID
-                                FROM asset
-                                WHERE isDeletedFromPhotos = 0
-                                  AND nearDuplicateClusterID IS NOT NULL
-                                GROUP BY nearDuplicateClusterID
-                                HAVING COUNT(*) > 1
-                            )
+        return try db.read { db in try Self.countForSidebarKind(kind, recentCutoff: recentCutoff, minOCR: minimumDocumentOCRCharacters, db: db) }
+    }
+
+    func countForSidebarKind(_ kind: SidebarItem.Kind) async throws -> Int {
+        let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
+        let minOCR = minimumDocumentOCRCharacters
+        return try await db.read { db in try Self.countForSidebarKind(kind, recentCutoff: recentCutoff, minOCR: minOCR, db: db) }
+    }
+
+    private static func countForSidebarKind(_ kind: SidebarItem.Kind, recentCutoff: Date, minOCR: Int, db: GRDB.Database) throws -> Int {
+        switch kind {
+        case .allPhotos:
+            return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active") ?? 0
+        case .recents:
+            return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active WHERE creationDate IS NOT NULL AND creationDate >= ?", arguments: [recentCutoff]) ?? 0
+        case .favourites:
+            return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset_active WHERE isFavorite = 1") ?? 0
+        case .screenshots:
+            return try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM asset_active WHERE isScreenshot = 1
+            """) ?? 0
+        case .duplicates:
+            return try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM asset_active a
+                WHERE (
+                    (
+                        a.fingerprint IS NOT NULL
+                        AND a.fingerprint IN (
+                            SELECT fingerprint
+                            FROM asset
+                            WHERE isDeletedFromPhotos = 0
+                              AND fingerprint IS NOT NULL
+                            GROUP BY fingerprint
+                            HAVING COUNT(*) > 1
                         )
                     )
-                """) ?? 0
-            case .lowQuality:
-                return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active
-                    WHERE overallScore IS NOT NULL AND overallScore < 0.3 AND isFavorite = 0
-                """) ?? 0
-            case .receiptsAndDocuments:
-                return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active a
-                    WHERE (
-                        a.visionOcrText IS NOT NULL
-                        AND LENGTH(TRIM(a.visionOcrText)) >= ?
-                        AND (
-                            (a.labelsJSON IS NOT NULL AND a.labelsJSON LIKE '%"document"%')
-                            OR LOWER(a.visionOcrText) LIKE '%invoice%'
-                            OR LOWER(a.visionOcrText) LIKE '%statement%'
-                            OR LOWER(a.visionOcrText) LIKE '%policy%'
-                            OR LOWER(a.visionOcrText) LIKE '%account%'
-                            OR LOWER(a.visionOcrText) LIKE '%contract%'
-                            OR LOWER(a.visionOcrText) LIKE '%application%'
-                            OR LOWER(a.visionOcrText) LIKE '%certificate%'
+                    OR (
+                        a.nearDuplicateClusterID IS NOT NULL
+                        AND a.nearDuplicateClusterID IN (
+                            SELECT nearDuplicateClusterID
+                            FROM asset
+                            WHERE isDeletedFromPhotos = 0
+                              AND nearDuplicateClusterID IS NOT NULL
+                            GROUP BY nearDuplicateClusterID
+                            HAVING COUNT(*) > 1
                         )
                     )
-                """, arguments: [minimumDocumentOCRCharacters]) ?? 0
-            case .whatsapp:
-                return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM asset_active WHERE isWhatsApp = 1
-                """) ?? 0
-            case .setAsideForArchive:
-                return try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM archive_candidate
-                    WHERE status IN ('pending', 'exporting', 'failed')
-                """) ?? 0
-            case .archived:
-                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM archived_item") ?? 0
-            case .indexing:
-                return 0
-            }
+                )
+            """) ?? 0
+        case .lowQuality:
+            return try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM asset_active
+                WHERE overallScore IS NOT NULL AND overallScore < 0.3 AND isFavorite = 0
+            """) ?? 0
+        case .receiptsAndDocuments:
+            return try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM asset_active a
+                WHERE (
+                    a.visionOcrText IS NOT NULL
+                    AND LENGTH(TRIM(a.visionOcrText)) >= ?
+                    AND (
+                        (a.labelsJSON IS NOT NULL AND a.labelsJSON LIKE '%"document"%')
+                        OR LOWER(a.visionOcrText) LIKE '%invoice%'
+                        OR LOWER(a.visionOcrText) LIKE '%statement%'
+                        OR LOWER(a.visionOcrText) LIKE '%policy%'
+                        OR LOWER(a.visionOcrText) LIKE '%account%'
+                        OR LOWER(a.visionOcrText) LIKE '%contract%'
+                        OR LOWER(a.visionOcrText) LIKE '%application%'
+                        OR LOWER(a.visionOcrText) LIKE '%certificate%'
+                    )
+                )
+            """, arguments: [minOCR]) ?? 0
+        case .whatsapp:
+            return try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM asset_active WHERE isWhatsApp = 1
+            """) ?? 0
+        case .setAsideForArchive:
+            return try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM archive_candidate
+                WHERE status IN ('pending', 'exporting', 'failed')
+            """) ?? 0
+        case .archived:
+            return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM archived_item") ?? 0
+        case .indexing:
+            return 0
         }
     }
 

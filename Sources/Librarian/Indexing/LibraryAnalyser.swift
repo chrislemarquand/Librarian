@@ -14,11 +14,11 @@ struct AnalysisProgressUpdate {
     var statusText: String {
         switch phase {
         case .querying:
-            return "Analysing…"
-        case .importing(let completed, let total):
-            return "Analysing \(completed.formatted()) / \(total.formatted())…"
+            return "Analysing library…"
+        case .importing:
+            return "Analysing library…"
         case .visionAnalysing(let completed, let total):
-            return "Analysing \(completed.formatted()) / \(total.formatted())…"
+            return "Analysing photos \(completed.formatted()) / \(total.formatted())…"
         }
     }
 }

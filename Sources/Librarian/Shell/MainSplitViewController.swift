@@ -15,6 +15,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     private var inspectorKeyMonitor: Any?
     private var keyboardParityMonitor: Any?
+    private var sidebarBadgeTask: Task<Void, Never>?
     private var archiveExportSheetWindow: NSWindow?
     private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
     private var lastBindingPromptSignature: String?
@@ -308,12 +309,17 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     private func refreshSidebarItemsWithBadges() {
         guard model.database.assetRepository != nil else { return }
-        let selectedKind = model.selectedSidebarItem?.kind ?? .allPhotos
-        let updatedItems = Self.buildSidebarItemsWithBadges(model: model)
-        guard updatedItems != sidebarController.items else { return }
-        sidebarController.items = updatedItems
-        sidebarController.reloadData()
-        sidebarController.selectItem(where: { $0.kind == selectedKind })
+        sidebarBadgeTask?.cancel()
+        sidebarBadgeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let selectedKind = self.model.selectedSidebarItem?.kind ?? .allPhotos
+            let updatedItems = await Self.buildSidebarItemsWithBadges(model: self.model)
+            guard !Task.isCancelled else { return }
+            guard updatedItems != self.sidebarController.items else { return }
+            self.sidebarController.items = updatedItems
+            self.sidebarController.reloadData()
+            self.sidebarController.selectItem(where: { $0.kind == selectedKind })
+        }
     }
 
     private static func buildSidebarItemsWithBadges(model: AppModel) -> [SidebarItem] {
@@ -326,6 +332,20 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             updated.badgeText = compactBadgeText(for: count)
             return updated
         }
+    }
+
+    private static func buildSidebarItemsWithBadges(model: AppModel) async -> [SidebarItem] {
+        guard let repository = model.database.assetRepository else {
+            return SidebarItem.allItems
+        }
+        var result: [SidebarItem] = []
+        for item in SidebarItem.allItems {
+            var updated = item
+            let count = (try? await repository.countForSidebarKind(item.kind)) ?? 0
+            updated.badgeText = compactBadgeText(for: count)
+            result.append(updated)
+        }
+        return result
     }
 
     private static func compactBadgeText(for count: Int) -> String? {
