@@ -67,10 +67,6 @@ final class ContentController: NSViewController {
     private var scrollView: NSScrollView!
     private let placeholderViewModel = GalleryPlaceholderViewModel()
     private var placeholderHostingView: NSView?
-    private var screenshotActionBar: NSView!
-    private var screenshotSelectionLabel: NSTextField!
-    private var screenshotArchiveButton: NSButton!
-    private var screenshotActionBarHeightConstraint: NSLayoutConstraint!
     private var archivedNoticeBar: NSView!
     private var archivedNoticeLabel: NSTextField!
     private var archivedNoticeActionButton: NSButton!
@@ -134,7 +130,6 @@ final class ContentController: NSViewController {
             guard let self else { return }
             self.selectionAnchorIndex = nil
             self.model.setSelectedAsset(nil)
-            self.updateScreenshotActionBarState()
         }
         collectionView.onModifiedItemClick = { [weak self] indexPath, modifiers in
             self?.handleModifiedItemClick(indexPath: indexPath, modifiers: modifiers)
@@ -167,11 +162,6 @@ final class ContentController: NSViewController {
         container.addSubview(phView)
         placeholderHostingView = phView
 
-        screenshotActionBar = buildScreenshotActionBar()
-        screenshotActionBar.translatesAutoresizingMaskIntoConstraints = false
-        screenshotActionBar.isHidden = true
-        container.addSubview(screenshotActionBar)
-
         archivedNoticeBar = buildArchivedNoticeBar()
         archivedNoticeBar.translatesAutoresizingMaskIntoConstraints = false
         archivedNoticeBar.isHidden = true
@@ -183,7 +173,7 @@ final class ContentController: NSViewController {
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: screenshotActionBar.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
             archivedNoticeBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             archivedNoticeBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -193,13 +183,7 @@ final class ContentController: NSViewController {
             phView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             phView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             phView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            screenshotActionBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            screenshotActionBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            screenshotActionBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
-        screenshotActionBarHeightConstraint = screenshotActionBar.heightAnchor.constraint(equalToConstant: 0)
-        screenshotActionBarHeightConstraint.isActive = true
         archivedNoticeBarHeightConstraint = archivedNoticeBar.heightAnchor.constraint(equalToConstant: 0)
         archivedNoticeBarHeightConstraint.isActive = true
         scrollTopToContainerConstraint.isActive = true
@@ -321,7 +305,6 @@ final class ContentController: NSViewController {
             model.photosService.stopAllThumbnailCaching()
             lastLoadedSidebarKind = sidebarKind
             collectionView.reloadData()
-            updateScreenshotActionBarState()
             model.setSelectedAsset(nil)
             updateOverlay()
             return
@@ -459,7 +442,6 @@ final class ContentController: NSViewController {
                     NotificationCenter.default.post(name: .librarianContentDataChanged, object: nil)
                 }
                 self.updateOverlay()
-                self.updateScreenshotActionBarState()
                 self.updateArchivedNoticeBarState()
                 if !replaceExisting, !assets.isEmpty {
                     self.syncModelSelectionFromCollection()
@@ -525,7 +507,6 @@ final class ContentController: NSViewController {
                 collectionView.isHidden = true
             }
             updateArchivedNoticeBarState()
-            updateScreenshotActionBarState()
             return
         }
 
@@ -562,10 +543,8 @@ final class ContentController: NSViewController {
                 showPlaceholder(emptyContent(for: sidebarKind))
                 collectionView.isHidden = true
             }
-            updateScreenshotActionBarState()
         @unknown default:
             hidePlaceholder()
-            updateScreenshotActionBarState()
         }
         updateArchivedNoticeBarState()
     }
@@ -760,46 +739,6 @@ final class ContentController: NSViewController {
         model.selectedSidebarItem?.kind ?? .allPhotos
     }
 
-
-    private func buildScreenshotActionBar() -> NSView {
-        let bar = NSView()
-        bar.wantsLayer = true
-        bar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(divider)
-
-        screenshotSelectionLabel = NSTextField(labelWithString: "")
-        screenshotSelectionLabel.font = NSFont.systemFont(ofSize: 12)
-        screenshotSelectionLabel.textColor = .secondaryLabelColor
-        screenshotSelectionLabel.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(screenshotSelectionLabel)
-
-        screenshotArchiveButton = NSButton(title: "Set Aside", target: self, action: #selector(markScreenshotsArchiveCandidate))
-        screenshotArchiveButton.bezelStyle = .rounded
-        screenshotArchiveButton.bezelColor = AppTheme.accentNSColor
-        screenshotArchiveButton.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(screenshotArchiveButton)
-
-
-        NSLayoutConstraint.activate([
-            divider.topAnchor.constraint(equalTo: bar.topAnchor),
-            divider.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1),
-
-            screenshotSelectionLabel.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
-            screenshotSelectionLabel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-
-            screenshotArchiveButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12),
-            screenshotArchiveButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-        ])
-
-        return bar
-    }
 
     private func buildArchivedNoticeBar() -> NSView {
         let bar = NSView()
@@ -1073,7 +1012,6 @@ final class ContentController: NSViewController {
             AppLog.shared.error("Failed to set screenshot decision: \(error.localizedDescription)")
             model.setStatusMessage("Couldn’t update screenshot decisions. \(error.localizedDescription)")
         }
-        updateScreenshotActionBarState()
     }
 
     private func selectedAssetIdentifiers() -> [String] {
@@ -1098,7 +1036,6 @@ final class ContentController: NSViewController {
         guard collectionView.selectionIndexPaths != all else { return }
         collectionView.selectionIndexPaths = all
         syncModelSelectionFromCollection()
-        updateScreenshotActionBarState()
     }
 
     func focusContentPane() {
@@ -1155,7 +1092,6 @@ final class ContentController: NSViewController {
         if !selectedIndices.contains(clickedIndex) {
             collectionView.selectionIndexPaths = [IndexPath(item: clickedIndex, section: 0)]
             syncModelSelectionFromCollection()
-            updateScreenshotActionBarState()
             selectedIndices = [clickedIndex]
         }
 
@@ -1378,19 +1314,6 @@ final class ContentController: NSViewController {
         loadAssetsIfNeeded(force: true)
     }
 
-    private func updateScreenshotActionBarState() {
-        let kind = selectedSidebarKind()
-        let isQueueView = kind == .screenshots || kind == .duplicates || kind == .lowQuality || kind == .receiptsAndDocuments
-        let shouldShow = isQueueView && !collectionView.isHidden && !displayAssets.isEmpty
-        screenshotActionBar.isHidden = !shouldShow
-        screenshotActionBarHeightConstraint.constant = shouldShow ? 44 : 0
-
-        guard shouldShow else { return }
-        let selectionCount = selectedAssetIdentifiers().count
-        let emptyLabel = kind == .screenshots ? "Select screenshots to review" : "Select photos to review"
-        screenshotSelectionLabel.stringValue = selectionCount > 0 ? "\(selectionCount) selected" : emptyLabel
-        screenshotArchiveButton.isEnabled = selectionCount > 0
-    }
 }
 
 // MARK: - NSCollectionViewDataSource
@@ -1473,13 +1396,11 @@ extension ContentController: NSCollectionViewPrefetching {
 extension ContentController {
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
         syncModelSelectionFromCollection()
-        updateScreenshotActionBarState()
         updateQuickLookArtifacts()
     }
 
     func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
         syncModelSelectionFromCollection()
-        updateScreenshotActionBarState()
         updateQuickLookArtifacts()
     }
 
@@ -1545,7 +1466,6 @@ extension ContentController {
         collectionView.selectionIndexPaths = nextSelection
         collectionView.scrollToItems(at: [IndexPath(item: clicked, section: 0)], scrollPosition: .nearestVerticalEdge)
         syncModelSelectionFromCollection()
-        updateScreenshotActionBarState()
         updateQuickLookArtifacts()
     }
 
@@ -1582,7 +1502,6 @@ extension ContentController {
 
         collectionView.scrollToItems(at: [IndexPath(item: next, section: 0)], scrollPosition: .nearestVerticalEdge)
         syncModelSelectionFromCollection()
-        updateScreenshotActionBarState()
         updateQuickLookArtifacts()
     }
 }
