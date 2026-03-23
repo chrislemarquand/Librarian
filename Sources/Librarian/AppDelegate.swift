@@ -1,5 +1,8 @@
 import Cocoa
 import SharedUI
+#if !SWIFT_PACKAGE
+import UserNotifications
+#endif
 
 @MainActor
 @main
@@ -44,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
         configureApplicationMenu()
+#if !SWIFT_PACKAGE
+        UNUserNotificationCenter.current().delegate = self
+#endif
 
         let model = AppModel()
         settingsWindowController = SettingsWindowController(tabs: [
@@ -105,6 +111,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            mainWindowController?.showWindow(nil)
+        } else {
+            mainWindowController?.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return true
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -296,6 +312,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 }
+
+#if !SWIFT_PACKAGE
+@MainActor
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        _ = center
+        _ = response
+        await MainActor.run {
+            if let window = self.mainWindowController?.window {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                self.mainWindowController?.showWindow(nil)
+            }
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+}
+#endif
 
 private struct AboutCredit {
     let text: String
