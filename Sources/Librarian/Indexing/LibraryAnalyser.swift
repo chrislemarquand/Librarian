@@ -324,9 +324,10 @@ private nonisolated func buildNearDuplicateAssignments(entries: [FeaturePrintEnt
         if lhs == rhs { return $0.localIdentifier < $1.localIdentifier }
         return lhs < rhs
     }
-    let maxTimeDelta: TimeInterval = 6
-    let distanceThreshold: Float = 1.0
-    var neighbours: [Set<Int>] = Array(repeating: [], count: sorted.count)
+    let maxTimeDelta: TimeInterval = 3
+    let distanceThreshold: Float = 0.75
+    let nearestTieTolerance: Float = 0.025
+    var candidateDistances: [[Int: Float]] = Array(repeating: [:], count: sorted.count)
 
     for i in 0..<sorted.count {
         let leftPrint = sorted[i].featurePrint
@@ -344,10 +345,28 @@ private nonisolated func buildNearDuplicateAssignments(entries: [FeaturePrintEnt
             }
             var distance: Float = 0
             if (try? leftPrint.computeDistance(&distance, to: rightPrint)) != nil, distance <= distanceThreshold {
-                neighbours[i].insert(j)
-                neighbours[j].insert(i)
+                candidateDistances[i][j] = distance
+                candidateDistances[j][i] = distance
             }
             j += 1
+        }
+    }
+
+    // Keep only mutual-nearest links to reduce incidental visual matches.
+    var nearestNeighbours: [Set<Int>] = Array(repeating: [], count: sorted.count)
+    for i in 0..<sorted.count {
+        guard let minDistance = candidateDistances[i].values.min() else { continue }
+        for (candidate, distance) in candidateDistances[i]
+        where distance <= (minDistance + nearestTieTolerance) {
+            nearestNeighbours[i].insert(candidate)
+        }
+    }
+
+    var neighbours: [Set<Int>] = Array(repeating: [], count: sorted.count)
+    for i in 0..<sorted.count {
+        for candidate in nearestNeighbours[i] where nearestNeighbours[candidate].contains(i) {
+            neighbours[i].insert(candidate)
+            neighbours[candidate].insert(i)
         }
     }
 
@@ -423,12 +442,12 @@ private nonisolated func areComparableDimensions(lhs: FeaturePrintEntry, rhs: Fe
     let leftAspect = Double(lw) / Double(lh)
     let rightAspect = Double(rw) / Double(rh)
     let aspectRatioDelta = abs(leftAspect - rightAspect) / max(leftAspect, rightAspect)
-    if aspectRatioDelta > 0.2 { return false }
+    if aspectRatioDelta > 0.1 { return false }
 
     let leftPixels = Double(lw * lh)
     let rightPixels = Double(rw * rh)
     let areaRatio = max(leftPixels, rightPixels) / max(min(leftPixels, rightPixels), 1)
-    return areaRatio <= 1.8
+    return areaRatio <= 1.25
 }
 
 // MARK: - osxphotos subprocess
