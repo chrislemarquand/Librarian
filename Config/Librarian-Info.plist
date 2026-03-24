@@ -26,6 +26,8 @@
     <string>AccentColor</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © $(CURRENT_YEAR) Chris Le Marquand</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Librarian needs to control Photos to open and highlight selected items.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Librarian needs access to your photo library to help you curate and archive your photos.</string>
 </dict>

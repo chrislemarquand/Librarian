@@ -91,7 +91,30 @@ final class PhotosLibraryService {
 
     // MARK: - Open in Photos
 
+    @MainActor
     func openInPhotos(localIdentifier: String) {
+        if executeOpenInPhotosScript(localIdentifier: localIdentifier) {
+            return
+        }
+
+        let photosURL = URL(fileURLWithPath: "/System/Applications/Photos.app")
+        NSWorkspace.shared.openApplication(
+            at: photosURL,
+            configuration: NSWorkspace.OpenConfiguration(),
+            completionHandler: nil
+        )
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self else { return }
+            if !self.executeOpenInPhotosScript(localIdentifier: localIdentifier) {
+                self.logger.error("Failed to reveal asset in Photos after launch retry.")
+            }
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    private func executeOpenInPhotosScript(localIdentifier: String) -> Bool {
         let shortIdentifier = localIdentifier.split(separator: "/").first.map(String.init) ?? localIdentifier
         let escapedIdentifier = localIdentifier
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -115,8 +138,9 @@ final class PhotosLibraryService {
         NSAppleScript(source: script)?.executeAndReturnError(&error)
         if let error {
             logger.error("Failed to reveal asset in Photos: \(String(describing: error), privacy: .public)")
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/System/Applications/Photos.app"), configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+            return false
         }
+        return true
     }
 
     // MARK: - Deletion
