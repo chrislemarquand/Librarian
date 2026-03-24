@@ -7,6 +7,7 @@ import SwiftUI
 enum GalleryPlaceholderContent: Equatable {
     case unavailable(title: String, symbolName: String, description: String)
     case loading(title: String, symbolName: String)
+    case action(title: String, symbolName: String, description: String, actionTitle: String)
 }
 
 // MARK: - ViewModel
@@ -14,6 +15,7 @@ enum GalleryPlaceholderContent: Equatable {
 @MainActor
 final class GalleryPlaceholderViewModel: ObservableObject {
     @Published var content: GalleryPlaceholderContent?
+    var actionHandler: (() -> Void)?
 }
 
 // MARK: - View
@@ -31,6 +33,14 @@ struct GalleryPlaceholderView: View {
                     symbolName: symbolName,
                     title: title,
                     isLoading: true
+                )
+            case let .action(title, symbolName, description, actionTitle):
+                PlaceholderView(
+                    symbolName: symbolName,
+                    title: title,
+                    description: description,
+                    actionTitle: actionTitle,
+                    action: viewModel.actionHandler
                 )
             }
         }

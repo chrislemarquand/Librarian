@@ -67,12 +67,8 @@ final class ContentController: NSViewController {
     private var scrollView: NSScrollView!
     private let placeholderViewModel = GalleryPlaceholderViewModel()
     private var placeholderHostingView: NSView?
-    private var archivedNoticeBar: NSView!
-    private var archivedNoticeLabel: NSTextField!
-    private var archivedNoticeActionButton: NSButton!
-    private var archivedNoticeDismissButton: NSButton!
-    private var archivedNoticeBarHeightConstraint: NSLayoutConstraint!
-    private var scrollTopToArchivedNoticeConstraint: NSLayoutConstraint!
+    private var noticeBar: NoticeBar!
+    private var scrollTopToNoticeBarConstraint: NSLayoutConstraint!
     private var scrollTopToContainerConstraint: NSLayoutConstraint!
     private var contextMenuTargetIndices: [Int] = []
     private let quickLookCoordinator = QuickLookPanelCoordinator<String>()
@@ -162,12 +158,12 @@ final class ContentController: NSViewController {
         container.addSubview(phView)
         placeholderHostingView = phView
 
-        archivedNoticeBar = buildArchivedNoticeBar()
-        archivedNoticeBar.translatesAutoresizingMaskIntoConstraints = false
-        archivedNoticeBar.isHidden = true
-        container.addSubview(archivedNoticeBar)
+        noticeBar = NoticeBar()
+        noticeBar.translatesAutoresizingMaskIntoConstraints = false
+        noticeBar.isHidden = true
+        container.addSubview(noticeBar)
 
-        scrollTopToArchivedNoticeConstraint = scrollView.topAnchor.constraint(equalTo: archivedNoticeBar.bottomAnchor)
+        scrollTopToNoticeBarConstraint = scrollView.topAnchor.constraint(equalTo: noticeBar.bottomAnchor)
         scrollTopToContainerConstraint = scrollView.topAnchor.constraint(equalTo: container.topAnchor)
 
         NSLayoutConstraint.activate([
@@ -175,17 +171,15 @@ final class ContentController: NSViewController {
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            archivedNoticeBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
-            archivedNoticeBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            archivedNoticeBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            noticeBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            noticeBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            noticeBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
 
             phView.topAnchor.constraint(equalTo: container.topAnchor),
             phView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             phView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             phView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
-        archivedNoticeBarHeightConstraint = archivedNoticeBar.heightAnchor.constraint(equalToConstant: 0)
-        archivedNoticeBarHeightConstraint.isActive = true
         scrollTopToContainerConstraint.isActive = true
 
         view = container
@@ -287,7 +281,7 @@ final class ContentController: NSViewController {
         if selectedSidebarKind() == .archived {
             loadAssetsIfNeeded(force: true)
         }
-        updateArchivedNoticeBarState()
+        updateNoticeBar()
     }
 
     private func loadAssetsIfNeeded(force: Bool) {
@@ -442,7 +436,7 @@ final class ContentController: NSViewController {
                     NotificationCenter.default.post(name: .librarianContentDataChanged, object: nil)
                 }
                 self.updateOverlay()
-                self.updateArchivedNoticeBarState()
+                self.updateNoticeBar()
                 if !replaceExisting, !assets.isEmpty {
                     self.syncModelSelectionFromCollection()
                 }
@@ -503,10 +497,11 @@ final class ContentController: NSViewController {
                 hidePlaceholder()
                 collectionView.isHidden = false
             } else {
-                showPlaceholder(emptyContent(for: sidebarKind))
+                let empty = emptyContent(for: sidebarKind)
+                showPlaceholder(empty.content, actionHandler: empty.actionHandler)
                 collectionView.isHidden = true
             }
-            updateArchivedNoticeBarState()
+            updateNoticeBar()
             return
         }
 
@@ -540,22 +535,25 @@ final class ContentController: NSViewController {
                 hidePlaceholder()
                 collectionView.isHidden = false
             } else {
-                showPlaceholder(emptyContent(for: sidebarKind))
+                let empty = emptyContent(for: sidebarKind)
+                showPlaceholder(empty.content, actionHandler: empty.actionHandler)
                 collectionView.isHidden = true
             }
         @unknown default:
             hidePlaceholder()
         }
-        updateArchivedNoticeBarState()
+        updateNoticeBar()
     }
 
-    private func showPlaceholder(_ content: GalleryPlaceholderContent) {
+    private func showPlaceholder(_ content: GalleryPlaceholderContent, actionHandler: (() -> Void)? = nil) {
         placeholderViewModel.content = content
+        placeholderViewModel.actionHandler = actionHandler
         placeholderHostingView?.isHidden = false
     }
 
     private func hidePlaceholder() {
         placeholderViewModel.content = nil
+        placeholderViewModel.actionHandler = nil
         placeholderHostingView?.isHidden = true
     }
 
@@ -575,56 +573,84 @@ final class ContentController: NSViewController {
         }
     }
 
-    private func emptyContent(for kind: SidebarItem.Kind) -> GalleryPlaceholderContent {
+    private struct EmptyContentResult {
+        let content: GalleryPlaceholderContent
+        let actionHandler: (() -> Void)?
+
+        init(_ content: GalleryPlaceholderContent, actionHandler: (() -> Void)? = nil) {
+            self.content = content
+            self.actionHandler = actionHandler
+        }
+    }
+
+    private func emptyContent(for kind: SidebarItem.Kind) -> EmptyContentResult {
         switch kind {
         case .allPhotos:
             let description = model.indexedAssetCount > 0
                 ? "No photos match the current filters."
                 : "Your photo library appears to be empty."
-            return .unavailable(title: "No Photos", symbolName: "photo.on.rectangle.angled", description: description)
+            return EmptyContentResult(.unavailable(title: "No Photos", symbolName: "photo.on.rectangle.angled", description: description))
         case .recents:
-            return .unavailable(title: "No Recent Photos", symbolName: "clock", description: "No photos from the past 30 days.")
+            return EmptyContentResult(.unavailable(title: "No Recent Photos", symbolName: "clock", description: "No photos from the past 30 days."))
         case .favourites:
-            return .unavailable(title: "No Favourites", symbolName: "heart", description: "Mark photos as favourites in Photos to see them here.")
+            return EmptyContentResult(.unavailable(title: "No Favourites", symbolName: "heart", description: "Mark photos as favourites in Photos to see them here."))
         case .screenshots:
-            return .unavailable(title: "No Screenshots", symbolName: "camera.viewfinder", description: "All screenshots have been reviewed.")
+            return EmptyContentResult(.unavailable(title: "No Screenshots", symbolName: "camera.viewfinder", description: "All screenshots have been reviewed."))
         case .setAsideForArchive:
-            return .unavailable(title: "Nothing Set Aside", symbolName: "tray.full", description: "Photos you set aside for archiving will appear here.")
+            return EmptyContentResult(.unavailable(title: "Nothing Set Aside", symbolName: "tray.full", description: "Photos you set aside for archiving will appear here."))
         case .archived:
             let availability = model.refreshArchiveRootAvailability()
             switch availability {
             case .notConfigured:
-                return .unavailable(
+                return EmptyContentResult(.unavailable(
                     title: "No Archive Destination",
                     symbolName: "externaldrive.badge.questionmark",
                     description: "Set an archive destination in Settings to view archived photos."
-                )
+                ))
             case .unavailable:
-                return .unavailable(
+                return EmptyContentResult(.unavailable(
                     title: "Archive Missing",
                     symbolName: "externaldrive.badge.exclamationmark",
                     description: "Your archive folder can't be found — it may have been moved or renamed. Use Settings to locate it."
-                )
+                ))
             case .readOnly, .permissionDenied:
-                return .unavailable(
+                return EmptyContentResult(.unavailable(
                     title: "Archive Unavailable",
                     symbolName: "externaldrive.badge.exclamationmark",
                     description: "\(availability.userVisibleDescription) Update the destination in Settings or reconnect the drive."
-                )
+                ))
             case .available:
                 break
             }
-            return .unavailable(title: "No Archive Photos", symbolName: "archivebox", description: "Archive photos will appear here after export.")
+            return EmptyContentResult(.unavailable(title: "No Archive Photos", symbolName: "archivebox", description: "Archive photos will appear here after export."))
         case .duplicates:
-            return .unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "No duplicate or near-duplicate photos found.")
+            if !model.analysisHasRunBefore {
+                return EmptyContentResult(
+                    .action(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
+                    actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
+                )
+            }
+            return EmptyContentResult(.unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "No duplicate or near-duplicate photos found."))
         case .lowQuality:
-            return .unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "No photos with a low quality score found.")
+            if !model.analysisHasRunBefore {
+                return EmptyContentResult(
+                    .action(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
+                    actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
+                )
+            }
+            return EmptyContentResult(.unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "No photos with a low quality score found."))
         case .receiptsAndDocuments:
-            return .unavailable(title: "No Documents", symbolName: "doc.text", description: "No document-focused photos found.")
+            if !model.analysisHasRunBefore {
+                return EmptyContentResult(
+                    .action(title: "No Documents", symbolName: "doc.text", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
+                    actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
+                )
+            }
+            return EmptyContentResult(.unavailable(title: "No Documents", symbolName: "doc.text", description: "No document-focused photos found."))
         case .whatsapp:
-            return .unavailable(title: "No WhatsApp Media", symbolName: "message", description: "No WhatsApp media found.")
+            return EmptyContentResult(.unavailable(title: "No WhatsApp Media", symbolName: "message", description: "No WhatsApp media found."))
         case .indexing:
-            return .unavailable(title: "Indexing", symbolName: "arrow.triangle.2.circlepath", description: "")
+            return EmptyContentResult(.unavailable(title: "Indexing", symbolName: "arrow.triangle.2.circlepath", description: ""))
         }
     }
 
@@ -740,88 +766,49 @@ final class ContentController: NSViewController {
     }
 
 
-    private func buildArchivedNoticeBar() -> NSView {
-        let bar = NSView()
-        bar.wantsLayer = true
-        bar.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+    private func updateNoticeBar() {
+        let state = noticeBar.state
+        let sidebarKind = selectedSidebarKind()
 
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(divider)
+        // Determine what the notice bar should show.
+        if sidebarKind == .archived && archivedUnorganizedCount > 0 && !archivedBannerDismissedForLaunch {
+            state.message = "\(archivedUnorganizedCount.formatted()) files need review for organize/dedupe."
+            state.primaryAction = isOrganizingArchivedFiles ? nil : NoticeBarAction(title: "Review Import…") { [weak self] in
+                guard let self else { return }
+                guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
+                guard let splitVC = self.resolveMainSplitViewController() else { return }
+                splitVC.presentArchiveImportSheet(mode: .pathBDetected(candidates: [archiveTreeRoot]))
+                self.archivedBannerDismissedForLaunch = true
+                self.updateNoticeBar()
+            }
+            state.secondaryAction = isOrganizingArchivedFiles ? nil : NoticeBarAction(title: "Not Now") { [weak self] in
+                self?.archivedBannerDismissedForLaunch = true
+                self?.updateNoticeBar()
+            }
+            state.isVisible = true
+        } else if [.lowQuality, .duplicates, .receiptsAndDocuments].contains(sidebarKind)
+                    && model.isAnalysing
+                    && !displayAssets.isEmpty {
+            state.message = "Analysis in progress — more items may appear."
+            state.primaryAction = nil
+            state.secondaryAction = nil
+            state.isVisible = true
+        } else {
+            state.isVisible = false
+            state.primaryAction = nil
+            state.secondaryAction = nil
+        }
 
-        archivedNoticeLabel = NSTextField(labelWithString: "")
-        archivedNoticeLabel.font = NSFont.systemFont(ofSize: 12)
-        archivedNoticeLabel.textColor = .secondaryLabelColor
-        archivedNoticeLabel.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(archivedNoticeLabel)
+        noticeBar.syncVisibility()
 
-        archivedNoticeActionButton = NSButton(title: "Review Import…", target: self, action: #selector(reviewArchivedImportNow))
-        archivedNoticeActionButton.bezelStyle = .rounded
-        archivedNoticeActionButton.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(archivedNoticeActionButton)
-
-        archivedNoticeDismissButton = NSButton(title: "Not Now", target: self, action: #selector(dismissArchivedNoticeForLaunch))
-        archivedNoticeDismissButton.bezelStyle = .rounded
-        archivedNoticeDismissButton.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(archivedNoticeDismissButton)
-
-        NSLayoutConstraint.activate([
-            divider.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
-            divider.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1),
-
-            archivedNoticeLabel.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
-            archivedNoticeLabel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-
-            archivedNoticeDismissButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12),
-            archivedNoticeDismissButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-
-            archivedNoticeActionButton.trailingAnchor.constraint(equalTo: archivedNoticeDismissButton.leadingAnchor, constant: -8),
-            archivedNoticeActionButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-        ])
-
-        return bar
-    }
-
-    @objc
-    private func reviewArchivedImportNow() {
-        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
-        guard let splitVC = resolveMainSplitViewController() else { return }
-        splitVC.presentArchiveImportSheet(mode: .pathBDetected(candidates: [archiveTreeRoot]))
-        archivedBannerDismissedForLaunch = true
-        updateArchivedNoticeBarState()
-    }
-
-    @objc
-    private func dismissArchivedNoticeForLaunch() {
-        archivedBannerDismissedForLaunch = true
-        updateArchivedNoticeBarState()
-    }
-
-    private func updateArchivedNoticeBarState() {
-        let shouldShow = selectedSidebarKind() == .archived
-            && archivedUnorganizedCount > 0
-            && !archivedBannerDismissedForLaunch
-        archivedNoticeBar.isHidden = !shouldShow
-        archivedNoticeBarHeightConstraint.constant = shouldShow ? 40 : 0
-        // Switch these mutually-exclusive constraints atomically to avoid
-        // transient unsatisfiable states where both are active at once.
+        // Switch scroll-top constraints atomically.
         NSLayoutConstraint.deactivate([
-            scrollTopToArchivedNoticeConstraint,
+            scrollTopToNoticeBarConstraint,
             scrollTopToContainerConstraint,
         ])
         NSLayoutConstraint.activate([
-            shouldShow ? scrollTopToArchivedNoticeConstraint : scrollTopToContainerConstraint
+            state.isVisible ? scrollTopToNoticeBarConstraint : scrollTopToContainerConstraint
         ])
-
-        guard shouldShow else { return }
-        archivedNoticeLabel.stringValue = "\(archivedUnorganizedCount.formatted()) files need review for organize/dedupe."
-        archivedNoticeActionButton.isEnabled = !isOrganizingArchivedFiles
-        archivedNoticeActionButton.title = isOrganizingArchivedFiles ? "Working…" : "Review Import…"
-        archivedNoticeDismissButton.isEnabled = !isOrganizingArchivedFiles
     }
 
     func openSelectionInPhotos() {

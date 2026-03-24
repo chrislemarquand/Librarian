@@ -130,10 +130,18 @@ final class LibrarySettingsViewController: SettingsGridViewController {
             if model.pendingAnalysisCount > 0 {
                 analyseStatusLabel.stringValue = "\(base) · \(model.pendingAnalysisCount.formatted()) pending"
             } else if model.analysisHasRunBefore {
-                analyseStatusLabel.stringValue = "\(base) · Up to date"
+                let dateSuffix = lastAnalysedDateString().map { " · Last run \($0)" } ?? ""
+                analyseStatusLabel.stringValue = "\(base)\(dateSuffix)"
             } else {
                 analyseStatusLabel.stringValue = base
             }
         }
+    }
+
+    private func lastAnalysedDateString() -> String? {
+        guard let date = try? model.database.assetRepository?.lastAnalysedDate() else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }

@@ -79,6 +79,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        NotificationCenter.default.addObserver(
+            forName: .librarianPhotoLibraryChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let storedName = notification.userInfo?["storedName"] as? String ?? "Unknown"
+            let currentName = notification.userInfo?["currentName"] as? String ?? "Unknown"
+            let currentPath = notification.userInfo?["currentPath"] as? String
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+
+                let alert = NSAlert()
+                alert.alertStyle = .informational
+                alert.messageText = "Photo Library Changed"
+                alert.informativeText = "Your system photo library has changed from \"\(storedName)\" to \"\(currentName)\".\n\nYou may want to create a new archive for this library, or switch back to the previous library in Photos preferences."
+                alert.addButton(withTitle: "OK")
+                _ = await alert.runSheetOrModal(
+                    for: self.mainWindowController?.window
+                )
+
+                // Update the stored path hint so this alert doesn't fire again.
+                if let currentPath,
+                   let archiveRoot = ArchiveSettings.restoreArchiveRootURL() {
+                    ArchiveSettings.updateControlConfig(at: archiveRoot) { config in
+                        config.photoLibraryBinding?.libraryPathHint = currentPath
+                    }
+                }
+            }
+        }
+
         if Self.isFirstRun() {
             let coordinator = WelcomeScreenCoordinator(model: model) {
                 Task { await model.setup() }

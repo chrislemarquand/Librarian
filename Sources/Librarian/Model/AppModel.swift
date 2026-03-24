@@ -410,18 +410,48 @@ enum ArchiveSettings {
         )
     }
 
-    static func currentPhotoLibraryFingerprint() throws -> PhotoLibraryFingerprint {
-        try PhotoLibraryFingerprintService.currentFingerprint()
-    }
+    /// Returns the path to the current system photo library, or nil if unavailable.
+    static func currentPhotoLibraryPath() -> String? {
+        // Read the Photos.app preferences plist directly to find the default library bookmark.
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let plistCandidates = [
+            home.appendingPathComponent(
+                "Library/Containers/com.apple.Photos/Data/Library/Preferences/com.apple.Photos.plist"
+            ),
+            home.appendingPathComponent("Library/Preferences/com.apple.Photos.plist"),
+        ]
 
-    static func evaluatePhotoLibraryBinding(
-        for rootURL: URL,
-        persistMatchTimestamp: Bool = false
-    ) -> ArchiveLibraryBindingEvaluation {
-        ArchiveLibraryBindingEvaluator.evaluate(
-            rootURL: rootURL,
-            persistMatchTimestamp: persistMatchTimestamp
-        )
+        for plistURL in plistCandidates {
+            guard let data = try? Data(contentsOf: plistURL),
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+                  let dict = plist as? [String: Any],
+                  let bookmarkData = dict["IPXDefaultLibraryURLBookmark"] as? Data
+            else { continue }
+
+            var isStale = false
+            guard let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: [.withoutUI, .withoutMounting],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) else { continue }
+
+            let standardized = resolvedURL.standardizedFileURL
+            guard standardized.pathExtension == "photoslibrary" else { continue }
+            return standardized.path
+        }
+
+        // Heuristic fallback: look for *.photoslibrary in Pictures
+        if let picturesURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first,
+           let contents = try? FileManager.default.contentsOfDirectory(
+               at: picturesURL,
+               includingPropertiesForKeys: nil,
+               options: [.skipsHiddenFiles]
+           ),
+           let library = contents.first(where: { $0.pathExtension == "photoslibrary" }) {
+            return library.standardizedFileURL.path
+        }
+        return nil
     }
 
     static func archiveRootAvailability(for rootURL: URL) -> ArchiveRootAvailability {
@@ -482,38 +512,6 @@ enum ArchiveSettings {
     }
 }
 
-enum ArchiveWriteOperation {
-    case importIntoArchive
-    case organizeArchive
-    case exportArchive
-
-    var displayName: String {
-        switch self {
-        case .importIntoArchive:
-            return "import photos"
-        case .organizeArchive:
-            return "organize the archive"
-        case .exportArchive:
-            return "export"
-        }
-    }
-}
-
-struct ArchiveWriteGateDecision {
-    enum Status {
-        case allowed
-        case requiresResolution
-        case error
-    }
-
-    let status: Status
-    let rootURL: URL?
-    let evaluation: ArchiveLibraryBindingEvaluation?
-    let message: String
-
-    var isAllowed: Bool { status == .allowed }
-}
-
 @MainActor
 final class AppModel: ObservableObject {
     private static let staleArchiveExportMessage =
@@ -561,8 +559,6 @@ final class AppModel: ObservableObject {
     @Published var archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability = .notConfigured
     @Published var archiveRootURL: URL? = ArchiveSettings.currentArchiveRootResolution().rootURL
     @Published var currentSystemPhotoLibraryPath: String?
-    @Published var currentSystemPhotoLibraryFingerprint: String?
-    @Published var latestArchiveLibraryBindingEvaluation: ArchiveLibraryBindingEvaluation?
     @Published var galleryGridLevel: Int = 4 {
         didSet {
             let clamped = min(max(galleryGridLevel, Self.galleryColumnRange.lowerBound), Self.galleryColumnRange.upperBound)
@@ -646,6 +642,9 @@ final class AppModel: ObservableObject {
         }
         startSystemPhotoLibraryMonitoring()
         scheduleSystemPhotoLibraryRefresh(reason: "startup", debounceMilliseconds: 0)
+
+        // Simple library path check: warn if the Photos library changed since last use.
+        checkPhotoLibraryPathAtLaunch()
 
         await requestPhotosAccess()
     }
@@ -948,10 +947,10 @@ final class AppModel: ObservableObject {
         sourceFolders: [URL],
         preflight: ArchiveImportPreflightResult
     ) async throws -> ArchiveImportRunSummary {
-        let gate = evaluateArchiveWriteGate(for: .importIntoArchive)
-        guard gate.isAllowed, let archiveRoot = gate.rootURL else {
+        let resolution = ArchiveSettings.currentArchiveRootResolution()
+        guard let archiveRoot = resolution.rootURL, resolution.isAvailable else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveImport", code: 6, userInfo: [
-                NSLocalizedDescriptionKey: gate.message
+                NSLocalizedDescriptionKey: resolution.availability.userVisibleDescription
             ])
         }
         guard !isImportingArchive else {
@@ -1084,10 +1083,10 @@ final class AppModel: ObservableObject {
         options: ArchiveExportOptions,
         localIdentifiers: [String]? = nil
     ) async throws -> ArchiveSendOutcome {
-        let gate = evaluateArchiveWriteGate(for: .exportArchive, preferredRootURL: archiveRootURL)
-        guard gate.isAllowed else {
+        let availability = ArchiveSettings.archiveRootAvailability(for: archiveRootURL)
+        guard availability == .available else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 9, userInfo: [
-                NSLocalizedDescriptionKey: gate.message
+                NSLocalizedDescriptionKey: availability.userVisibleDescription
             ])
         }
         guard ArchiveSettings.ensureControlFolder(at: archiveRootURL) else {
@@ -1314,6 +1313,39 @@ final class AppModel: ObservableObject {
         return URL(fileURLWithPath: path)
     }
 
+    /// At launch, compare the current system photo library path against the path
+    /// stored in the archive config. If they differ, post a notification so
+    /// AppDelegate can show a simple two-button alert.
+    private func checkPhotoLibraryPathAtLaunch() {
+        guard archiveRootAvailability == .available,
+              let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
+              let config = ArchiveSettings.controlConfig(for: archiveRoot),
+              let storedPath = config.photoLibraryBinding?.libraryPathHint,
+              !storedPath.isEmpty
+        else { return }
+
+        guard let currentPath = ArchiveSettings.currentPhotoLibraryPath(),
+              !currentPath.isEmpty
+        else { return }
+
+        let stored = URL(fileURLWithPath: storedPath).standardizedFileURL.path
+        let current = URL(fileURLWithPath: currentPath).standardizedFileURL.path
+        guard stored != current else { return }
+
+        let storedName = URL(fileURLWithPath: storedPath).deletingPathExtension().lastPathComponent
+        let currentName = URL(fileURLWithPath: currentPath).deletingPathExtension().lastPathComponent
+        AppLog.shared.info("Photo library changed: \(storedName) → \(currentName)")
+        NotificationCenter.default.post(
+            name: .librarianPhotoLibraryChanged,
+            object: nil,
+            userInfo: [
+                "storedName": storedName,
+                "currentName": currentName,
+                "currentPath": currentPath,
+            ]
+        )
+    }
+
     func scheduleSystemPhotoLibraryRefresh(reason: String, debounceMilliseconds: UInt64 = 450) {
         pendingLibraryIdentityCheckTask?.cancel()
         pendingLibraryIdentityCheckTask = Task { @MainActor [weak self] in
@@ -1340,175 +1372,12 @@ final class AppModel: ObservableObject {
         // settings and archive UI react when the archive is moved/deleted.
         refreshArchiveRootAvailability()
 
-        let fingerprint: PhotoLibraryFingerprint?
-        do {
-            fingerprint = try ArchiveSettings.currentPhotoLibraryFingerprint()
-        } catch {
-            AppLog.shared.info("System photo library fingerprint unavailable (\(reason)): \(error.localizedDescription)")
-            fingerprint = nil
-        }
-
         let previousPath = currentSystemPhotoLibraryPath
-        let previousFingerprint = currentSystemPhotoLibraryFingerprint
-        let nextPath = fingerprint?.pathHint
-        let nextFingerprint = fingerprint?.fingerprint
-
+        let nextPath = ArchiveSettings.currentPhotoLibraryPath()
         currentSystemPhotoLibraryPath = nextPath
-        currentSystemPhotoLibraryFingerprint = nextFingerprint
-        if previousPath != nextPath || previousFingerprint != nextFingerprint {
+        if previousPath != nextPath {
             NotificationCenter.default.post(name: .librarianSystemPhotoLibraryChanged, object: nil)
         }
-
-        guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else {
-            latestArchiveLibraryBindingEvaluation = nil
-            return
-        }
-
-        let evaluation = ArchiveSettings.evaluatePhotoLibraryBinding(for: archiveRoot, persistMatchTimestamp: false)
-        let previousEvaluation = latestArchiveLibraryBindingEvaluation
-        latestArchiveLibraryBindingEvaluation = evaluation
-        if previousEvaluation != evaluation {
-            NotificationCenter.default.post(name: .librarianArchiveLibraryBindingChanged, object: nil)
-        }
-
-        if evaluation.state == .match, let fingerprint = evaluation.currentFingerprint {
-            ArchiveLibraryCouplingRegistry.upsert(
-                libraryFingerprint: fingerprint,
-                archiveRootURL: archiveRoot,
-                archiveID: evaluation.archiveID,
-                libraryPathHint: evaluation.currentLibraryPathHint
-            )
-        }
-    }
-
-    func evaluateArchiveWriteGate(
-        for operation: ArchiveWriteOperation,
-        preferredRootURL: URL? = nil
-    ) -> ArchiveWriteGateDecision {
-        let rootResolution = preferredRootURL == nil
-            ? ArchiveSettings.currentArchiveRootResolution()
-            : ArchiveSettings.archiveRootResolution(for: preferredRootURL)
-        guard let archiveRoot = rootResolution.rootURL else {
-            return ArchiveWriteGateDecision(
-                status: .error,
-                rootURL: nil,
-                evaluation: nil,
-                message: "No archive destination is configured."
-            )
-        }
-
-        let availability = rootResolution.availability
-        guard availability == .available else {
-            return ArchiveWriteGateDecision(
-                status: .error,
-                rootURL: archiveRoot,
-                evaluation: nil,
-                message: availability.userVisibleDescription
-            )
-        }
-
-        let evaluation = ArchiveSettings.evaluatePhotoLibraryBinding(for: archiveRoot, persistMatchTimestamp: false)
-        let previousEvaluation = latestArchiveLibraryBindingEvaluation
-        latestArchiveLibraryBindingEvaluation = evaluation
-        if previousEvaluation != evaluation {
-            NotificationCenter.default.post(name: .librarianArchiveLibraryBindingChanged, object: nil)
-        }
-
-        switch evaluation.state {
-        case .match:
-            if let fingerprint = evaluation.currentFingerprint {
-                ArchiveLibraryCouplingRegistry.upsert(
-                    libraryFingerprint: fingerprint,
-                    archiveRootURL: archiveRoot,
-                    archiveID: evaluation.archiveID,
-                    libraryPathHint: evaluation.currentLibraryPathHint
-                )
-            }
-            return ArchiveWriteGateDecision(
-                status: .allowed,
-                rootURL: archiveRoot,
-                evaluation: evaluation,
-                message: ""
-            )
-        case .mismatch:
-            if tryAutoHealBindingForSameLibraryPath(rootURL: archiveRoot, evaluation: evaluation) {
-                return evaluateArchiveWriteGate(for: operation, preferredRootURL: archiveRoot)
-            }
-            return ArchiveWriteGateDecision(
-                status: .requiresResolution,
-                rootURL: archiveRoot,
-                evaluation: evaluation,
-                message: "This archive is linked to a different photo library. Resolve the archive-library pairing in Settings before you can \(operation.displayName)."
-            )
-        case .unbound:
-            if tryAutoBindArchiveToCurrentLibrary(rootURL: archiveRoot) {
-                return evaluateArchiveWriteGate(for: operation, preferredRootURL: archiveRoot)
-            }
-            return ArchiveWriteGateDecision(
-                status: .requiresResolution,
-                rootURL: archiveRoot,
-                evaluation: evaluation,
-                message: "This archive is not linked to a photo library yet. Complete pairing in Settings before you can \(operation.displayName)."
-            )
-        case .unknown:
-            return ArchiveWriteGateDecision(
-                status: .requiresResolution,
-                rootURL: archiveRoot,
-                evaluation: evaluation,
-                message: "Librarian couldn’t verify the active photo library. Resolve this in Settings before you can \(operation.displayName)."
-            )
-        }
-    }
-
-    private func tryAutoHealBindingForSameLibraryPath(
-        rootURL: URL,
-        evaluation: ArchiveLibraryBindingEvaluation
-    ) -> Bool {
-        guard let boundPath = evaluation.boundLibraryPathHint,
-              let currentPath = evaluation.currentLibraryPathHint
-        else { return false }
-        let bound = URL(fileURLWithPath: boundPath).standardizedFileURL.path
-        let current = URL(fileURLWithPath: currentPath).standardizedFileURL.path
-        guard bound == current else { return false }
-        return tryAutoBindArchiveToCurrentLibrary(rootURL: rootURL)
-    }
-
-    private func tryAutoBindArchiveToCurrentLibrary(rootURL: URL) -> Bool {
-        guard let library = try? ArchiveSettings.currentPhotoLibraryFingerprint() else { return false }
-        let didUpdate = ArchiveSettings.updateControlConfig(at: rootURL) { config in
-            guard config.photoLibraryBinding == nil else { return }
-            config.photoLibraryBinding = ArchiveSettings.ArchiveControlConfig.PhotoLibraryBinding(
-                libraryFingerprint: library.fingerprint,
-                libraryIDSource: library.source,
-                libraryPathHint: library.pathHint,
-                boundAt: Date(),
-                bindingMode: .strict,
-                lastSeenMatchAt: Date()
-            )
-            if config.schemaVersion < ArchiveSettings.configSchemaVersion {
-                config.schemaVersion = ArchiveSettings.configSchemaVersion
-            }
-        }
-        if didUpdate {
-            ArchiveLibraryCouplingRegistry.upsert(
-                libraryFingerprint: library.fingerprint,
-                archiveRootURL: rootURL,
-                archiveID: ArchiveSettings.archiveID(for: rootURL),
-                libraryPathHint: library.pathHint
-            )
-            scheduleSystemPhotoLibraryRefresh(reason: "autoBindCurrentLibrary", debounceMilliseconds: 0)
-        }
-        return didUpdate
-    }
-
-    func knownCouplingForCurrentSystemLibrary() -> ArchiveLibraryCouplingEntry? {
-        guard let currentFingerprint = currentSystemPhotoLibraryFingerprint else { return nil }
-        return ArchiveLibraryCouplingRegistry.coupling(for: currentFingerprint)
-    }
-
-    func knownCoupledArchiveRootURLForCurrentSystemLibrary() -> URL? {
-        guard let currentFingerprint = currentSystemPhotoLibraryFingerprint else { return nil }
-        return ArchiveLibraryCouplingRegistry.resolveArchiveRootURL(for: currentFingerprint)
     }
 
     private func registerChangeTracking() {

@@ -1089,6 +1089,21 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func lastAnalysedDate() throws -> Date? {
+        try db.read { db in
+            try Date.fetchOne(
+                db,
+                sql: """
+                    SELECT MAX(d) FROM (
+                        SELECT MAX(analysedAt) AS d FROM asset_active WHERE analysedAt IS NOT NULL
+                        UNION ALL
+                        SELECT MAX(visionAnalysedAt) AS d FROM asset_active WHERE visionAnalysedAt IS NOT NULL
+                    )
+                """
+            )
+        }
+    }
+
     func upsertVisionAnalysisData(_ results: [VisionAnalysisWriteResult], analysedAt: Date) async throws {
         guard !results.isEmpty else { return }
         let batchSize = 500

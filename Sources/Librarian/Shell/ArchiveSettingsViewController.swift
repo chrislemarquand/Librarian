@@ -49,10 +49,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             self, selector: #selector(archiveRootChanged),
             name: .librarianArchiveRootChanged, object: nil
         )
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(archiveBindingChanged),
-            name: .librarianArchiveLibraryBindingChanged, object: nil
-        )
     }
 
     override func viewDidAppear() {
@@ -212,10 +208,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshAddPhotosButtonState()
     }
 
-    @objc private func archiveBindingChanged() {
-        refreshLinkedLibraryPath()
-    }
-
     // MARK: - State refresh
 
     private func refreshArchivePath() {
@@ -233,8 +225,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     }
 
     private func refreshLinkedLibraryPath() {
-        guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
-              let path = ArchiveSettings.controlConfig(for: archiveRoot)?.photoLibraryBinding?.libraryPathHint,
+        guard let path = ArchiveSettings.currentPhotoLibraryPath(),
               !path.isEmpty else {
             linkedLibraryPathControl.url = nil
             linkedLibraryPathControl.isHidden = true
@@ -317,19 +308,8 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     @MainActor
     private func organizeArchive() async {
         guard !isOrganizingArchive else { return }
-        let gate = model.evaluateArchiveWriteGate(for: .organizeArchive)
-        guard gate.isAllowed else {
-            let resolved = await ArchiveLibraryMismatchPrompt.resolveWriteGateIfPossible(
-                model: model,
-                decision: gate,
-                operation: .organizeArchive,
-                parentWindow: view.window
-            )
-            guard resolved else {
-                organizeLabel.stringValue = gate.message
-                return
-            }
-            await organizeArchive()
+        guard model.archiveRootAvailability == .available else {
+            organizeLabel.stringValue = model.archiveRootAvailability.userVisibleDescription
             return
         }
         guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {

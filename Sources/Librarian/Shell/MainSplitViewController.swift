@@ -18,8 +18,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var sidebarBadgeTask: Task<Void, Never>?
     private var archiveExportSheetWindow: NSWindow?
     private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
-    private var lastBindingPromptSignature: String?
-    private var isShowingBindingPrompt = false
     private var subtitleObservers: Set<AnyCancellable> = []
     private var toolbarShellController: ToolbarShellController?
     private var didConfigureToolbar = false
@@ -116,9 +114,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         }
         refreshWindowTitle()
         refreshWindowSubtitle()
-        Task { @MainActor [weak self] in
-            await self?.presentArchiveLibraryBindingPromptIfNeeded()
-        }
     }
 
     override func viewWillDisappear() {
@@ -201,18 +196,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             name: .librarianContentDataChanged,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(archiveLibraryBindingChanged),
-            name: .librarianArchiveLibraryBindingChanged,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemPhotoLibraryChanged),
-            name: .librarianSystemPhotoLibraryChanged,
-            object: nil
-        )
     }
 
     private func installSubtitleObservers() {
@@ -235,7 +218,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         observe(model.$pendingAnalysisCount)
         observe(model.$statusMessage)
         observe(model.$archiveRootAvailability)
-        observe(model.$latestArchiveLibraryBindingEvaluation)
     }
 
     @objc private func modelStateChanged() {
@@ -257,49 +239,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     @objc private func contentDataChanged() {
         refreshSidebarItemsWithBadges()
         refreshWindowSubtitle()
-    }
-
-    @objc private func archiveLibraryBindingChanged() {
-        Task { @MainActor [weak self] in
-            await self?.presentArchiveLibraryBindingPromptIfNeeded()
-        }
-    }
-
-    @objc private func systemPhotoLibraryChanged() {
-        lastBindingPromptSignature = nil
-        Task { @MainActor [weak self] in
-            await self?.presentArchiveLibraryBindingPromptIfNeeded()
-        }
-    }
-
-    private func presentArchiveLibraryBindingPromptIfNeeded() async {
-        guard !isShowingBindingPrompt else { return }
-        let gate = model.evaluateArchiveWriteGate(for: .importIntoArchive)
-        guard gate.status != .allowed else {
-            lastBindingPromptSignature = nil
-            return
-        }
-        guard let evaluation = gate.evaluation else { return }
-        guard evaluation.state == .mismatch || evaluation.state == .unbound else { return }
-
-        let signature = [
-            evaluation.state.rawValue,
-            evaluation.expectedFingerprint ?? "nil",
-            evaluation.currentFingerprint ?? "nil",
-            evaluation.archiveID ?? "nil",
-            model.currentSystemPhotoLibraryFingerprint ?? "nil"
-        ].joined(separator: "|")
-        guard lastBindingPromptSignature != signature else { return }
-        lastBindingPromptSignature = signature
-
-        isShowingBindingPrompt = true
-        _ = await ArchiveLibraryMismatchPrompt.resolveWriteGateIfPossible(
-            model: model,
-            decision: gate,
-            operation: .importIntoArchive,
-            parentWindow: view.window
-        )
-        isShowingBindingPrompt = false
     }
 
     private func refreshWindowTitle() {
@@ -397,7 +336,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             analysisStatusText: model.analysisStatusText,
             pendingAnalysisCount: model.pendingAnalysisCount,
             archiveRootAvailability: model.archiveRootAvailability,
-            archiveBindingState: model.latestArchiveLibraryBindingEvaluation?.state,
             statusMessage: model.statusMessage
         )
     }
@@ -747,7 +685,6 @@ enum LibrarianWindowSubtitlePriority {
         analysisStatusText: String,
         pendingAnalysisCount: Int,
         archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability,
-        archiveBindingState: ArchiveLibraryBindingState?,
         statusMessage: String
     ) -> String? {
         _ = isSendingArchive
@@ -774,19 +711,6 @@ enum LibrarianWindowSubtitlePriority {
             || archiveRootAvailability == .readOnly
             || archiveRootAvailability == .permissionDenied {
             return archiveRootAvailability.userVisibleDescription
-        }
-
-        if let archiveBindingState {
-            switch archiveBindingState {
-            case .mismatch:
-                return "Archive linked to a different photo library."
-            case .unbound:
-                return "Archive is not linked to a photo library."
-            case .unknown:
-                return "Couldn’t verify active photo library."
-            case .match:
-                break
-            }
         }
 
         let status = statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)

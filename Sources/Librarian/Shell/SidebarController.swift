@@ -139,5 +139,5 @@ extension Notification.Name {
     static let librarianInspectorFieldsChanged = Notification.Name("\(prefix).inspectorFieldsChanged")
     static let librarianArchiveNeedsRelink = Notification.Name("\(prefix).archiveNeedsRelink")
     static let librarianSystemPhotoLibraryChanged = Notification.Name("\(prefix).systemPhotoLibraryChanged")
-    static let librarianArchiveLibraryBindingChanged = Notification.Name("\(prefix).archiveLibraryBindingChanged")
+    static let librarianPhotoLibraryChanged = Notification.Name("\(prefix).photoLibraryChanged")
 }
