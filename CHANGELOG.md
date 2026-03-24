@@ -14,6 +14,7 @@ All notable changes to Librarian are tracked here.
 ### Docs
 - Archived superseded planning/handoff/investigation docs under `docs/_archive/2026-03-24-doc-convergence/`.
 - Archived stale root-level handoff/planning docs under `docs/_archive/2026-03-24-root-docs-sweep/`.
+- Consolidated archived docs into a single local `docs/_archive/` folder and git-ignored it to keep historical scratch docs out of repository history.
 
 ## 2026-03-21
 
