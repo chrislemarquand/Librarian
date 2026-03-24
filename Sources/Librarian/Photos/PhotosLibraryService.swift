@@ -150,7 +150,7 @@ final class PhotosLibraryService {
                     continuation.resume(returning: ())
                 } else {
                     continuation.resume(throwing: NSError(domain: "\(AppBrand.identifierPrefix).photos", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "Deletion request failed."
+                        NSLocalizedDescriptionKey: "Couldn’t remove photos. Try again."
                     ]))
                 }
             }

@@ -1,10 +1,8 @@
 import Cocoa
 import Photos
 import SwiftUI
-import ImageIO
 import UniformTypeIdentifiers
 import SharedUI
-import CryptoKit
 import Quartz
 
 private enum DisplayAsset {
@@ -291,18 +289,6 @@ final class ContentController: NSViewController {
             guard model.photosAuthState == .authorized else { return }
         }
 
-        if sidebarKind == .indexing {
-            loadGeneration &+= 1
-            canLoadMoreAssets = false
-            isLoadingAssets = false
-            displayAssets = []
-            model.photosService.stopAllThumbnailCaching()
-            lastLoadedSidebarKind = sidebarKind
-            collectionView.reloadData()
-            model.setSelectedAsset(nil)
-            updateOverlay()
-            return
-        }
 
         // Archive content is independent of Photos indexing; don't block it.
         if sidebarKind != .archived {
@@ -376,8 +362,6 @@ final class ContentController: NSViewController {
             case .whatsapp:
                 let rows = (try? database.assetRepository.fetchWhatsAppForGrid(limit: pageSize, offset: offset)) ?? []
                 assets = rows.map { .photos($0) }
-            case .indexing:
-                assets = []
             }
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -470,7 +454,6 @@ final class ContentController: NSViewController {
         guard canLoadMoreAssets else { return }
 
         let sidebarKind = selectedSidebarKind()
-        guard sidebarKind != .indexing else { return }
         guard shouldLoadNextPageForCurrentScrollPosition() else { return }
 
         fetchPage(sidebarKind: sidebarKind, offset: displayAssets.count, replaceExisting: false)
@@ -513,20 +496,17 @@ final class ContentController: NSViewController {
             showPlaceholder(.unavailable(
                 title: "Access Required",
                 symbolName: "lock.fill",
-                description: "Open System Settings to grant Librarian access to your photo library."))
+                description: "Open System Settings to grant Librarian access to your Photos Library."))
             collectionView.isHidden = true
         case .limited:
             showPlaceholder(.unavailable(
                 title: "Full Access Required",
                 symbolName: "lock.trianglebadge.exclamationmark.fill",
-                description: "Librarian requires full access to your photo library. Please update your privacy settings."))
+                description: "Librarian needs full access to your Photos Library. Update your privacy settings."))
             collectionView.isHidden = true
         case .authorized:
-            if sidebarKind == .indexing {
-                showPlaceholder(.loading(title: "Indexing", symbolName: "arrow.triangle.2.circlepath"))
-                collectionView.isHidden = true
-            } else if model.isIndexing, displayAssets.isEmpty {
-                showPlaceholder(.loading(title: "Indexing", symbolName: "arrow.triangle.2.circlepath"))
+            if model.isIndexing {
+                showPlaceholder(.loading(title: "Updating Catalogue", symbolName: "arrow.triangle.2.circlepath"))
                 collectionView.isHidden = true
             } else if isLoadingAssets, displayAssets.isEmpty {
                 showPlaceholder(.loading(title: "Loading", symbolName: symbolName(for: sidebarKind)))
@@ -569,7 +549,6 @@ final class ContentController: NSViewController {
         case .lowQuality: return "wand.and.stars.inverse"
         case .receiptsAndDocuments: return "doc.text"
         case .whatsapp: return "message"
-        case .indexing: return "arrow.triangle.2.circlepath"
         }
     }
 
@@ -588,7 +567,7 @@ final class ContentController: NSViewController {
         case .allPhotos:
             let description = model.indexedAssetCount > 0
                 ? "No photos match the current filters."
-                : "Your photo library appears to be empty."
+                : "Your Photos Library appears to be empty."
             return EmptyContentResult(.unavailable(title: "No Photos", symbolName: "photo.on.rectangle.angled", description: description))
         case .recents:
             return EmptyContentResult(.unavailable(title: "No Recent Photos", symbolName: "clock", description: "No photos from the past 30 days."))
@@ -605,13 +584,13 @@ final class ContentController: NSViewController {
                 return EmptyContentResult(.unavailable(
                     title: "No Archive Destination",
                     symbolName: "externaldrive.badge.questionmark",
-                    description: "Set an archive destination in Settings to view archived photos."
+                    description: "Set an Archive destination in Settings to view archived photos."
                 ))
             case .unavailable:
                 return EmptyContentResult(.unavailable(
                     title: "Archive Missing",
                     symbolName: "externaldrive.badge.exclamationmark",
-                    description: "Your archive folder can't be found — it may have been moved or renamed. Use Settings to locate it."
+                    description: "Your Archive can’t be found — it may have been moved or renamed. Use Settings to locate it."
                 ))
             case .readOnly, .permissionDenied:
                 return EmptyContentResult(.unavailable(
@@ -625,38 +604,36 @@ final class ContentController: NSViewController {
             return EmptyContentResult(.unavailable(title: "No Archive Photos", symbolName: "archivebox", description: "Archive photos will appear here after export."))
         case .duplicates:
             if model.isAnalysing {
-                return EmptyContentResult(.unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "Items will appear here after analysis is complete."))
+                return EmptyContentResult(.unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "Items will appear here when analysis is complete."))
             } else if !model.analysisHasRunBefore {
                 return EmptyContentResult(
-                    .action(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
+                    .action(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "Analyse your Photos Library to find items for this box.", actionTitle: "Analyse Now"),
                     actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
                 )
             }
             return EmptyContentResult(.unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "No duplicate or near-duplicate photos found."))
         case .lowQuality:
             if model.isAnalysing {
-                return EmptyContentResult(.unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "Items will appear here after analysis is complete."))
+                return EmptyContentResult(.unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "Items will appear here when analysis is complete."))
             } else if !model.analysisHasRunBefore {
                 return EmptyContentResult(
-                    .action(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
+                    .action(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "Analyse your Photos Library to find items for this box.", actionTitle: "Analyse Now"),
                     actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
                 )
             }
             return EmptyContentResult(.unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "No photos with a low quality score found."))
         case .receiptsAndDocuments:
             if model.isAnalysing {
-                return EmptyContentResult(.unavailable(title: "No Documents", symbolName: "doc.text", description: "Items will appear here after analysis is complete."))
+                return EmptyContentResult(.unavailable(title: "No Documents", symbolName: "doc.text", description: "Items will appear here when analysis is complete."))
             } else if !model.analysisHasRunBefore {
                 return EmptyContentResult(
-                    .action(title: "No Documents", symbolName: "doc.text", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
+                    .action(title: "No Documents", symbolName: "doc.text", description: "Analyse your Photos Library to find items for this box.", actionTitle: "Analyse Now"),
                     actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
                 )
             }
             return EmptyContentResult(.unavailable(title: "No Documents", symbolName: "doc.text", description: "No document-focused photos found."))
         case .whatsapp:
             return EmptyContentResult(.unavailable(title: "No WhatsApp Media", symbolName: "message", description: "No WhatsApp media found."))
-        case .indexing:
-            return EmptyContentResult(.unavailable(title: "Indexing", symbolName: "arrow.triangle.2.circlepath", description: ""))
         }
     }
 
@@ -795,7 +772,7 @@ final class ContentController: NSViewController {
         } else if [.lowQuality, .duplicates, .receiptsAndDocuments].contains(sidebarKind)
                     && model.isAnalysing
                     && !displayAssets.isEmpty {
-            state.message = "Analysis in progress — more items may appear."
+            state.message = "Analysing your Photos Library — more items may appear."
             state.primaryAction = nil
             state.secondaryAction = nil
             state.isVisible = true
@@ -1210,8 +1187,6 @@ final class ContentController: NSViewController {
                 isEnabled: hasPhotoTargets
             ))
 
-        case .indexing:
-            return nil
         }
 
         return menu.items.isEmpty ? nil : menu
@@ -1694,485 +1669,5 @@ private final class AssetGridItem: NSCollectionViewItem {
             return CGSize(width: cgImage.width, height: cgImage.height)
         }
         return nil
-    }
-}
-
-struct ArchiveIndexRefreshSummary {
-    let unorganizedCount: Int
-
-    static let empty = ArchiveIndexRefreshSummary(unorganizedCount: 0)
-}
-
-struct ArchiveOrganizationResult {
-    let scannedCount: Int
-    let movedCount: Int
-    let alreadyOrganizedCount: Int
-    let collisionCount: Int
-}
-
-final class ArchiveOrganizer: @unchecked Sendable {
-    private let fileManager = FileManager.default
-    private let imageExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
-
-    func scanUnorganizedCount(in archiveTreeRoot: URL) throws -> Int {
-        try withArchiveAccess(root: archiveTreeRoot) { root in
-            guard try archiveTreeExists(root) else { return 0 }
-            var count = 0
-            try enumerateRegularFiles(in: root) { fileURL, relativeComponents, _ in
-                let parentComponents = Array(relativeComponents.dropLast())
-                if !isOrganizedPath(parentComponents) {
-                    count += 1
-                }
-            }
-            return count
-        }
-    }
-
-    func organizeArchiveTree(in archiveTreeRoot: URL) throws -> ArchiveOrganizationResult {
-        try withArchiveAccess(root: archiveTreeRoot) { root in
-            guard try archiveTreeExists(root) else {
-                return ArchiveOrganizationResult(scannedCount: 0, movedCount: 0, alreadyOrganizedCount: 0, collisionCount: 0)
-            }
-
-            var scannedCount = 0
-            var candidates: [(url: URL, fallbackDate: Date)] = []
-            try enumerateRegularFiles(in: root) { fileURL, relativeComponents, resourceValues in
-                scannedCount += 1
-                let parentComponents = Array(relativeComponents.dropLast())
-                guard !isOrganizedPath(parentComponents) else { return }
-                let fallbackDate = resourceValues.contentModificationDate ?? Date()
-                candidates.append((fileURL, fallbackDate))
-            }
-
-            var movedCount = 0
-            var collisionCount = 0
-
-            for candidate in candidates {
-                let sourceURL = candidate.url
-                let targetDate = readCaptureDateIfAvailable(from: sourceURL) ?? candidate.fallbackDate
-                let datePath = datePathComponents(for: targetDate)
-
-                var destinationDirectory = root
-                for component in destinationPathComponents(for: datePath) {
-                    destinationDirectory.appendPathComponent(component, isDirectory: true)
-                }
-                try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-
-                let destinationURL = uniqueDestinationURL(in: destinationDirectory, fileName: sourceURL.lastPathComponent)
-                if destinationURL.lastPathComponent != sourceURL.lastPathComponent {
-                    collisionCount += 1
-                }
-
-                if sourceURL.standardizedFileURL == destinationURL.standardizedFileURL {
-                    continue
-                }
-                try fileManager.moveItem(at: sourceURL, to: destinationURL)
-                movedCount += 1
-            }
-            removeEmptyDirectories(in: root)
-
-            return ArchiveOrganizationResult(
-                scannedCount: scannedCount,
-                movedCount: movedCount,
-                alreadyOrganizedCount: scannedCount - candidates.count,
-                collisionCount: collisionCount
-            )
-        }
-    }
-
-    private func withArchiveAccess<T>(root: URL, operation: (URL) throws -> T) throws -> T {
-        let didAccess = root.startAccessingSecurityScopedResource()
-        defer {
-            if didAccess {
-                root.stopAccessingSecurityScopedResource()
-            }
-        }
-        return try operation(root)
-    }
-
-    private func archiveTreeExists(_ root: URL) throws -> Bool {
-        var isDirectory: ObjCBool = false
-        return fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    private func enumerateRegularFiles(
-        in root: URL,
-        visitor: (URL, [String], URLResourceValues) throws -> Void
-    ) throws {
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsPackageDescendants, .skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        let rootComponents = root.standardizedFileURL.pathComponents
-        for case let fileURL as URL in enumerator {
-            if fileURL.lastPathComponent.hasPrefix(".") {
-                continue
-            }
-            let standardized = fileURL.standardizedFileURL
-            let fileComponents = standardized.pathComponents
-            guard fileComponents.count > rootComponents.count else { continue }
-            guard Array(fileComponents.prefix(rootComponents.count)) == rootComponents else { continue }
-
-            let relativeComponents = Array(fileComponents.dropFirst(rootComponents.count))
-            guard !relativeComponents.isEmpty else { continue }
-            guard relativeComponents.first != ".librarian-thumbnails" else { continue }
-            guard relativeComponents.first != "Already in Photo Library" else { continue }
-
-            let values = try fileURL.resourceValues(forKeys: keys)
-            guard values.isRegularFile == true else { continue }
-            try visitor(fileURL, relativeComponents, values)
-        }
-    }
-
-    private func isOrganizedDatePath(_ components: [String]) -> Bool {
-        guard components.count >= 3 else { return false }
-        let year = components[components.count - 3]
-        let month = components[components.count - 2]
-        let day = components[components.count - 1]
-        return isYear(year) && isMonth(month) && isDay(day)
-    }
-
-    private func isOrganizedPath(_ components: [String]) -> Bool {
-        components.count == 3 && isOrganizedDatePath(components)
-    }
-
-    private func destinationPathComponents(for datePath: [String]) -> [String] {
-        datePath
-    }
-
-    private func isYear(_ value: String) -> Bool {
-        guard value.count == 4, let intValue = Int(value) else { return false }
-        return intValue >= 1900 && intValue <= 3000
-    }
-
-    private func isMonth(_ value: String) -> Bool {
-        guard value.count == 2, let intValue = Int(value) else { return false }
-        return intValue >= 1 && intValue <= 12
-    }
-
-    private func isDay(_ value: String) -> Bool {
-        guard value.count == 2, let intValue = Int(value) else { return false }
-        return intValue >= 1 && intValue <= 31
-    }
-
-    private func datePathComponents(for date: Date) -> [String] {
-        let calendar = Calendar(identifier: .gregorian)
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        let year = String(format: "%04d", components.year ?? 1970)
-        let month = String(format: "%02d", components.month ?? 1)
-        let day = String(format: "%02d", components.day ?? 1)
-        return [year, month, day]
-    }
-
-    private func uniqueDestinationURL(in directory: URL, fileName: String) -> URL {
-        var candidate = directory.appendingPathComponent(fileName, isDirectory: false)
-        guard fileManager.fileExists(atPath: candidate.path) else { return candidate }
-
-        let ext = (fileName as NSString).pathExtension
-        let baseName = (fileName as NSString).deletingPathExtension
-        var counter = 2
-        while true {
-            let suffix = "-\(counter)"
-            let nextName = ext.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(ext)"
-            candidate = directory.appendingPathComponent(nextName, isDirectory: false)
-            if !fileManager.fileExists(atPath: candidate.path) {
-                return candidate
-            }
-            counter += 1
-        }
-    }
-
-    private func removeEmptyDirectories(in root: URL) {
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsPackageDescendants, .skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        var directories: [URL] = []
-        for case let url as URL in enumerator {
-            guard url.lastPathComponent != ".librarian-thumbnails" else { continue }
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                directories.append(url)
-            }
-        }
-
-        directories.sort { $0.pathComponents.count > $1.pathComponents.count }
-        for directory in directories {
-            if directory.standardizedFileURL == root.standardizedFileURL {
-                continue
-            }
-            if isDirectoryEmpty(directory) {
-                try? fileManager.removeItem(at: directory)
-            }
-        }
-    }
-
-    private func isDirectoryEmpty(_ url: URL) -> Bool {
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            return false
-        }
-        return contents.isEmpty
-    }
-
-    private func readCaptureDateIfAvailable(from fileURL: URL) -> Date? {
-        let lowerExtension = fileURL.pathExtension.lowercased()
-        guard imageExtensions.contains(lowerExtension) else { return nil }
-        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-            return nil
-        }
-
-        if let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
-            if let date = parseExifDate(exif[kCGImagePropertyExifDateTimeOriginal] as? String) {
-                return date
-            }
-            if let date = parseExifDate(exif[kCGImagePropertyExifDateTimeDigitized] as? String) {
-                return date
-            }
-        }
-        if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
-            return parseExifDate(tiff[kCGImagePropertyTIFFDateTime] as? String)
-        }
-        return nil
-    }
-
-    private func parseExifDate(_ value: String?) -> Date? {
-        guard let value, !value.isEmpty else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
-        return formatter.date(from: value)
-    }
-}
-
-final class ArchiveIndexer: @unchecked Sendable {
-    private let database: DatabaseManager
-    private let fileManager = FileManager.default
-    private let organizer = ArchiveOrganizer()
-    private let supportedExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
-    private let exifDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
-        return formatter
-    }()
-
-    init(database: DatabaseManager) {
-        self.database = database
-    }
-
-    func refreshIndex() throws -> ArchiveIndexRefreshSummary {
-        guard database.assetRepository != nil else { return .empty }
-
-        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
-            let existing = try database.assetRepository.fetchArchivedSignatures()
-            if !existing.isEmpty {
-                try database.assetRepository.deleteArchivedItems(relativePaths: Array(existing.keys))
-            }
-            return .empty
-        }
-
-        let didAccess = archiveTreeRoot.startAccessingSecurityScopedResource()
-        defer {
-            if didAccess {
-                archiveTreeRoot.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: archiveTreeRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            let existing = try database.assetRepository.fetchArchivedSignatures()
-            if !existing.isEmpty {
-                try database.assetRepository.deleteArchivedItems(relativePaths: Array(existing.keys))
-            }
-            return .empty
-        }
-
-        let existing = try database.assetRepository.fetchArchivedSignatures()
-        var seenRelativePaths = Set<String>()
-        var upserts: [ArchivedItem] = []
-        let now = Date()
-
-        let keys: [URLResourceKey] = [
-            .isRegularFileKey,
-            .fileSizeKey,
-            .contentModificationDateKey
-        ]
-        guard let enumerator = fileManager.enumerator(
-            at: archiveTreeRoot,
-            includingPropertiesForKeys: keys,
-            options: [.skipsPackageDescendants, .skipsHiddenFiles]
-        ) else {
-            return .empty
-        }
-
-        for case let fileURL as URL in enumerator {
-            if fileURL.lastPathComponent.hasPrefix(".") {
-                continue
-            }
-            let lowerExtension = fileURL.pathExtension.lowercased()
-            guard supportedExtensions.contains(lowerExtension) else { continue }
-
-            let resourceValues = try? fileURL.resourceValues(forKeys: Set(keys))
-            guard resourceValues?.isRegularFile == true else { continue }
-
-            let relativePath = fileURL.path.replacingOccurrences(of: archiveTreeRoot.path + "/", with: "")
-            guard !relativePath.hasPrefix(".librarian-thumbnails/") else { continue }
-            seenRelativePaths.insert(relativePath)
-
-            let fileSize = Int64(resourceValues?.fileSize ?? 0)
-            let fileModificationDate = resourceValues?.contentModificationDate ?? now
-            if let signature = existing[relativePath],
-               signature.fileSizeBytes == fileSize,
-               signature.fileModificationDate == fileModificationDate {
-                continue
-            }
-
-            let metadata = readMetadata(from: fileURL)
-            let thumbnailRelativePath = ".librarian-thumbnails/\(sha256Hex(relativePath)).jpg"
-            upserts.append(
-                ArchivedItem(
-                    relativePath: relativePath,
-                    absolutePath: fileURL.path,
-                    filename: fileURL.lastPathComponent,
-                    fileExtension: lowerExtension,
-                    fileSizeBytes: fileSize,
-                    fileModificationDate: fileModificationDate,
-                    captureDate: metadata.captureDate,
-                    sortDate: metadata.captureDate ?? fileModificationDate,
-                    pixelWidth: metadata.pixelWidth,
-                    pixelHeight: metadata.pixelHeight,
-                    thumbnailRelativePath: thumbnailRelativePath,
-                    lastIndexedAt: now
-                )
-            )
-        }
-
-        let deletedRelativePaths = existing.keys.filter { !seenRelativePaths.contains($0) }
-        if !deletedRelativePaths.isEmpty {
-            try database.assetRepository.deleteArchivedItems(relativePaths: deletedRelativePaths)
-        }
-        if !upserts.isEmpty {
-            try database.assetRepository.upsertArchivedItems(upserts)
-        }
-        let unorganizedCount = (try? organizer.scanUnorganizedCount(in: archiveTreeRoot)) ?? 0
-        return ArchiveIndexRefreshSummary(unorganizedCount: unorganizedCount)
-    }
-
-    private func readMetadata(from fileURL: URL) -> (captureDate: Date?, pixelWidth: Int, pixelHeight: Int) {
-        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-            return (nil, 0, 0)
-        }
-
-        let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
-        let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
-
-        if let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
-            if let date = parseDate(exif[kCGImagePropertyExifDateTimeOriginal] as? String) {
-                return (date, pixelWidth, pixelHeight)
-            }
-            if let date = parseDate(exif[kCGImagePropertyExifDateTimeDigitized] as? String) {
-                return (date, pixelWidth, pixelHeight)
-            }
-        }
-        if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
-           let date = parseDate(tiff[kCGImagePropertyTIFFDateTime] as? String) {
-            return (date, pixelWidth, pixelHeight)
-        }
-
-        return (nil, pixelWidth, pixelHeight)
-    }
-
-    private func parseDate(_ value: String?) -> Date? {
-        guard let value, !value.isEmpty else { return nil }
-        return exifDateFormatter.date(from: value)
-    }
-
-    private func sha256Hex(_ input: String) -> String {
-        let digest = SHA256.hash(data: Data(input.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
-}
-
-final class ArchivedThumbnailService: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "\(AppBrand.identifierPrefix).archived-thumbnails", qos: .utility)
-    private let cache = NSCache<NSString, NSImage>()
-    private let fileManager = FileManager.default
-
-    func requestThumbnail(for item: ArchivedItem, targetSize: CGSize, completion: @escaping @Sendable (NSImage?) -> Void) {
-        let cacheKey = "\(item.relativePath)#\(Int(max(targetSize.width, targetSize.height)))"
-        if let cached = cache.object(forKey: cacheKey as NSString) {
-            completion(cached)
-            return
-        }
-
-        queue.async { [weak self] in
-            guard let self else {
-                DispatchQueue.main.async { completion(nil) }
-                return
-            }
-
-            let image = self.loadOrGenerateThumbnail(for: item, maxPixelSize: Int(max(targetSize.width, targetSize.height)))
-            if let image {
-                self.cache.setObject(image, forKey: cacheKey as NSString)
-            }
-            DispatchQueue.main.async {
-                completion(image)
-            }
-        }
-    }
-
-    private func loadOrGenerateThumbnail(for item: ArchivedItem, maxPixelSize: Int) -> NSImage? {
-        guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
-            return nil
-        }
-        let didAccess = archiveTreeRoot.startAccessingSecurityScopedResource()
-        defer {
-            if didAccess {
-                archiveTreeRoot.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        let sourceURL = URL(fileURLWithPath: item.absolutePath)
-        let thumbnailURL = archiveTreeRoot.appendingPathComponent(item.thumbnailRelativePath, isDirectory: false)
-
-        if fileManager.fileExists(atPath: thumbnailURL.path), let cachedImage = NSImage(contentsOf: thumbnailURL) {
-            return cachedImage
-        }
-
-        guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil) else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(maxPixelSize, 64)
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return nil
-        }
-
-        let directoryURL = thumbnailURL.deletingLastPathComponent()
-        try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        if let destination = CGImageDestinationCreateWithURL(thumbnailURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil) {
-            CGImageDestinationAddImage(destination, cgImage, [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary)
-            _ = CGImageDestinationFinalize(destination)
-        }
-
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }

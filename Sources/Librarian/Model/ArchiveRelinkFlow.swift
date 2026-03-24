@@ -8,7 +8,7 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = "Archive Not Found"
-    alert.informativeText = "Librarian can’t find your archive in its last known location. It may have been moved, renamed, deleted, or disconnected.\n\nLocate it, or create a new archive."
+    alert.informativeText = "Librarian can’t find your Archive in its last known location. It may have been moved, renamed, deleted, or disconnected.\n\nLocate it, or create a new Archive."
     alert.addButton(withTitle: "Locate Archive…")
     alert.addButton(withTitle: "Create New Archive…")
     alert.addButton(withTitle: "Not Now")
@@ -24,7 +24,7 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
     while true {
         let panel = NSOpenPanel()
         panel.title = "Locate Archive"
-        panel.message = "Select your archive folder, or the folder that contains it."
+        panel.message = "Select your Archive, or the folder that contains it."
         panel.prompt = "Choose Folder"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -57,7 +57,7 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
             let errorAlert = NSAlert()
             errorAlert.alertStyle = .warning
             errorAlert.messageText = "Archive Not Recognized"
-            errorAlert.informativeText = "The selected folder does not appear to contain a Librarian archive. Select the archive folder itself, or its parent folder."
+            errorAlert.informativeText = "The selected folder does not appear to contain a Librarian Archive. Select the Archive itself, or its parent folder."
             errorAlert.addButton(withTitle: "OK")
             _ = await errorAlert.runSheetOrModal(for: presentingWindow)
             continue
@@ -69,7 +69,7 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
         let errorAlert = NSAlert()
         errorAlert.alertStyle = .warning
         errorAlert.messageText = "Couldn’t Link Archive"
-        errorAlert.informativeText = "Librarian was unable to save the new archive location."
+        errorAlert.informativeText = "Librarian was unable to save the new Archive location."
         errorAlert.addButton(withTitle: "OK")
         _ = await errorAlert.runSheetOrModal(for: presentingWindow)
         return
@@ -80,7 +80,7 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
 private func runNewArchiveFlow(model: AppModel, presentingWindow: NSWindow?) async {
     let panel = NSOpenPanel()
     panel.title = "Create New Archive"
-    panel.message = "Choose a folder for a new Librarian archive."
+    panel.message = "Choose a folder for a new Librarian Archive."
     panel.prompt = "Choose Folder"
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
@@ -100,7 +100,7 @@ private func runNewArchiveFlow(model: AppModel, presentingWindow: NSWindow?) asy
         let errorAlert = NSAlert()
         errorAlert.alertStyle = .warning
         errorAlert.messageText = "Couldn’t Create Archive"
-        errorAlert.informativeText = "Librarian was unable to save the new archive location."
+        errorAlert.informativeText = "Librarian was unable to save the new Archive location."
         errorAlert.addButton(withTitle: "OK")
         _ = await errorAlert.runSheetOrModal(for: presentingWindow)
         return

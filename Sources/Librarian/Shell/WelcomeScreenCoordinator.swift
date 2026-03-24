@@ -32,23 +32,23 @@ final class WelcomeScreenCoordinator {
     private static let features: [AppWelcomeFeature] = [
         AppWelcomeFeature(
             symbolName: "square.grid.2x2.fill",
-            title: "Sorted review queues",
+            title: "Sorted review boxes",
             subtitle: "Duplicates, screenshots, WhatsApp photos, documents, and more — automatically identified and grouped so you know what needs attention."
         ),
         AppWelcomeFeature(
             symbolName: "checkmark.shield.fill",
             title: "Archive, don't delete",
-            subtitle: "Photos are exported to your archive folder and verified before leaving your library. Nothing is removed without your say-so."
+            subtitle: "Photos are exported to your Archive and verified before leaving your library. Nothing is removed without your say-so."
         ),
         AppWelcomeFeature(
             symbolName: "tray.and.arrow.down.fill",
             title: "Work at your own pace",
-            subtitle: "Set photos aside as you browse, then send them to your archive in one go whenever you're ready."
+            subtitle: "Set photos aside as you browse, then send them to your Archive in one go whenever you're ready."
         ),
         AppWelcomeFeature(
             symbolName: "wand.and.sparkles",
             title: "Library analysis",
-            subtitle: "Run an analysis pass to score photo quality, detect near-duplicates, and unlock the Low Quality queue."
+            subtitle: "Run an analysis pass to score photo quality, detect near-duplicates, and unlock the Low Quality box."
         ),
     ]
 

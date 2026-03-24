@@ -12,9 +12,9 @@ enum ArchiveImportSheetMode {
     var infoText: String {
         switch self {
         case .pathAUserPick:
-            return "Choose source folders to copy into your archive. Exact duplicates already in your Photo Library will be skipped."
+            return "Choose source folders to copy into your Archive. Exact duplicates already in your Photos Library will be skipped."
         case .pathBDetected:
-            return "Review detected files from your archive folder before Librarian organizes them."
+            return "Review detected files from your Archive before Librarian organises them."
         }
     }
 
@@ -97,7 +97,7 @@ final class ArchiveImportSession: ObservableObject {
             lines.append("Preflight")
             lines.append("- Discovered: \(preflight.totalDiscovered)")
             lines.append("- Duplicate in source: \(preflight.duplicatesInSource)")
-            lines.append("- Already in Photo Library: \(preflight.existsInPhotoKit)")
+            lines.append("- Already in Photos Library: \(preflight.existsInPhotoKit)")
             lines.append("- To import: \(preflight.toImport)")
         }
         if let summary {
@@ -105,7 +105,7 @@ final class ArchiveImportSession: ObservableObject {
             lines.append("Run Summary")
             lines.append("- Imported: \(summary.imported)")
             lines.append("- Duplicate in source: \(summary.skippedDuplicateInSource)")
-            lines.append("- Already in Photo Library: \(summary.skippedExistsInPhotoKit)")
+            lines.append("- Already in Photos Library: \(summary.skippedExistsInPhotoKit)")
             lines.append("- Failed: \(summary.failed)")
             if !summary.failures.isEmpty {
                 lines.append("")
@@ -132,7 +132,7 @@ final class ArchiveImportSession: ObservableObject {
         guard canChooseSources else { return }
         let panel = NSOpenPanel()
         panel.title = "Choose Source Folders"
-        panel.message = "Choose one or more folders to import into the archive."
+        panel.message = "Choose one or more folders to import into the Archive."
         panel.prompt = "Choose Folders"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -167,7 +167,7 @@ final class ArchiveImportSession: ObservableObject {
             return
         }
         guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else {
-            runError = "No archive root is configured."
+            runError = "No Archive location is configured."
             model.setStatusMessage(runError ?? "Archive import failed.")
             return
         }
@@ -210,7 +210,7 @@ final class ArchiveImportSession: ObservableObject {
 
     private func runPathB(model: AppModel) async {
         guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
-            runError = "Archive folder is unavailable."
+            runError = "Archive is unavailable."
             model.setStatusMessage(runError ?? "Archive import failed.")
             return
         }
@@ -258,7 +258,7 @@ final class ArchiveImportSession: ObservableObject {
             model.setStatusMessage("Review completed with \(execution.failed.formatted()) failures.")
         } else {
             model.setStatusMessage(
-                "Review complete: \(execution.imported.formatted()) organized, \(execution.skippedExistsInPhotoKit.formatted()) already in Photo Library.",
+                "Review complete: \(execution.imported.formatted()) organized, \(execution.skippedExistsInPhotoKit.formatted()) already in Photos Library.",
                 autoClearAfterSuccess: true
             )
         }

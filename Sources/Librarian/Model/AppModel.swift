@@ -47,15 +47,15 @@ enum ArchiveSettings {
         var userVisibleDescription: String {
             switch self {
             case .notConfigured:
-                return "No archive destination is configured."
+                return "No Archive destination is configured."
             case .available:
                 return "Archive destination is available."
             case .unavailable:
-                return "The archive destination is currently unavailable. It may be offline or disconnected."
+                return "The Archive destination is currently unavailable. It may be offline or disconnected."
             case .readOnly:
-                return "The archive destination is read-only."
+                return "The Archive destination is read-only."
             case .permissionDenied:
-                return "Librarian does not currently have permission to access the archive destination."
+                return "Librarian does not currently have permission to access the Archive destination."
             }
         }
     }
@@ -730,8 +730,8 @@ final class AppModel: ObservableObject {
             AppLog.shared.info("Indexing completed (\(reason))")
             if reason == "manualRebuild" {
                 systemNotifications.postIfBackground(
-                    title: "Rebuild Index Complete",
-                    body: "Librarian finished rebuilding the library index.",
+                    title: "Catalogue Updated",
+                    body: "Librarian finished updating your Catalogue.",
                     identifier: "rebuild-index-complete"
                 )
             }
@@ -740,7 +740,7 @@ final class AppModel: ObservableObject {
             AppLog.shared.error("Indexing failed (\(reason)): \(error.localizedDescription)")
             if reason == "manualRebuild" {
                 systemNotifications.postIfBackground(
-                    title: "Rebuild Index Failed",
+                    title: "Couldn’t Update Catalogue",
                     body: error.localizedDescription,
                     identifier: "rebuild-index-failed"
                 )
@@ -865,7 +865,7 @@ final class AppModel: ObservableObject {
                 didNotifyArchiveUnavailableSystemNotificationForCurrentOutage = true
                 systemNotifications.postIfBackground(
                     title: "Archive Not Available",
-                    body: "Librarian can’t find your archive. Open the app to relink it or create a new archive.",
+                    body: "Librarian can’t find your Archive. Open the app to relink it or create a new Archive.",
                     identifier: "archive-unavailable"
                 )
             }
@@ -903,7 +903,7 @@ final class AppModel: ObservableObject {
             assetDataVersion &+= 1
             systemNotifications.postIfBackground(
                 title: "Library Analysis Complete",
-                body: "Librarian finished analysing your photo library.",
+                body: "Librarian finished analysing your Photos Library.",
                 identifier: "analysis-complete"
             )
         } catch {
@@ -1091,7 +1091,7 @@ final class AppModel: ObservableObject {
         }
         guard ArchiveSettings.ensureControlFolder(at: archiveRootURL) else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archive", code: 8, userInfo: [
-                NSLocalizedDescriptionKey: "Couldn’t prepare the archive at the selected location."
+                NSLocalizedDescriptionKey: "Couldn’t prepare the Archive at the selected location."
             ])
         }
         guard !isSendingArchive else {
@@ -1883,9 +1883,9 @@ struct IndexingProgress: Equatable {
             return "Idle"
         case .running(let completed, let total):
             if total > 0 {
-                return "Indexing photos library (\(completed.formatted()) / \(total.formatted()))"
+                return "Updating Catalogue (\(completed.formatted()) / \(total.formatted()))"
             }
-            return "Indexing photos library"
+            return "Updating Catalogue"
         case .failed(let message):
             return "Failed: \(message)"
         }

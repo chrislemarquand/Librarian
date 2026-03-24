@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showAboutPanel() {
         presentAboutPanel(
-            purpose: "Curate and archive your Apple Photos library.",
+            purpose: "Curate and archive your Apple Photos Library.",
             credits: [
                 .init(text: "Uses osxphotos by Rhet Turnbull", linkURL: "https://github.com/RhetTbull/osxphotos"),
             ],
@@ -92,8 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let alert = NSAlert()
                 alert.alertStyle = .informational
-                alert.messageText = "Photo Library Changed"
-                alert.informativeText = "Your system photo library has changed from \"\(storedName)\" to \"\(currentName)\".\n\nYou may want to create a new archive for this library, or switch back to the previous library in Photos preferences."
+                alert.messageText = "Photos Library Changed"
+                alert.informativeText = "Your system Photos Library has changed from \"\(storedName)\" to \"\(currentName)\".\n\nYou may want to create a new Archive for this library, or switch back to the previous library in Photos preferences."
                 alert.addButton(withTitle: "OK")
                 _ = await alert.runSheetOrModal(
                     for: self.mainWindowController?.window

@@ -160,7 +160,7 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
             item.autovalidates = false
             item.target = splitVC
             item.action = #selector(MainSplitViewController.setAsideSelectionAction(_:))
-            item.toolTip = "Set selected photos aside for archive"
+            item.toolTip = "Set selected photos aside for Archive"
             setAsideItem = item
             if let model = splitVC?.model {
                 updateArchiveItems(model: model)
@@ -190,7 +190,7 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
             item.autovalidates = false
             item.target = splitVC
             item.action = #selector(MainSplitViewController.putBackSelectionAction(_:))
-            item.toolTip = "Remove selected photos from set-aside archive box"
+            item.toolTip = "Remove selected photos from the Set Aside box"
             putBackItem = item
             if let model = splitVC?.model {
                 updateArchiveItems(model: model)
@@ -227,8 +227,6 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
         case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
              .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
             isGalleryContext = true
-        case .indexing:
-            isGalleryContext = false
         }
         zoomOutItem?.isEnabled = isGalleryContext && model.canDecreaseGalleryZoom
         zoomInItem?.isEnabled = isGalleryContext && model.canIncreaseGalleryZoom
@@ -240,11 +238,11 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
         let canPutBackFailed = splitVC?.canPutBackFailedItems == true
         putBackItem?.isEnabled = canPutBackSelection || canPutBackFailed
         if canPutBackSelection {
-            putBackItem?.toolTip = "Remove selected photos from set-aside archive box"
+            putBackItem?.toolTip = "Remove selected photos from the Set Aside box"
         } else if canPutBackFailed {
-            putBackItem?.toolTip = "Remove all failed items from set-aside archive box"
+            putBackItem?.toolTip = "Remove all failed items from the Set Aside box"
         } else {
-            putBackItem?.toolTip = "Remove selected photos from set-aside archive box"
+            putBackItem?.toolTip = "Remove selected photos from the Set Aside box"
         }
         let hasQueuedItems = model.pendingArchiveCandidateCount > 0
         sendToArchiveItem?.isEnabled = hasQueuedItems && !model.isSendingArchive

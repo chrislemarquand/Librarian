@@ -31,9 +31,9 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         return stack
     }()
     private lazy var organizeButton   = makeActionButton(title: "Organize Archive",      action: #selector(organizeArchiveManually))
-    private lazy var organizeLabel    = makeDescriptionLabel("Scans the archive and normalizes folders to YYYY/MM/DD.")
+    private lazy var organizeLabel    = makeDescriptionLabel("Organises your Archive by date.")
     private lazy var addPhotosButton  = makeActionButton(title: "Add Photos to Archive…", action: #selector(addPhotosToArchive))
-    private lazy var addPhotosLabel   = makeDescriptionLabel("Copy photos from a folder into the archive. Original files are never moved or deleted.")
+    private lazy var addPhotosLabel   = makeDescriptionLabel("Copy photos from a folder into the Archive. Original files are never moved or deleted.")
 
     init(model: AppModel) {
         self.model = model
@@ -104,8 +104,8 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         let panel = NSOpenPanel()
         panel.prompt = "Choose"
         panel.message = retrying
-            ? "Choose an empty or new folder for the archive."
-            : "Choose a location for a new archive, or select an existing Librarian archive to switch to it."
+            ? "Choose an empty or new folder for the Archive."
+            : "Choose a location for a new Archive, or select an existing Librarian Archive to switch to it."
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
@@ -154,10 +154,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         alert.messageText = "Existing Archive Detected"
         alert.informativeText =
             """
-            The selected folder is already a Librarian archive:
+            The selected folder is already a Librarian Archive:
             \(url.path)
 
-            Switch to this archive, or choose a different location for a new archive?
+            Switch to this Archive, or choose a different location for a new Archive?
             """
         alert.addButton(withTitle: "Switch to This")
         alert.addButton(withTitle: "Choose Different Location…")
@@ -174,7 +174,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         guard let currentRootURL = ArchiveSettings.restoreArchiveRootURL() else { return }
         let panel = NSOpenPanel()
         panel.title = "Choose Move Destination"
-        panel.message = "Choose where to move your archive. Librarian will move all archive files and switch to the new location."
+        panel.message = "Choose where to move your Archive. Librarian will move all Archive files and switch to the new location."
         panel.prompt = "Move Here"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -260,8 +260,8 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         organizeButton.title = isOrganizingArchive ? "Organizing…" : "Organize Archive"
         if !isOrganizingArchive {
             organizeLabel.stringValue = hasRoot
-                ? "Scans the archive and normalizes folders to YYYY/MM/DD."
-                : "Choose an archive destination to enable organization."
+                ? "Organises your Archive by date."
+                : "Choose an Archive destination to enable organization."
         }
     }
 
@@ -275,7 +275,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     @MainActor
     private func scanArchiveAndPromptToOrganizeIfNeeded() async {
         guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }
-        organizeLabel.stringValue = "Scanning archive folder…"
+        organizeLabel.stringValue = "Scanning Archive…"
         let count: Int
         do {
             count = try await Task.detached(priority: .utility) {
@@ -296,7 +296,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Organize New Archive Location?"
-        alert.informativeText = "Librarian found \(count.formatted()) files outside the YYYY/MM/DD folder pattern. Organize them now?"
+        alert.informativeText = "Librarian found \(count.formatted()) files outside the date-based Archive structure. Organize them now?"
         alert.addButton(withTitle: "Organize Now")
         alert.addButton(withTitle: "Not Now")
 
@@ -313,7 +313,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             return
         }
         guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else {
-            organizeLabel.stringValue = "Choose an archive destination first."
+            organizeLabel.stringValue = "Choose an Archive destination first."
             return
         }
         isOrganizingArchive = true
@@ -398,7 +398,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshMoveButtonState()
             refreshOrganizeButtonState()
             refreshAddPhotosButtonState()
-            showArchiveMoveError("Librarian couldn’t move the archive. \(error.localizedDescription)")
+            showArchiveMoveError("Librarian couldn’t move the Archive. \(error.localizedDescription)")
             return
         }
 
@@ -498,13 +498,13 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         let sourceAvailability = ArchiveSettings.archiveRootAvailability(for: sourceRoot)
         guard sourceAvailability == .available else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Current archive is not available: \(sourceAvailability.userVisibleDescription)"
+                NSLocalizedDescriptionKey: "Current Archive is not available: \(sourceAvailability.userVisibleDescription)"
             ])
         }
 
         guard ArchiveSettings.archiveID(for: sourceRoot) != nil else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "Current archive is missing required Librarian metadata."
+                NSLocalizedDescriptionKey: "Current Archive is missing required Librarian metadata."
             ])
         }
 
@@ -528,7 +528,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
         guard ArchiveSettings.archiveID(for: destinationRoot) == nil else {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 4, userInfo: [
-                NSLocalizedDescriptionKey: "Selected destination already appears to be a Librarian archive."
+                NSLocalizedDescriptionKey: "Selected destination already appears to be a Librarian Archive."
             ])
         }
 
@@ -598,14 +598,14 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         try fileManager.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
         if fileManager.fileExists(atPath: destinationArchiveRoot.path) {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 5, userInfo: [
-                NSLocalizedDescriptionKey: "Selected destination already contains an Archive folder."
+                NSLocalizedDescriptionKey: "Selected destination already contains an Archive."
             ])
         }
         try fileManager.moveItem(at: sourceArchiveRoot, to: destinationArchiveRoot)
 
         if fileManager.fileExists(atPath: sourceArchiveRoot.path) {
             throw NSError(domain: "\(AppBrand.identifierPrefix).archiveMove", code: 8, userInfo: [
-                NSLocalizedDescriptionKey: "Verification failed after move. Source archive folder still exists."
+                NSLocalizedDescriptionKey: "Verification failed after move. Source Archive still exists."
             ])
         }
 

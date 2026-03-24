@@ -315,8 +315,6 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         let count = (try? model.database.assetRepository.countForSidebarKind(kind)) ?? 0
         let text: String
         switch kind {
-        case .indexing:
-            text = ""
         case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots, .whatsapp:
             text = count == 1 ? "1 item" : "\(count.formatted()) items"
         case .allPhotos, .recents, .favourites:
@@ -404,7 +402,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
 
     private func sidebarContextMenu(for item: SidebarItem) -> NSMenu? {
         switch item.kind {
-        case .allPhotos, .recents, .favourites, .indexing:
+        case .allPhotos, .recents, .favourites:
             return nil
 
         case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
@@ -453,7 +451,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     @objc private func clearSetAsideAction(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "Clear Set Aside?"
-        alert.informativeText = "All photos in Set Aside will be returned to their queues."
+        alert.informativeText = "All photos in Set Aside will be returned to their boxes."
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
         alert.runSheetOrModal(for: view.window) { [weak self] response in
@@ -509,13 +507,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     private var isGallerySidebarSelection: Bool {
-        switch model.selectedSidebarItem?.kind ?? .allPhotos {
-        case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
-             .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
-            return true
-        case .indexing:
-            return false
-        }
+        return true
     }
 
     var canSetAsideSelection: Bool {
@@ -594,7 +586,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         if availability != .notConfigured {
             showArchiveAlert(
                 title: "Archive Unavailable",
-                message: "\(availability.userVisibleDescription) Choose a new archive destination."
+                message: "\(availability.userVisibleDescription) Choose a new Archive destination."
             )
         }
         guard let chosen = promptForArchiveRoot() else { return nil }
@@ -700,7 +692,7 @@ enum LibrarianWindowSubtitlePriority {
 
         if isAnalysing {
             let message = analysisStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
-            return message.isEmpty ? "Analysing Library…" : message
+            return message.isEmpty ? "Analysing Photos Library…" : message
         }
 
         if pendingAnalysisCount > 0 {

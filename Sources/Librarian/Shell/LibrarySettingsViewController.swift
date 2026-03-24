@@ -6,10 +6,10 @@ final class LibrarySettingsViewController: SettingsGridViewController {
 
     // Persistent controls — reused across grid rebuilds so notification handlers
     // can update them without rebuilding the whole grid.
-    private lazy var rebuildButton = makeActionButton(title: "Rebuild Index", action: #selector(rebuildIndex))
-    private lazy var rebuildStatusLabel = makeDescriptionLabel("Runs a full library scan and refreshes the local index.")
+    private lazy var rebuildButton = makeActionButton(title: "Update Catalogue", action: #selector(rebuildIndex))
+    private lazy var rebuildStatusLabel = makeDescriptionLabel("Scans your Photos Library and updates your Catalogue.")
     private lazy var analyseButton = makeActionButton(title: "Analyse Library", action: #selector(analyseLibrary))
-    private lazy var analyseStatusLabel = makeDescriptionLabel("Imports quality scores, file sizes, labels, and duplicate fingerprints.")
+    private lazy var analyseStatusLabel = makeDescriptionLabel("Finds documents, low quality photos and duplicates in your library.")
     private lazy var showInFinderButton = makeActionButton(title: "Show in Finder", action: #selector(showLibraryInFinder))
 
     init(model: AppModel) {
@@ -62,7 +62,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
         }
 
         rows += [
-            [makeCategoryLabel(title: "Index:"),            rebuildStatusLabel,  rebuildButton],
+            [makeCategoryLabel(title: "Catalogue:"),        rebuildStatusLabel,  rebuildButton],
             [makeCategoryLabel(title: "Analysis:"),         analyseStatusLabel,  analyseButton],
         ]
 
@@ -114,10 +114,10 @@ final class LibrarySettingsViewController: SettingsGridViewController {
 
     private func refreshRebuildButtonState() {
         rebuildButton.isEnabled = !model.isIndexing
-        rebuildButton.title = model.isIndexing ? "Rebuilding…" : "Rebuild Index"
+        rebuildButton.title = model.isIndexing ? "Updating Catalogue…" : "Update Catalogue"
         rebuildStatusLabel.stringValue = model.isIndexing
-            ? (model.indexingProgress.statusText.isEmpty ? "Running…" : model.indexingProgress.statusText)
-            : "Runs a full library scan and refreshes the local index."
+            ? (model.indexingProgress.statusText.isEmpty ? "Updating…" : model.indexingProgress.statusText)
+            : "Scans your Photos Library and updates your Catalogue."
     }
 
     private func refreshAnalyseButtonState() {
@@ -126,7 +126,7 @@ final class LibrarySettingsViewController: SettingsGridViewController {
         if model.isAnalysing {
             analyseStatusLabel.stringValue = model.analysisStatusText.isEmpty ? "Analysing…" : model.analysisStatusText
         } else {
-            let base = "Analyses quality, duplicates, and labels"
+            let base = "Finds documents, low quality photos and duplicates in your library"
             if model.pendingAnalysisCount > 0 {
                 analyseStatusLabel.stringValue = "\(base) · \(model.pendingAnalysisCount.formatted()) pending"
             } else if model.analysisHasRunBefore {
