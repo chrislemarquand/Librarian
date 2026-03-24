@@ -7,6 +7,14 @@ final class DatabaseManager: @unchecked Sendable {
     private(set) var assetRepository: AssetRepository!
     private(set) var jobRepository: JobRepository!
 
+    init() {}
+
+    init(testingDatabaseQueue dbQueue: DatabaseQueue) {
+        self.db = dbQueue
+        self.assetRepository = AssetRepository(db: dbQueue)
+        self.jobRepository = JobRepository(db: dbQueue)
+    }
+
     // MARK: - Open
 
     func open() throws {

@@ -45,6 +45,7 @@ This document is the factual implementation snapshot of Librarian today.
 
 ## Testing/Quality State
 
-- Automated tests are currently concentrated in `Tests/LibrarianTests/LibrarianTests.swift`.
+- Automated tests are organised by domain under `Tests/LibrarianTests/` (archive boundary/config/import, osxphotos runner, app model state, trust-boundary flows).
 - Core unit/integration-style checks pass in current branch.
-- End-to-end manual trust-boundary flow validation remains a required pre-ship step.
+- A dedicated trust-boundary smoke command exists: `./scripts/release/trust_boundary_smoke.sh`.
+- End-to-end manual Photos-library trust-boundary flow validation remains a required pre-ship step.

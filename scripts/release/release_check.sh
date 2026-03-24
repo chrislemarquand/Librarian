@@ -18,20 +18,23 @@ export CLANG_MODULE_CACHE_PATH
 
 rm -f "$BUILD_LOG" "$TEST_LOG"
 
-echo "[1/5] Resolving package dependencies"
+echo "[1/6] Resolving package dependencies"
 xcodebuild -resolvePackageDependencies -project "$PROJECT_PATH" -scheme "$SCHEME_NAME" > /dev/null
 
 if [[ -f "$ROOT_DIR/Package.swift" ]]; then
-  echo "[2/5] Running swift test"
+  echo "[2/6] Running swift test"
   swift test | tee "$TEST_LOG"
 else
-  echo "[2/5] Skipping swift test (no Package.swift at repo root)"
+  echo "[2/6] Skipping swift test (no Package.swift at repo root)"
 fi
 
-echo "[3/5] Building app target"
+echo "[3/6] Running trust-boundary smoke"
+"$ROOT_DIR/scripts/release/trust_boundary_smoke.sh"
+
+echo "[4/6] Building app target"
 xcodebuild -project "$PROJECT_PATH" -scheme "$SCHEME_NAME" -configuration Debug -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA_PATH" build > "$BUILD_LOG" 2>&1
 
-echo "[4/5] Running app test pass"
+echo "[5/6] Running app test pass"
 if ! xcodebuild -project "$PROJECT_PATH" -scheme "$SCHEME_NAME" -configuration Debug -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA_PATH" test >> "$BUILD_LOG" 2>&1; then
   if rg -n "not currently configured for the test action|There are no test bundles available to test" "$BUILD_LOG" > /dev/null; then
     echo "No configured tests for scheme $SCHEME_NAME; continuing."
@@ -42,7 +45,7 @@ if ! xcodebuild -project "$PROJECT_PATH" -scheme "$SCHEME_NAME" -configuration D
   fi
 fi
 
-echo "[5/5] Validating warning and bug gates"
+echo "[6/6] Validating warning and bug gates"
 if rg -n "warning: .*\\.swift" "$BUILD_LOG" > /dev/null; then
   echo "Build produced warnings. See: $BUILD_LOG"
   rg -n "warning: .*\\.swift" "$BUILD_LOG"

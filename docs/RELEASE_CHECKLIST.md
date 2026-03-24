@@ -17,6 +17,13 @@ xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Libr
 
 Release checks must pass with no Swift warnings.
 
+Required gates before tagging:
+
+- [ ] Automated trust-boundary smoke is green (`./scripts/release/trust_boundary_smoke.sh`).
+- [ ] Full manual Photos flow pass recorded:
+  index -> analyse -> review queues -> set aside -> export -> verify Archive -> delete from Photos.
+- [ ] Duplicates quality sample pass recorded on a real library.
+
 For SharedUI updates, use:
 
 ```bash
