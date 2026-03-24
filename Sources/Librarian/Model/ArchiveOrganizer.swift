@@ -26,6 +26,34 @@ final class ArchiveOrganizer: @unchecked Sendable {
         }
     }
 
+    func scanNeedsReviewCount(in archiveTreeRoot: URL) throws -> Int {
+        try withArchiveAccess(root: archiveTreeRoot) { root in
+            let needsReviewRoot = root.appendingPathComponent("Needs Review", isDirectory: true)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: needsReviewRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                return 0
+            }
+
+            let keys: Set<URLResourceKey> = [.isRegularFileKey]
+            guard let enumerator = fileManager.enumerator(
+                at: needsReviewRoot,
+                includingPropertiesForKeys: Array(keys),
+                options: [.skipsPackageDescendants, .skipsHiddenFiles]
+            ) else {
+                return 0
+            }
+
+            var count = 0
+            for case let fileURL as URL in enumerator {
+                if fileURL.lastPathComponent.hasPrefix(".") { continue }
+                let values = try fileURL.resourceValues(forKeys: keys)
+                guard values.isRegularFile == true else { continue }
+                count += 1
+            }
+            return count
+        }
+    }
+
     func organizeArchiveTree(in archiveTreeRoot: URL) throws -> ArchiveOrganizationResult {
         try withArchiveAccess(root: archiveTreeRoot) { root in
             guard try archiveTreeExists(root) else {

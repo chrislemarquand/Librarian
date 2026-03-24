@@ -91,6 +91,7 @@ final class ContentController: NSViewController {
     private let archiveOrganizer = ArchiveOrganizer()
     private let archivedThumbnailService = ArchivedThumbnailService()
     private var archivedUnorganizedCount = 0
+    private var archivedNeedsReviewCount = 0
     private var archivedBannerDismissedForLaunch = false
     private var isOrganizingArchivedFiles = false
 
@@ -276,6 +277,7 @@ final class ContentController: NSViewController {
     @objc private func archiveRootChanged() {
         archivedBannerDismissedForLaunch = false
         archivedUnorganizedCount = 0
+        archivedNeedsReviewCount = 0
         if selectedSidebarKind() == .archived {
             loadAssetsIfNeeded(force: true)
         }
@@ -378,6 +380,7 @@ final class ContentController: NSViewController {
                     self.displayAssets = assets
                     if let archivedRefreshSummary {
                         self.archivedUnorganizedCount = archivedRefreshSummary.unorganizedCount
+                        self.archivedNeedsReviewCount = archivedRefreshSummary.needsReviewCount
                     }
                     self.model.photosService.stopAllThumbnailCaching()
                     self.collectionView.reloadData()
@@ -754,8 +757,14 @@ final class ContentController: NSViewController {
         let sidebarKind = selectedSidebarKind()
 
         // Determine what the notice bar should show.
-        if sidebarKind == .archived && archivedUnorganizedCount > 0 && !archivedBannerDismissedForLaunch {
-            state.message = "\(archivedUnorganizedCount.formatted()) files need review for organize/dedupe."
+        if sidebarKind == .archived && (archivedUnorganizedCount > 0 || archivedNeedsReviewCount > 0) && !archivedBannerDismissedForLaunch {
+            if archivedUnorganizedCount > 0 && archivedNeedsReviewCount > 0 {
+                state.message = "\(archivedUnorganizedCount.formatted()) items to organise. \(archivedNeedsReviewCount.formatted()) in Needs Review."
+            } else if archivedUnorganizedCount > 0 {
+                state.message = "\(archivedUnorganizedCount.formatted()) items to organise in your Archive."
+            } else {
+                state.message = "\(archivedNeedsReviewCount.formatted()) items are in Needs Review."
+            }
             state.primaryAction = isOrganizingArchivedFiles ? nil : NoticeBarAction(title: "Review Import…") { [weak self] in
                 guard let self else { return }
                 guard let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL() else { return }

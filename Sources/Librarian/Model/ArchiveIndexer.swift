@@ -4,8 +4,9 @@ import CryptoKit
 
 struct ArchiveIndexRefreshSummary {
     let unorganizedCount: Int
+    let needsReviewCount: Int
 
-    static let empty = ArchiveIndexRefreshSummary(unorganizedCount: 0)
+    static let empty = ArchiveIndexRefreshSummary(unorganizedCount: 0, needsReviewCount: 0)
 }
 
 final class ArchiveIndexer: @unchecked Sendable {
@@ -119,7 +120,8 @@ final class ArchiveIndexer: @unchecked Sendable {
             try database.assetRepository.upsertArchivedItems(upserts)
         }
         let unorganizedCount = (try? organizer.scanUnorganizedCount(in: archiveTreeRoot)) ?? 0
-        return ArchiveIndexRefreshSummary(unorganizedCount: unorganizedCount)
+        let needsReviewCount = (try? organizer.scanNeedsReviewCount(in: archiveTreeRoot)) ?? 0
+        return ArchiveIndexRefreshSummary(unorganizedCount: unorganizedCount, needsReviewCount: needsReviewCount)
     }
 
     private func readMetadata(from fileURL: URL) -> (captureDate: Date?, pixelWidth: Int, pixelHeight: Int) {

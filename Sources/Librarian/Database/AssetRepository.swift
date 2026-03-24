@@ -849,6 +849,32 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func countArchiveDuplicateEvents(reason: String? = nil, since: Date? = nil) throws -> Int {
+        try db.read { db in
+            var clauses: [String] = []
+            var arguments = StatementArguments()
+            if let reason, !reason.isEmpty {
+                clauses.append("reason = ?")
+                arguments += [reason]
+            }
+            if let since {
+                clauses.append("createdAt >= ?")
+                arguments += [since]
+            }
+
+            let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
+            return try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT COUNT(*)
+                    FROM archive_duplicate_event
+                    \(whereClause)
+                """,
+                arguments: arguments
+            ) ?? 0
+        }
+    }
+
     @discardableResult
     func claimCanonicalArchiveFingerprint(
         sha256: String,

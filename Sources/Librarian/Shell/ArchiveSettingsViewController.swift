@@ -9,6 +9,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     private var archiveImportSheetPresenter: ArchiveImportSheetPresenter?
     private var isOrganizingArchive = false
     private var isMovingArchive = false
+    private var organizeStatusTask: Task<Void, Never>?
 
     private lazy var archivePathControl = makePathControl(url: nil)
     private lazy var linkedLibraryPathControl = makePathControl(url: nil)
@@ -30,7 +31,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
-    private lazy var organizeButton   = makeActionButton(title: "Organize Archive",      action: #selector(organizeArchiveManually))
+    private lazy var organizeButton   = makeActionButton(title: "Organise Archive",      action: #selector(organizeArchiveManually))
     private lazy var organizeLabel    = makeDescriptionLabel("Organises your Archive by date.")
     private lazy var addPhotosButton  = makeActionButton(title: "Add Photos to Archive…", action: #selector(addPhotosToArchive))
     private lazy var addPhotosLabel   = makeDescriptionLabel("Copy photos from a folder into the Archive. Original files are never moved or deleted.")
@@ -48,6 +49,10 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(archiveRootChanged),
             name: .librarianArchiveRootChanged, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(archiveQueueChanged),
+            name: .librarianArchiveQueueChanged, object: nil
         )
     }
 
@@ -69,9 +74,11 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshMoveButtonState()
         refreshOrganizeButtonState()
         refreshAddPhotosButtonState()
+        refreshOrganizeStatusSummary()
     }
 
     deinit {
+        organizeStatusTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -206,6 +213,11 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshMoveButtonState()
         refreshOrganizeButtonState()
         refreshAddPhotosButtonState()
+        refreshOrganizeStatusSummary()
+    }
+
+    @objc private func archiveQueueChanged() {
+        refreshOrganizeStatusSummary()
     }
 
     // MARK: - State refresh
@@ -257,11 +269,56 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
     private func refreshOrganizeButtonState() {
         let hasRoot = ArchiveSettings.restoreArchiveRootURL() != nil
         organizeButton.isEnabled = !isOrganizingArchive && !isMovingArchive && hasRoot
-        organizeButton.title = isOrganizingArchive ? "Organizing…" : "Organize Archive"
+        organizeButton.title = isOrganizingArchive ? "Organising…" : "Organise Archive"
         if !isOrganizingArchive {
             organizeLabel.stringValue = hasRoot
                 ? "Organises your Archive by date."
-                : "Choose an Archive destination to enable organization."
+                : "Choose an Archive destination to enable organisation."
+        }
+    }
+
+    private func refreshOrganizeStatusSummary() {
+        guard !isOrganizingArchive else { return }
+        guard model.archiveRootAvailability == .available,
+              let archiveTreeRoot = ArchiveSettings.currentArchiveTreeRootURL()
+        else { return }
+
+        organizeStatusTask?.cancel()
+        organizeLabel.stringValue = "Scanning Archive…"
+        organizeStatusTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let status: (unorganised: Int, needsReview: Int, suppressedLast7Days: Int)
+            do {
+                status = try await Task.detached(priority: .utility) {
+                    let unorganised = try self.archiveOrganizer.scanUnorganizedCount(in: archiveTreeRoot)
+                    let needsReview = try self.archiveOrganizer.scanNeedsReviewCount(in: archiveTreeRoot)
+                    let since = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+                    let suppressedLast7Days = try self.model.database.assetRepository.countArchiveDuplicateEvents(
+                        reason: "exact_match",
+                        since: since
+                    )
+                    return (unorganised, needsReview, suppressedLast7Days)
+                }.value
+            } catch {
+                if !Task.isCancelled {
+                    self.organizeLabel.stringValue = "Scan failed: \(error.localizedDescription)"
+                }
+                return
+            }
+            guard !Task.isCancelled else { return }
+            var parts: [String] = []
+            if status.unorganised > 0 {
+                parts.append("\(status.unorganised.formatted()) items to organise")
+            } else {
+                parts.append("Archive is organised")
+            }
+            if status.needsReview > 0 {
+                parts.append("\(status.needsReview.formatted()) in Needs Review")
+            }
+            if status.suppressedLast7Days > 0 {
+                parts.append("\(status.suppressedLast7Days.formatted()) duplicates suppressed (7 days)")
+            }
+            self.organizeLabel.stringValue = parts.joined(separator: ". ") + "."
         }
     }
 
@@ -288,16 +345,16 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         }
 
         if count == 0 {
-            organizeLabel.stringValue = "Archive structure is already organized."
+            organizeLabel.stringValue = "Archive structure is already organised."
             return
         }
 
-        organizeLabel.stringValue = "\(count.formatted()) unorganized files detected."
+        organizeLabel.stringValue = "\(count.formatted()) unorganised files detected."
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Organize New Archive Location?"
-        alert.informativeText = "Librarian found \(count.formatted()) files outside the date-based Archive structure. Organize them now?"
-        alert.addButton(withTitle: "Organize Now")
+        alert.messageText = "Organise New Archive Location?"
+        alert.informativeText = "Librarian found \(count.formatted()) files outside the date-based Archive structure. Organise them now?"
+        alert.addButton(withTitle: "Organise Now")
         alert.addButton(withTitle: "Not Now")
 
         let response = await alert.runSheetOrModal(for: view.window)
@@ -326,15 +383,16 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         } catch {
             isOrganizingArchive = false
             refreshOrganizeButtonState()
-            organizeLabel.stringValue = "Organization failed: \(error.localizedDescription)"
+            organizeLabel.stringValue = "Organisation failed: \(error.localizedDescription)"
             AppLog.shared.error("Archive organization failed: \(error.localizedDescription)")
             return
         }
         isOrganizingArchive = false
         refreshOrganizeButtonState()
-        organizeLabel.stringValue = "Moved \(summary.movedCount.formatted()) files. \(summary.alreadyOrganizedCount.formatted()) already organized."
+        organizeLabel.stringValue = "Moved \(summary.movedCount.formatted()) files. \(summary.alreadyOrganizedCount.formatted()) already organised."
         AppLog.shared.info("Archive organization completed. moved=\(summary.movedCount), alreadyOrganized=\(summary.alreadyOrganizedCount), scanned=\(summary.scannedCount)")
         NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+        refreshOrganizeStatusSummary()
     }
 
     // MARK: - Move Existing Archive

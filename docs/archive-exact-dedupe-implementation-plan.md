@@ -46,9 +46,9 @@ Ensure Archive keeps a single copy of exact-content duplicates across all ingest
 
 ### Phase 6: UX + Observability
 
-- [ ] `UX-1` Show counts in settings/notice bar: duplicates suppressed, needs review.
-- [ ] `UX-2` Keep copy prompt-free and deterministic.
-- [ ] `OBS-1` Add debug logs/metrics for dedupe throughput and error reasons.
+- [x] `UX-1` Show counts in settings/notice bar: duplicates suppressed, needs review.
+- [x] `UX-2` Keep copy prompt-free and deterministic.
+- [x] `OBS-1` Add debug logs/metrics for dedupe throughput and error reasons.
 
 ## Acceptance Criteria
 
