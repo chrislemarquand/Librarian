@@ -148,10 +148,7 @@ final class ContentController: NSViewController {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
 
-        let placeholderHost = NSHostingController(rootView: GalleryPlaceholderView(viewModel: placeholderViewModel))
-        placeholderHost.sizingOptions = []
-        addChild(placeholderHost)
-        let phView = placeholderHost.view
+        let phView = NSHostingView(rootView: GalleryPlaceholderView(viewModel: placeholderViewModel))
         phView.translatesAutoresizingMaskIntoConstraints = false
         phView.isHidden = true
         container.addSubview(phView)
@@ -656,7 +653,14 @@ final class ContentController: NSViewController {
 
         zoomRestoreToken += 1
         let restoreToken = zoomRestoreToken
-        let anchor = captureZoomTransitionAnchor()
+        let selectedItemIndex: Int? = {
+            guard let selectedIdentifier = model.selectedAsset?.localIdentifier else { return nil }
+            return displayAssets.firstIndex(where: { $0.photoIdentifier == selectedIdentifier })
+        }()
+        let anchor = GalleryZoomTransitionSupport.captureAnchor(
+            selectedItemIndex: selectedItemIndex,
+            collectionView: collectionView
+        )
         let canAnimate = animated
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             && view.window != nil
@@ -672,7 +676,12 @@ final class ContentController: NSViewController {
         collectionView.visibleItems().forEach { item in
             (item as? AssetGridItem)?.updateTileSide(galleryLayout.tileSide, animated: canAnimate)
         }
-        restoreZoomTransitionAnchor(anchor, token: restoreToken)
+        GalleryZoomTransitionSupport.restoreAnchor(
+            anchor,
+            token: restoreToken,
+            currentToken: { [weak self] in self?.zoomRestoreToken ?? -1 },
+            collectionView: collectionView
+        )
     }
 
     private func applyFadeTransition(to view: NSView) {
@@ -684,54 +693,6 @@ final class ContentController: NSViewController {
         transition.duration = 0.16
         transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(transition, forKey: "galleryZoomFade")
-    }
-
-    private struct ZoomTransitionAnchor {
-        let itemIndex: Int
-    }
-
-    private func captureZoomTransitionAnchor() -> ZoomTransitionAnchor? {
-        if let selectedIdentifier = model.selectedAsset?.localIdentifier,
-           let index = displayAssets.firstIndex(where: { $0.photoIdentifier == selectedIdentifier }) {
-            return ZoomTransitionAnchor(itemIndex: index)
-        }
-
-        let visible = collectionView.indexPathsForVisibleItems()
-        guard !visible.isEmpty else { return nil }
-        let visibleRect = collectionView.visibleRect
-        let center = CGPoint(x: visibleRect.midX, y: visibleRect.midY)
-        guard let currentLayout = collectionView.collectionViewLayout else { return nil }
-
-        let best = visible.min { lhs, rhs in
-            let lhsFrame = currentLayout.layoutAttributesForItem(at: lhs)?.frame ?? .zero
-            let rhsFrame = currentLayout.layoutAttributesForItem(at: rhs)?.frame ?? .zero
-            let lhsCenter = CGPoint(x: lhsFrame.midX, y: lhsFrame.midY)
-            let rhsCenter = CGPoint(x: rhsFrame.midX, y: rhsFrame.midY)
-            let lhsDistance = hypot(lhsCenter.x - center.x, lhsCenter.y - center.y)
-            let rhsDistance = hypot(rhsCenter.x - center.x, rhsCenter.y - center.y)
-            return lhsDistance < rhsDistance
-        }
-
-        guard let index = best?.item else { return nil }
-        return ZoomTransitionAnchor(itemIndex: index)
-    }
-
-    private func restoreZoomTransitionAnchor(_ anchor: ZoomTransitionAnchor?, token: Int) {
-        guard let anchor else { return }
-        guard anchor.itemIndex >= 0, anchor.itemIndex < displayAssets.count else { return }
-        guard collectionView.numberOfSections > 0 else { return }
-        let currentCount = collectionView.numberOfItems(inSection: 0)
-        guard anchor.itemIndex < currentCount else { return }
-
-        let indexPath = IndexPath(item: anchor.itemIndex, section: 0)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard token == self.zoomRestoreToken else { return }
-            guard self.collectionView.numberOfSections > 0 else { return }
-            let liveCount = self.collectionView.numberOfItems(inSection: 0)
-            guard anchor.itemIndex < liveCount else { return }
-            self.collectionView.scrollToItems(at: [indexPath], scrollPosition: .nearestVerticalEdge)
-        }
     }
 
     @objc
