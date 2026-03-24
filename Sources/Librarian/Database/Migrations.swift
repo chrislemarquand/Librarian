@@ -246,5 +246,51 @@ enum LibrarianMigrations {
                 t.add(column: "visionFeaturePrint", .blob)
             }
         }
+
+        migrator.registerMigration("v17_add_archive_exact_dedupe_tables") { db in
+            // Canonical fingerprint index for exact (byte-for-byte) archive dedupe.
+            try db.create(table: "archive_file_fingerprint") { t in
+                t.column("relativePath", .text).notNull().primaryKey()
+                t.column("sha256", .text)
+                t.column("fileSizeBytes", .integer).notNull().defaults(to: 0)
+                t.column("fileModificationDate", .datetime).notNull()
+                t.column("captureDate", .datetime)
+                t.column("firstSeenAt", .datetime).notNull()
+                t.column("lastVerifiedAt", .datetime).notNull()
+                t.column("isCanonical", .boolean).notNull().defaults(to: false)
+                t.column("canonicalRelativePath", .text)
+                t.column("ingestSource", .text).notNull().defaults(to: "unknown")
+                t.column("state", .text).notNull().defaults(to: "indeterminate")
+            }
+            try db.create(index: "archive_file_fingerprint_sha256", on: "archive_file_fingerprint", columns: ["sha256"])
+            try db.create(index: "archive_file_fingerprint_state", on: "archive_file_fingerprint", columns: ["state"])
+            try db.create(index: "archive_file_fingerprint_canonicalRelativePath", on: "archive_file_fingerprint", columns: ["canonicalRelativePath"])
+            try db.execute(
+                sql: """
+                    CREATE UNIQUE INDEX archive_file_fingerprint_unique_canonical_sha256
+                    ON archive_file_fingerprint(sha256)
+                    WHERE isCanonical = 1 AND sha256 IS NOT NULL
+                """
+            )
+
+            // Audit trail for duplicate suppressions and uncertain cases.
+            try db.create(table: "archive_duplicate_event") { t in
+                t.primaryKey("id", .text)
+                t.column("incomingRelativePath", .text).notNull()
+                t.column("canonicalRelativePath", .text)
+                t.column("incomingSHA256", .text)
+                t.column("reason", .text).notNull()
+                t.column("flow", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(index: "archive_duplicate_event_createdAt", on: "archive_duplicate_event", columns: ["createdAt"])
+            try db.create(index: "archive_duplicate_event_flow", on: "archive_duplicate_event", columns: ["flow"])
+        }
+
+        migrator.registerMigration("v18_add_archive_import_run_archive_skip_count") { db in
+            try db.alter(table: "archive_import_run") { t in
+                t.add(column: "skippedExistsInArchive", .integer).notNull().defaults(to: 0)
+            }
+        }
     }
 }

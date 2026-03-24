@@ -8,17 +8,53 @@ struct ArchiveImportPreflightResult: Sendable {
     let totalDiscovered: Int
     let duplicatesInSource: Int
     let existsInPhotoKit: Int
+    let existsInArchive: Int
     let toImport: Int
     let candidateURLs: [URL]
+
+    init(
+        totalDiscovered: Int,
+        duplicatesInSource: Int,
+        existsInPhotoKit: Int,
+        existsInArchive: Int = 0,
+        toImport: Int,
+        candidateURLs: [URL]
+    ) {
+        self.totalDiscovered = totalDiscovered
+        self.duplicatesInSource = duplicatesInSource
+        self.existsInPhotoKit = existsInPhotoKit
+        self.existsInArchive = existsInArchive
+        self.toImport = toImport
+        self.candidateURLs = candidateURLs
+    }
 }
 
 struct ArchiveImportRunSummary: Sendable {
     let imported: Int
     let skippedDuplicateInSource: Int
     let skippedExistsInPhotoKit: Int
+    let skippedExistsInArchive: Int
     let failed: Int
     let failures: [(path: String, reason: String)]
     let completedAt: Date
+
+    init(
+        imported: Int,
+        skippedDuplicateInSource: Int,
+        skippedExistsInPhotoKit: Int,
+        skippedExistsInArchive: Int = 0,
+        failed: Int,
+        failures: [(path: String, reason: String)],
+        completedAt: Date
+    ) {
+        self.imported = imported
+        self.skippedDuplicateInSource = skippedDuplicateInSource
+        self.skippedExistsInPhotoKit = skippedExistsInPhotoKit
+        self.skippedExistsInArchive = skippedExistsInArchive
+        self.failed = failed
+        self.failures = failures
+        self.completedAt = completedAt
+    }
 }
 
 enum ArchiveImportProgressEvent: Sendable {
@@ -70,9 +106,11 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
         // SHA-256 in-source deduplication.
         var seenHashes = Set<String>()
         var deduplicatedFiles: [URL] = []
+        var hashByURL: [URL: String] = [:]
         var duplicatesInSource = 0
         for fileURL in allFiles {
             let hash = try sha256(of: fileURL)
+            hashByURL[fileURL.standardizedFileURL] = hash
             if seenHashes.contains(hash) {
                 duplicatesInSource += 1
             } else {
@@ -101,10 +139,33 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
             }
         }
 
+        let archiveHashes = try existingArchiveHashes()
+        var seenArchiveHashes = archiveHashes
+        var existsInArchive = 0
+        var archiveFilteredCandidates: [URL] = []
+        archiveFilteredCandidates.reserveCapacity(candidateURLs.count)
+        for fileURL in candidateURLs {
+            let standardized = fileURL.standardizedFileURL
+            let incomingHash: String
+            if let knownHash = hashByURL[standardized] {
+                incomingHash = knownHash
+            } else {
+                incomingHash = try sha256(of: fileURL)
+            }
+            if seenArchiveHashes.contains(incomingHash) {
+                existsInArchive += 1
+            } else {
+                seenArchiveHashes.insert(incomingHash)
+                archiveFilteredCandidates.append(fileURL)
+            }
+        }
+        candidateURLs = archiveFilteredCandidates
+
         return ArchiveImportPreflightResult(
             totalDiscovered: allFiles.count,
             duplicatesInSource: duplicatesInSource,
             existsInPhotoKit: existsInPhotoKit,
+            existsInArchive: existsInArchive,
             toImport: candidateURLs.count,
             candidateURLs: candidateURLs
         )
@@ -144,6 +205,7 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
                         imported: importResult.imported,
                         skippedDuplicateInSource: preflight.duplicatesInSource,
                         skippedExistsInPhotoKit: preflight.existsInPhotoKit,
+                        skippedExistsInArchive: preflight.existsInArchive,
                         failed: importResult.failed,
                         failures: importResult.failures,
                         completedAt: importResult.completedAt
@@ -267,6 +329,41 @@ final class ArchiveImportCoordinator: @unchecked Sendable {
         // EXIF, we import the file rather than risk wrongly skipping it.
         guard let exifDate = readCaptureDateIfAvailable(from: fileURL) else { return false }
         return index.contains(secondString(from: exifDate))
+    }
+
+    private func existingArchiveHashes() throws -> Set<String> {
+        let archiveTreeRoot = ArchiveSettings.importDestinationRoot(from: archiveRoot)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: archiveTreeRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return []
+        }
+
+        let didAccess = archiveRoot.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                archiveRoot.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        var hashes = Set<String>()
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+        guard let enumerator = fileManager.enumerator(
+            at: archiveTreeRoot,
+            includingPropertiesForKeys: keys,
+            options: [.skipsPackageDescendants, .skipsHiddenFiles]
+        ) else { return [] }
+
+        for case let fileURL as URL in enumerator {
+            if fileURL.lastPathComponent.hasPrefix(".") { continue }
+            let ext = fileURL.pathExtension.lowercased()
+            guard Self.supportedExtensions.contains(ext) else { continue }
+            let values = try? fileURL.resourceValues(forKeys: Set(keys))
+            guard values?.isRegularFile == true else { continue }
+            if let hash = try? sha256(of: fileURL) {
+                hashes.insert(hash)
+            }
+        }
+        return hashes
     }
 
     /// Best-effort date for routing a file into the archive.

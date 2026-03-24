@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import CryptoKit
 import SharedUI
 
 enum ArchiveImportSheetMode {
@@ -12,7 +13,7 @@ enum ArchiveImportSheetMode {
     var infoText: String {
         switch self {
         case .pathAUserPick:
-            return "Choose source folders to copy into your Archive. Exact duplicates already in your Photos Library will be skipped."
+            return "Choose source folders to copy into your Archive. Exact duplicates already in your Photos Library or Archive will be skipped."
         case .pathBDetected:
             return "Review detected files from your Archive before Librarian organises them."
         }
@@ -48,7 +49,9 @@ extension ArchiveImportSession {
             archiveTreeRoot: archiveTreeRoot,
             plan: PathBPlan(
                 allCandidates: exactDuplicates + accepted,
-                exactDuplicates: exactDuplicates,
+                exactPhotoLibraryDuplicates: exactDuplicates,
+                exactArchiveDuplicates: [],
+                indeterminate: [],
                 accepted: accepted
             )
         )
@@ -98,6 +101,7 @@ final class ArchiveImportSession: ObservableObject {
             lines.append("- Discovered: \(preflight.totalDiscovered)")
             lines.append("- Duplicate in source: \(preflight.duplicatesInSource)")
             lines.append("- Already in Photos Library: \(preflight.existsInPhotoKit)")
+            lines.append("- Already in Archive: \(preflight.existsInArchive)")
             lines.append("- To import: \(preflight.toImport)")
         }
         if let summary {
@@ -106,6 +110,7 @@ final class ArchiveImportSession: ObservableObject {
             lines.append("- Imported: \(summary.imported)")
             lines.append("- Duplicate in source: \(summary.skippedDuplicateInSource)")
             lines.append("- Already in Photos Library: \(summary.skippedExistsInPhotoKit)")
+            lines.append("- Already in Archive: \(summary.skippedExistsInArchive)")
             lines.append("- Failed: \(summary.failed)")
             if !summary.failures.isEmpty {
                 lines.append("")
@@ -204,7 +209,9 @@ final class ArchiveImportSession: ObservableObject {
 
     private struct PathBPlan {
         let allCandidates: [URL]
-        let exactDuplicates: [URL]
+        let exactPhotoLibraryDuplicates: [URL]
+        let exactArchiveDuplicates: [URL]
+        let indeterminate: [URL]
         let accepted: [URL]
     }
 
@@ -230,13 +237,14 @@ final class ArchiveImportSession: ObservableObject {
         preflight = ArchiveImportPreflightResult(
             totalDiscovered: plan.allCandidates.count,
             duplicatesInSource: 0,
-            existsInPhotoKit: plan.exactDuplicates.count,
+            existsInPhotoKit: plan.exactPhotoLibraryDuplicates.count,
+            existsInArchive: plan.exactArchiveDuplicates.count,
             toImport: plan.accepted.count,
             candidateURLs: plan.accepted
         )
 
         guard !plan.allCandidates.isEmpty else {
-            model.setStatusMessage("No unorganized photos found.", autoClearAfterSuccess: true)
+            model.setStatusMessage("No unorganised photos found.", autoClearAfterSuccess: true)
             return
         }
 
@@ -257,10 +265,11 @@ final class ArchiveImportSession: ObservableObject {
         if execution.failed > 0 {
             model.setStatusMessage("Review completed with \(execution.failed.formatted()) failures.")
         } else {
-            model.setStatusMessage(
-                "Review complete: \(execution.imported.formatted()) organized, \(execution.skippedExistsInPhotoKit.formatted()) already in Photos Library.",
-                autoClearAfterSuccess: true
-            )
+            var message = "Review complete: \(execution.imported.formatted()) organised, \(execution.skippedExistsInPhotoKit.formatted()) already in Photos Library, \(execution.skippedExistsInArchive.formatted()) already in Archive."
+            if !plan.indeterminate.isEmpty {
+                message += " \(plan.indeterminate.count.formatted()) need review."
+            }
+            model.setStatusMessage(message, autoClearAfterSuccess: true)
         }
 
         // Re-index archive after in-place dedupe/organize so archive view and badges update.
@@ -281,22 +290,46 @@ final class ArchiveImportSession: ObservableObject {
     ) async throws -> PathBPlan {
         let candidates = try collectPathBCandidates(in: archiveTreeRoot)
         guard !candidates.isEmpty else {
-            return PathBPlan(allCandidates: [], exactDuplicates: [], accepted: [])
+            return PathBPlan(allCandidates: [], exactPhotoLibraryDuplicates: [], exactArchiveDuplicates: [], indeterminate: [], accepted: [])
         }
 
         let classifications = await dedupeService.classifyFiles(candidates, allowNetworkAccess: false)
-        var duplicates: [URL] = []
-        var accepted: [URL] = []
+        var photoLibraryDuplicates: [URL] = []
+        var archiveCheckCandidates: [URL] = []
         for classification in classifications {
             switch classification.outcome {
             case .exactMatch:
-                duplicates.append(classification.fileURL)
+                photoLibraryDuplicates.append(classification.fileURL)
             case .noMatch, .indeterminate:
-                accepted.append(classification.fileURL)
+                archiveCheckCandidates.append(classification.fileURL)
             }
         }
 
-        return PathBPlan(allCandidates: candidates, exactDuplicates: duplicates, accepted: accepted)
+        let archiveClassification = try computeArchiveExactClassification(
+            archiveTreeRoot: archiveTreeRoot,
+            candidates: archiveCheckCandidates
+        )
+        var archiveDuplicates: [URL] = []
+        var indeterminate: [URL] = []
+        var accepted: [URL] = []
+        for candidate in archiveCheckCandidates {
+            let standardized = candidate.standardizedFileURL
+            if archiveClassification.indeterminate.contains(standardized) {
+                indeterminate.append(candidate)
+            } else if archiveClassification.duplicates.contains(standardized) {
+                archiveDuplicates.append(candidate)
+            } else {
+                accepted.append(candidate)
+            }
+        }
+
+        return PathBPlan(
+            allCandidates: candidates,
+            exactPhotoLibraryDuplicates: photoLibraryDuplicates,
+            exactArchiveDuplicates: archiveDuplicates,
+            indeterminate: indeterminate,
+            accepted: accepted
+        )
     }
 
     nonisolated private static func executePathBPlan(
@@ -314,11 +347,16 @@ final class ArchiveImportSession: ObservableObject {
         var failures: [(path: String, reason: String)] = []
         let quarantineRoot = archiveTreeRoot
             .appendingPathComponent("Already in Photo Library", isDirectory: true)
-        if !plan.exactDuplicates.isEmpty {
+        if !plan.exactPhotoLibraryDuplicates.isEmpty {
             try fileManager.createDirectory(at: quarantineRoot, withIntermediateDirectories: true)
         }
+        let needsReviewRoot = archiveTreeRoot
+            .appendingPathComponent("Needs Review", isDirectory: true)
+        if !plan.indeterminate.isEmpty {
+            try fileManager.createDirectory(at: needsReviewRoot, withIntermediateDirectories: true)
+        }
 
-        for duplicateURL in plan.exactDuplicates {
+        for duplicateURL in plan.exactPhotoLibraryDuplicates {
             do {
                 let relativePath = try relativePath(from: archiveTreeRoot, to: duplicateURL)
                 let destinationURL = quarantineRoot.appendingPathComponent(relativePath, isDirectory: false)
@@ -335,19 +373,45 @@ final class ArchiveImportSession: ObservableObject {
             }
         }
 
+        for duplicateURL in plan.exactArchiveDuplicates {
+            do {
+                try fileManager.removeItem(at: duplicateURL)
+            } catch {
+                failures.append((duplicateURL.path, error.localizedDescription))
+            }
+        }
+
+        for indeterminateURL in plan.indeterminate {
+            do {
+                let relativePath = try relativePath(from: archiveTreeRoot, to: indeterminateURL)
+                let destinationURL = needsReviewRoot.appendingPathComponent(relativePath, isDirectory: false)
+                let parent = destinationURL.deletingLastPathComponent()
+                try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+                let finalDestination = uniqueDestinationURL(
+                    in: parent,
+                    preferredName: destinationURL.lastPathComponent,
+                    fileManager: fileManager
+                )
+                try fileManager.moveItem(at: indeterminateURL, to: finalDestination)
+            } catch {
+                failures.append((indeterminateURL.path, error.localizedDescription))
+            }
+        }
+
         var organizedCount = 0
         do {
             let organizer = ArchiveOrganizer()
             let organization = try organizer.organizeArchiveTree(in: archiveTreeRoot)
             organizedCount = organization.movedCount
         } catch {
-            failures.append((archiveTreeRoot.path, "Organize failed: \(error.localizedDescription)"))
+            failures.append((archiveTreeRoot.path, "Organise failed: \(error.localizedDescription)"))
         }
 
         return ArchiveImportRunSummary(
             imported: organizedCount,
             skippedDuplicateInSource: 0,
-            skippedExistsInPhotoKit: plan.exactDuplicates.count,
+            skippedExistsInPhotoKit: plan.exactPhotoLibraryDuplicates.count,
+            skippedExistsInArchive: plan.exactArchiveDuplicates.count,
             failed: failures.count,
             failures: failures,
             completedAt: Date()
@@ -378,6 +442,7 @@ final class ArchiveImportSession: ObservableObject {
             guard !relativeComponents.isEmpty else { continue }
             if relativeComponents.first == ".librarian-thumbnails" { continue }
             if relativeComponents.first == "Already in Photo Library" { continue }
+            if relativeComponents.first == "Needs Review" { continue }
 
             let values = try fileURL.resourceValues(forKeys: keys)
             guard values.isRegularFile == true else { continue }
@@ -425,6 +490,79 @@ final class ArchiveImportSession: ObservableObject {
             ])
         }
         return String(childPath.dropFirst(rootPath.count + 1))
+    }
+
+    private struct ArchiveExactClassification {
+        let duplicates: Set<URL>
+        let indeterminate: Set<URL>
+    }
+
+    nonisolated private static func computeArchiveExactClassification(
+        archiveTreeRoot: URL,
+        candidates: [URL]
+    ) throws -> ArchiveExactClassification {
+        guard !candidates.isEmpty else {
+            return ArchiveExactClassification(duplicates: [], indeterminate: [])
+        }
+        let fileManager = FileManager.default
+        let candidateSet = Set(candidates.map(\.standardizedFileURL))
+
+        var seenHashes = Set<String>()
+        let keys: Set<URLResourceKey> = [.isRegularFileKey]
+        if let enumerator = fileManager.enumerator(
+            at: archiveTreeRoot,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsPackageDescendants, .skipsHiddenFiles]
+        ) {
+            let rootComponents = archiveTreeRoot.standardizedFileURL.pathComponents
+            for case let fileURL as URL in enumerator {
+                if fileURL.lastPathComponent.hasPrefix(".") { continue }
+                let standardized = fileURL.standardizedFileURL
+                if candidateSet.contains(standardized) { continue }
+
+                let fileComponents = standardized.pathComponents
+                guard fileComponents.count > rootComponents.count else { continue }
+                guard Array(fileComponents.prefix(rootComponents.count)) == rootComponents else { continue }
+                let relativeComponents = Array(fileComponents.dropFirst(rootComponents.count))
+                guard !relativeComponents.isEmpty else { continue }
+                if relativeComponents.first == ".librarian-thumbnails" { continue }
+                if relativeComponents.first == "Already in Photo Library" { continue }
+
+                let values = try? standardized.resourceValues(forKeys: keys)
+                guard values?.isRegularFile == true else { continue }
+                if let hash = try? sha256(of: standardized) {
+                    seenHashes.insert(hash)
+                }
+            }
+        }
+
+        var duplicates = Set<URL>()
+        var indeterminate = Set<URL>()
+        for candidate in candidates.sorted(by: { $0.path < $1.path }) {
+            let standardized = candidate.standardizedFileURL
+            guard let hash = try? sha256(of: standardized) else {
+                indeterminate.insert(standardized)
+                continue // If in doubt, keep both.
+            }
+            if seenHashes.contains(hash) {
+                duplicates.insert(standardized)
+            } else {
+                seenHashes.insert(hash)
+            }
+        }
+        return ArchiveExactClassification(duplicates: duplicates, indeterminate: indeterminate)
+    }
+
+    nonisolated private static func sha256(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            let chunk = handle.readData(ofLength: 65_536)
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02hhx", $0) }.joined()
     }
 
     nonisolated private static func uniqueDestinationURL(in directory: URL, preferredName: String, fileManager: FileManager) -> URL {

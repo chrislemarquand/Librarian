@@ -120,6 +120,40 @@ struct PhotoLibraryHashCandidate {
     let contentHashSHA256: String?
 }
 
+enum ArchiveFingerprintState: String {
+    case verified
+    case indeterminate
+    case missing
+}
+
+struct ArchiveFileFingerprint: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "archive_file_fingerprint"
+
+    var relativePath: String
+    var sha256: String?
+    var fileSizeBytes: Int64
+    var fileModificationDate: Date
+    var captureDate: Date?
+    var firstSeenAt: Date
+    var lastVerifiedAt: Date
+    var isCanonical: Bool
+    var canonicalRelativePath: String?
+    var ingestSource: String
+    var state: String
+}
+
+struct ArchiveDuplicateEvent: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "archive_duplicate_event"
+
+    var id: String
+    var incomingRelativePath: String
+    var canonicalRelativePath: String?
+    var incomingSHA256: String?
+    var reason: String
+    var flow: String
+    var createdAt: Date
+}
+
 // MARK: - AssetRepository
 
 final class AssetRepository: @unchecked Sendable {
@@ -693,8 +727,6 @@ final class AssetRepository: @unchecked Sendable {
             """) ?? 0
         case .archived:
             return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM archived_item") ?? 0
-        case .indexing:
-            return 0
         }
     }
 
@@ -752,6 +784,101 @@ final class AssetRepository: @unchecked Sendable {
                 """,
                 arguments: StatementArguments(relativePaths)
             )
+        }
+    }
+
+    // MARK: - Archive exact dedupe helpers
+
+    func fetchArchiveCanonicalPath(sha256: String) throws -> String? {
+        try db.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT relativePath
+                    FROM archive_file_fingerprint
+                    WHERE sha256 = ?
+                      AND isCanonical = 1
+                    LIMIT 1
+                """,
+                arguments: [sha256]
+            )
+            return row?["relativePath"] as String?
+        }
+    }
+
+    func upsertArchiveFingerprints(_ fingerprints: [ArchiveFileFingerprint]) throws {
+        guard !fingerprints.isEmpty else { return }
+        let batchSize = 500
+        var offset = 0
+        while offset < fingerprints.count {
+            let batch = Array(fingerprints[offset ..< min(offset + batchSize, fingerprints.count)])
+            try db.write { db in
+                for fingerprint in batch {
+                    try fingerprint.upsert(db)
+                }
+            }
+            offset += batchSize
+        }
+    }
+
+    func deleteArchiveFingerprints(relativePaths: [String]) throws {
+        guard !relativePaths.isEmpty else { return }
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    DELETE FROM archive_file_fingerprint
+                    WHERE relativePath IN (\(relativePaths.map { _ in "?" }.joined(separator: ",")))
+                """,
+                arguments: StatementArguments(relativePaths)
+            )
+        }
+    }
+
+    func saveArchiveDuplicateEvents(_ events: [ArchiveDuplicateEvent]) throws {
+        guard !events.isEmpty else { return }
+        let batchSize = 500
+        var offset = 0
+        while offset < events.count {
+            let batch = Array(events[offset ..< min(offset + batchSize, events.count)])
+            try db.write { db in
+                for event in batch {
+                    try event.insert(db)
+                }
+            }
+            offset += batchSize
+        }
+    }
+
+    @discardableResult
+    func claimCanonicalArchiveFingerprint(
+        sha256: String,
+        candidateRelativePath: String
+    ) throws -> String {
+        try db.write { db in
+            if let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT relativePath
+                    FROM archive_file_fingerprint
+                    WHERE sha256 = ?
+                      AND isCanonical = 1
+                    LIMIT 1
+                """,
+                arguments: [sha256]
+            ), let canonicalRelativePath: String = row["relativePath"] {
+                return canonicalRelativePath
+            }
+
+            try db.execute(
+                sql: """
+                    UPDATE archive_file_fingerprint
+                    SET isCanonical = CASE WHEN relativePath = ? THEN 1 ELSE 0 END,
+                        canonicalRelativePath = CASE WHEN relativePath = ? THEN NULL ELSE ? END
+                    WHERE sha256 = ?
+                """,
+                arguments: [candidateRelativePath, candidateRelativePath, candidateRelativePath, sha256]
+            )
+            return candidateRelativePath
         }
     }
 
@@ -946,15 +1073,15 @@ final class AssetRepository: @unchecked Sendable {
             let details = summary.failures.map { ["path": $0.path, "reason": $0.reason] }
             return (try? JSONEncoder().encode(details)).flatMap { String(data: $0, encoding: .utf8) }
         }()
-        let discovered = summary.imported + summary.skippedDuplicateInSource + summary.skippedExistsInPhotoKit + summary.failed
+        let discovered = summary.imported + summary.skippedDuplicateInSource + summary.skippedExistsInPhotoKit + summary.skippedExistsInArchive + summary.failed
         try db.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO archive_import_run
                         (id, startedAt, completedAt, archiveRootPath, sourcePathsJSON,
-                         discovered, imported, skippedDuplicateInSource, skippedExistsInPhotoKit,
+                         discovered, imported, skippedDuplicateInSource, skippedExistsInPhotoKit, skippedExistsInArchive,
                          failed, failureDetailsJSON)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     id,
@@ -966,6 +1093,7 @@ final class AssetRepository: @unchecked Sendable {
                     summary.imported,
                     summary.skippedDuplicateInSource,
                     summary.skippedExistsInPhotoKit,
+                    summary.skippedExistsInArchive,
                     summary.failed,
                     failureDetailsJSON
                 ]

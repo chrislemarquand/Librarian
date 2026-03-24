@@ -92,10 +92,13 @@ private func showAddPhotosPreflightConfirmation(
     if preflight.existsInPhotoKit > 0 {
         lines.append("• \(preflight.existsInPhotoKit.formatted()) photos already in your Photos Library will be skipped.")
     }
+    if preflight.existsInArchive > 0 {
+        lines.append("• \(preflight.existsInArchive.formatted()) photos already in your Archive will be skipped.")
+    }
     lines.append("")
     lines.append(preflight.toImport > 0
         ? "\(preflight.toImport.formatted()) photos will be copied into the Archive."
-        : "Nothing to import — all photos are duplicates or already in Photos.")
+        : "Nothing to import — all photos are duplicates or already in Photos Library/Archive.")
     alert.informativeText = lines.joined(separator: "\n")
     alert.addButton(withTitle: preflight.toImport > 0 ? "Add Photos" : "OK")
     if preflight.toImport > 0 { alert.addButton(withTitle: "Cancel") }
@@ -116,6 +119,9 @@ private func showAddPhotosCompletion(summary: ArchiveImportRunSummary, window: N
     }
     if summary.skippedExistsInPhotoKit > 0 {
         lines.append("• \(summary.skippedExistsInPhotoKit.formatted()) photos already in Photos skipped.")
+    }
+    if summary.skippedExistsInArchive > 0 {
+        lines.append("• \(summary.skippedExistsInArchive.formatted()) photos already in Archive skipped.")
     }
     if summary.failed > 0 {
         lines.append("• \(summary.failed.formatted()) photos failed — check the log for details.")

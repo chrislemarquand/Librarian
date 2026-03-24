@@ -2,6 +2,7 @@ import Cocoa
 import Photos
 import Combine
 import SwiftUI
+import CryptoKit
 import SharedUI
 
 enum AppBrand {
@@ -575,7 +576,11 @@ final class AppModel: ObservableObject {
     private var pendingDeltaApplyTask: Task<Void, Never>?
     private var pendingUnknownReconcileTask: Task<Void, Never>?
     private var pendingLibraryIdentityCheckTask: Task<Void, Never>?
+    private var pendingArchiveMonitorTask: Task<Void, Never>?
     private var libraryMonitorTimer: Timer?
+    private var archiveMonitorTimer: Timer?
+    private var isArchiveBackgroundReconcileRunning = false
+    private var lastObservedArchiveRelativePaths: Set<String> = []
     private var didNotifyArchiveNeedsRelinkForCurrentOutage = false
     private var didNotifyArchiveUnavailableSystemNotificationForCurrentOutage = false
     private var statusResetTask: Task<Void, Never>?
@@ -641,7 +646,9 @@ final class AppModel: ObservableObject {
             didNotifyArchiveNeedsRelinkForCurrentOutage = true
         }
         startSystemPhotoLibraryMonitoring()
+        startArchiveMonitoring()
         scheduleSystemPhotoLibraryRefresh(reason: "startup", debounceMilliseconds: 0)
+        scheduleArchiveMonitorTick(reason: "startup", debounceMilliseconds: 0)
 
         // Simple library path check: warn if the Photos library changed since last use.
         checkPhotoLibraryPathAtLaunch()
@@ -836,6 +843,7 @@ final class AppModel: ObservableObject {
         ArchiveFolderIcon.apply(to: ArchiveSettings.archiveTreeRootURL(from: url), accessedVia: url)
         refreshArchiveRootAvailability()
         scheduleSystemPhotoLibraryRefresh(reason: "archiveRootUpdated", debounceMilliseconds: 0)
+        scheduleArchiveMonitorTick(reason: "archiveRootUpdated", debounceMilliseconds: 0)
         return true
     }
 
@@ -853,8 +861,10 @@ final class AppModel: ObservableObject {
         }
         let didChange = previous != current || previousURL != currentURL
         if didChange {
+            lastObservedArchiveRelativePaths.removeAll()
             NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
             NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
+            scheduleArchiveMonitorTick(reason: "archiveRootChanged", debounceMilliseconds: 0)
         }
         if current == .unavailable {
             if !didNotifyArchiveNeedsRelinkForCurrentOutage {
@@ -1016,6 +1026,7 @@ final class AppModel: ObservableObject {
                 "Archive import completed. imported=\(summary.imported), " +
                 "skippedDuplicateInSource=\(summary.skippedDuplicateInSource), " +
                 "skippedExistsInPhotoKit=\(summary.skippedExistsInPhotoKit), " +
+                "skippedExistsInArchive=\(summary.skippedExistsInArchive), " +
                 "failed=\(summary.failed)"
             )
             let body: String
@@ -1137,6 +1148,11 @@ final class AppModel: ObservableObject {
                 )
             ]
             let exportRoot = archiveRootURL
+            let preExportRelativePaths = try await Task.detached(priority: .utility) {
+                try withArchiveRootAccess(root: exportRoot) {
+                    try archiveImageRelativePaths(under: archiveRootForExport(exportRoot))
+                }
+            }.value
             let exportResult = try await Task.detached(priority: .utility) {
                 try withArchiveRootAccess(root: exportRoot) {
                     try runOsxPhotosExportBatch(targets: exportTargets, options: options)
@@ -1172,6 +1188,17 @@ final class AppModel: ObservableObject {
                     failures: failures
                 )
             }
+
+            archiveSendStatusText = "Checking for duplicates…"
+            let exportDedupeSummary = try await Task.detached(priority: .utility) {
+                try withArchiveRootAccess(root: exportRoot) {
+                    try reconcileNewlyExportedArchiveDuplicates(
+                        archiveTreeRoot: archiveRootForExport(exportRoot),
+                        preExportRelativePaths: preExportRelativePaths,
+                        database: self.database
+                    )
+                }
+            }.value
 
             for group in exportResult.exportedGroups where !group.localIdentifiers.isEmpty {
                 try database.assetRepository.markArchiveCandidatesExported(identifiers: group.localIdentifiers, archivePath: group.destinationPath)
@@ -1239,14 +1266,24 @@ final class AppModel: ObservableObject {
 
             try await database.jobRepository.markCompleted(job)
             archiveSendStatusText = "Archive send complete."
-            AppLog.shared.info("Archive send completed. Exported \(exportedIdentifiers.count) and deleted \(deletedIdentifiers.count) from Photos.")
+            AppLog.shared.info(
+                "Archive send completed. Exported \(exportedIdentifiers.count) and deleted \(deletedIdentifiers.count) from Photos. " +
+                "suppressedDuplicates=\(exportDedupeSummary.suppressedCount), movedToNeedsReview=\(exportDedupeSummary.movedToNeedsReviewCount), " +
+                "dedupeFailures=\(exportDedupeSummary.failureCount)"
+            )
             indexedAssetCount = (try? database.assetRepository.count()) ?? indexedAssetCount
             assetDataVersion &+= 1
             refreshArchiveCandidateCount()
             notifyIndexingStateChanged()
+            let dedupeSummarySuffix: String
+            if exportDedupeSummary.suppressedCount > 0 || exportDedupeSummary.movedToNeedsReviewCount > 0 {
+                dedupeSummarySuffix = " Duplicates suppressed: \(exportDedupeSummary.suppressedCount). Needs Review: \(exportDedupeSummary.movedToNeedsReviewCount)."
+            } else {
+                dedupeSummarySuffix = ""
+            }
             systemNotifications.postIfBackground(
                 title: "Archive Export Complete",
-                body: "Exported \(exportedIdentifiers.count) photos and removed them from Photos.",
+                body: "Exported \(exportedIdentifiers.count) photos and removed them from Photos.\(dedupeSummarySuffix)",
                 identifier: "archive-export-complete"
             )
             return ArchiveSendOutcome(
@@ -1306,6 +1343,7 @@ final class AppModel: ObservableObject {
         pendingDeltaApplyTask?.cancel()
         pendingUnknownReconcileTask?.cancel()
         pendingLibraryIdentityCheckTask?.cancel()
+        pendingArchiveMonitorTask?.cancel()
     }
 
     var currentSystemPhotoLibraryURL: URL? {
@@ -1363,6 +1401,100 @@ final class AppModel: ObservableObject {
         libraryMonitorTimer = Timer.scheduledTimer(withTimeInterval: 6.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.scheduleSystemPhotoLibraryRefresh(reason: "periodicPoll")
+            }
+        }
+    }
+
+    private func startArchiveMonitoring() {
+        guard archiveMonitorTimer == nil else { return }
+        archiveMonitorTimer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleArchiveMonitorTick(reason: "periodicPoll")
+            }
+        }
+    }
+
+    private func scheduleArchiveMonitorTick(reason: String, debounceMilliseconds: UInt64 = 650) {
+        pendingArchiveMonitorTask?.cancel()
+        pendingArchiveMonitorTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if debounceMilliseconds > 0 {
+                try? await Task.sleep(nanoseconds: debounceMilliseconds * 1_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            await self.runArchiveBackgroundMonitor(reason: reason)
+        }
+    }
+
+    private func runArchiveBackgroundMonitor(reason: String) async {
+        guard archiveRootAvailability == .available,
+              let archiveRoot = ArchiveSettings.restoreArchiveRootURL()
+        else {
+            lastObservedArchiveRelativePaths.removeAll()
+            return
+        }
+        guard !isSendingArchive, !isImportingArchive else { return }
+        guard !isArchiveBackgroundReconcileRunning else { return }
+
+        isArchiveBackgroundReconcileRunning = true
+        defer { isArchiveBackgroundReconcileRunning = false }
+
+        let exportRoot = archiveRoot
+        let currentRelativePaths: Set<String>
+        do {
+            currentRelativePaths = try await Task.detached(priority: .utility) {
+                try withArchiveRootAccess(root: exportRoot) {
+                    try archiveImageRelativePaths(under: archiveRootForExport(exportRoot))
+                }
+            }.value
+        } catch {
+            AppLog.shared.error("Archive monitor snapshot failed (\(reason)): \(error.localizedDescription)")
+            return
+        }
+
+        if lastObservedArchiveRelativePaths.isEmpty {
+            lastObservedArchiveRelativePaths = currentRelativePaths
+            return
+        }
+
+        let newlyObserved = currentRelativePaths.subtracting(lastObservedArchiveRelativePaths)
+        lastObservedArchiveRelativePaths = currentRelativePaths
+        guard !newlyObserved.isEmpty else { return }
+
+        let summary: ArchiveExportDedupeSummary
+        do {
+            summary = try await Task.detached(priority: .utility) {
+                try withArchiveRootAccess(root: exportRoot) {
+                    try reconcileArchiveDuplicates(
+                        archiveTreeRoot: archiveRootForExport(exportRoot),
+                        newRelativePaths: newlyObserved,
+                        database: self.database,
+                        flow: "finder_watch"
+                    )
+                }
+            }.value
+        } catch {
+            AppLog.shared.error("Archive monitor reconcile failed (\(reason)): \(error.localizedDescription)")
+            return
+        }
+
+        if summary.suppressedCount > 0 || summary.movedToNeedsReviewCount > 0 || summary.failureCount > 0 {
+            AppLog.shared.info(
+                "Archive monitor reconciled \(newlyObserved.count) additions. " +
+                "suppressedDuplicates=\(summary.suppressedCount), movedToNeedsReview=\(summary.movedToNeedsReviewCount), failures=\(summary.failureCount)"
+            )
+            refreshArchivedIndexAsync()
+            if summary.movedToNeedsReviewCount > 0 {
+                setStatusMessage(
+                    "\(summary.movedToNeedsReviewCount.formatted()) files moved to Needs Review during Archive monitoring.",
+                    autoClearAfterSuccess: true
+                )
+            }
+            // Refresh snapshot after reconcile may have removed or moved files.
+            if let refreshed = try? withArchiveRootAccess(root: exportRoot, operation: {
+                try archiveImageRelativePaths(under: archiveRootForExport(exportRoot))
+            }) {
+                lastObservedArchiveRelativePaths = refreshed
             }
         }
     }
@@ -1625,6 +1757,12 @@ private struct ArchiveExportBatchResult {
     let failures: [ArchiveExportFailure]
 }
 
+private struct ArchiveExportDedupeSummary {
+    let suppressedCount: Int
+    let movedToNeedsReviewCount: Int
+    let failureCount: Int
+}
+
 nonisolated private func runOsxPhotosExportBatch(
     targets: [ArchiveExportTarget],
     options: ArchiveExportOptions
@@ -1773,6 +1911,209 @@ nonisolated private func runOsxPhotosExportBatch(
     }
 
     return ArchiveExportBatchResult(exportedGroups: exportedGroups, failures: failures)
+}
+
+nonisolated private func archiveImageRelativePaths(under archiveTreeRoot: URL) throws -> Set<String> {
+    let fileManager = FileManager.default
+    var isDirectory: ObjCBool = false
+    guard fileManager.fileExists(atPath: archiveTreeRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        return []
+    }
+    let supportedExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
+    let keys: Set<URLResourceKey> = [.isRegularFileKey]
+    guard let enumerator = fileManager.enumerator(
+        at: archiveTreeRoot,
+        includingPropertiesForKeys: Array(keys),
+        options: [.skipsPackageDescendants, .skipsHiddenFiles]
+    ) else { return [] }
+
+    let rootComponents = archiveTreeRoot.standardizedFileURL.pathComponents
+    var results = Set<String>()
+    for case let fileURL as URL in enumerator {
+        if fileURL.lastPathComponent.hasPrefix(".") { continue }
+        let ext = fileURL.pathExtension.lowercased()
+        guard supportedExtensions.contains(ext) else { continue }
+        let standardized = fileURL.standardizedFileURL
+        let values = try? standardized.resourceValues(forKeys: keys)
+        guard values?.isRegularFile == true else { continue }
+
+        let fileComponents = standardized.pathComponents
+        guard fileComponents.count > rootComponents.count else { continue }
+        guard Array(fileComponents.prefix(rootComponents.count)) == rootComponents else { continue }
+        let relativeComponents = Array(fileComponents.dropFirst(rootComponents.count))
+        guard !relativeComponents.isEmpty else { continue }
+        if relativeComponents.first == ".librarian-thumbnails" { continue }
+        let relativePath = relativeComponents.joined(separator: "/")
+        results.insert(relativePath)
+    }
+    return results
+}
+
+nonisolated private func reconcileNewlyExportedArchiveDuplicates(
+    archiveTreeRoot: URL,
+    preExportRelativePaths: Set<String>,
+    database: DatabaseManager
+) throws -> ArchiveExportDedupeSummary {
+    let postExportRelativePaths = try archiveImageRelativePaths(under: archiveTreeRoot)
+    let newRelativePaths = postExportRelativePaths.subtracting(preExportRelativePaths)
+    return try reconcileArchiveDuplicates(
+        archiveTreeRoot: archiveTreeRoot,
+        newRelativePaths: newRelativePaths,
+        database: database,
+        flow: "set_aside_export"
+    )
+}
+
+nonisolated private func reconcileArchiveDuplicates(
+    archiveTreeRoot: URL,
+    newRelativePaths: Set<String>,
+    database: DatabaseManager,
+    flow: String
+) throws -> ArchiveExportDedupeSummary {
+    let fileManager = FileManager.default
+    guard !newRelativePaths.isEmpty else {
+        return ArchiveExportDedupeSummary(suppressedCount: 0, movedToNeedsReviewCount: 0, failureCount: 0)
+    }
+
+    let keys: Set<URLResourceKey> = [.isRegularFileKey]
+    let rootComponents = archiveTreeRoot.standardizedFileURL.pathComponents
+    let newURLSet = Set(newRelativePaths.map {
+        archiveTreeRoot.appendingPathComponent($0, isDirectory: false).standardizedFileURL
+    })
+
+    var seenHashes = Set<String>()
+    var canonicalPathByHash: [String: String] = [:]
+    if let enumerator = fileManager.enumerator(
+        at: archiveTreeRoot,
+        includingPropertiesForKeys: Array(keys),
+        options: [.skipsPackageDescendants, .skipsHiddenFiles]
+    ) {
+        for case let fileURL as URL in enumerator {
+            if fileURL.lastPathComponent.hasPrefix(".") { continue }
+            let standardized = fileURL.standardizedFileURL
+            if newURLSet.contains(standardized) { continue }
+            let values = try? standardized.resourceValues(forKeys: keys)
+            guard values?.isRegularFile == true else { continue }
+
+            let fileComponents = standardized.pathComponents
+            guard fileComponents.count > rootComponents.count else { continue }
+            guard Array(fileComponents.prefix(rootComponents.count)) == rootComponents else { continue }
+            let relativeComponents = Array(fileComponents.dropFirst(rootComponents.count))
+            guard !relativeComponents.isEmpty else { continue }
+            if relativeComponents.first == ".librarian-thumbnails" { continue }
+            if relativeComponents.first == "Already in Photo Library" { continue }
+            if relativeComponents.first == "Needs Review" { continue }
+
+            if let hash = try? sha256Hex(ofFileAt: standardized) {
+                seenHashes.insert(hash)
+                if canonicalPathByHash[hash] == nil {
+                    canonicalPathByHash[hash] = relativeComponents.joined(separator: "/")
+                }
+            }
+        }
+    }
+
+    var suppressedCount = 0
+    var movedToNeedsReviewCount = 0
+    var failureCount = 0
+    var events: [ArchiveDuplicateEvent] = []
+    events.reserveCapacity(newRelativePaths.count)
+    let needsReviewRoot = archiveTreeRoot.appendingPathComponent("Needs Review", isDirectory: true)
+
+    for relativePath in newRelativePaths.sorted() {
+        let sourceURL = archiveTreeRoot.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL
+        guard fileManager.fileExists(atPath: sourceURL.path) else { continue }
+        do {
+            let hash = try sha256Hex(ofFileAt: sourceURL)
+            if seenHashes.contains(hash) {
+                try fileManager.removeItem(at: sourceURL)
+                suppressedCount += 1
+                events.append(
+                    ArchiveDuplicateEvent(
+                        id: UUID().uuidString,
+                        incomingRelativePath: relativePath,
+                        canonicalRelativePath: canonicalPathByHash[hash],
+                        incomingSHA256: hash,
+                        reason: "exact_match",
+                        flow: flow,
+                        createdAt: Date()
+                    )
+                )
+            } else {
+                seenHashes.insert(hash)
+                canonicalPathByHash[hash] = relativePath
+            }
+        } catch {
+            do {
+                try fileManager.createDirectory(at: needsReviewRoot, withIntermediateDirectories: true)
+                let destinationURL = needsReviewRoot.appendingPathComponent(relativePath, isDirectory: false)
+                let parent = destinationURL.deletingLastPathComponent()
+                try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+                let finalDestination = uniqueDestinationURL(
+                    in: parent,
+                    preferredName: destinationURL.lastPathComponent,
+                    fileManager: fileManager
+                )
+                try fileManager.moveItem(at: sourceURL, to: finalDestination)
+                movedToNeedsReviewCount += 1
+                events.append(
+                    ArchiveDuplicateEvent(
+                        id: UUID().uuidString,
+                        incomingRelativePath: relativePath,
+                        canonicalRelativePath: nil,
+                        incomingSHA256: nil,
+                        reason: "indeterminate_kept",
+                        flow: flow,
+                        createdAt: Date()
+                    )
+                )
+            } catch {
+                failureCount += 1
+            }
+        }
+    }
+
+    if !events.isEmpty {
+        try? database.assetRepository.saveArchiveDuplicateEvents(events)
+    }
+    return ArchiveExportDedupeSummary(
+        suppressedCount: suppressedCount,
+        movedToNeedsReviewCount: movedToNeedsReviewCount,
+        failureCount: failureCount
+    )
+}
+
+nonisolated private func uniqueDestinationURL(
+    in directory: URL,
+    preferredName: String,
+    fileManager: FileManager
+) -> URL {
+    var candidate = directory.appendingPathComponent(preferredName, isDirectory: false)
+    guard fileManager.fileExists(atPath: candidate.path) == true else { return candidate }
+    let ext = (preferredName as NSString).pathExtension
+    let baseName = (preferredName as NSString).deletingPathExtension
+    var counter = 2
+    while true {
+        let suffix = "-\(counter)"
+        let nextName = ext.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(ext)"
+        candidate = directory.appendingPathComponent(nextName, isDirectory: false)
+        if !fileManager.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        counter += 1
+    }
+}
+
+nonisolated private func sha256Hex(ofFileAt url: URL) throws -> String {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var hasher = SHA256()
+    while true {
+        let chunk = handle.readData(ofLength: 65_536)
+        if chunk.isEmpty { break }
+        hasher.update(data: chunk)
+    }
+    return hasher.finalize().map { String(format: "%02hhx", $0) }.joined()
 }
 
 nonisolated private func shouldRetryWithoutExifTool(outputText: String) -> Bool {
