@@ -249,3 +249,32 @@ struct OsxPhotosRunner: OsxPhotosRunnerProtocol {
     }
 
 }
+
+enum OsxPhotosLibraryResolver {
+    static func preferredLibraryPath() -> String? {
+        let fileManager = FileManager.default
+
+        if let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
+           let config = ArchiveSettings.controlConfig(for: archiveRoot),
+           let pathHint = config.photoLibraryBinding?.libraryPathHint,
+           !pathHint.isEmpty,
+           fileManager.fileExists(atPath: pathHint) {
+            return URL(fileURLWithPath: pathHint).standardizedFileURL.path
+        }
+
+        guard let picturesURL = fileManager.urls(for: .picturesDirectory, in: .userDomainMask).first,
+              let contents = try? fileManager.contentsOfDirectory(
+                at: picturesURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+              )
+        else {
+            return nil
+        }
+
+        return contents
+            .first(where: { $0.pathExtension == "photoslibrary" })?
+            .standardizedFileURL
+            .path
+    }
+}

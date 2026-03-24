@@ -446,14 +446,26 @@ nonisolated private func runOsxPhotosQuery() throws -> Data {
         try? fm.removeItem(at: scriptURL)
     }
 
-    // Step 1: run osxphotos query --json and write full output to a temp file.
+    var arguments: [String] = ["query", "--json"]
+    if let libraryPath = OsxPhotosLibraryResolver.preferredLibraryPath() {
+        arguments.append(contentsOf: ["--library", libraryPath])
+    }
+
+    // Step 1: run osxphotos query and write full output to a temp file.
     let runResult = OsxPhotosRunner().run(
-        arguments: ["query", "--json"],
+        arguments: arguments,
         captureStdoutToFile: fullJSONURL,
         includeExifToolEnvironment: false
     )
+    let renderedArgs = arguments.map { arg -> String in
+        if arg.contains(where: { $0.isWhitespace }) {
+            return "\"\(arg)\""
+        }
+        return arg
+    }.joined(separator: " ")
+    let commandText = "osxphotos \(renderedArgs)"
     Task { @MainActor in
-        AppLog.shared.info("osxphotos query command: osxphotos query --json")
+        AppLog.shared.info("osxphotos query command: \(commandText)")
         AppLog.shared.info("osxphotos query executable: \(runResult.executableURL.path)")
         AppLog.shared.info("osxphotos query used external fallback: \(runResult.usedExternalFallback)")
         AppLog.shared.info("osxphotos query exit code: \(runResult.exitCode)")

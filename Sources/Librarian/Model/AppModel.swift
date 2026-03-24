@@ -1879,6 +1879,9 @@ nonisolated private func runOsxPhotosExportBatch(
             "--exiftool",
             "--update"
         ]
+        if let libraryPath = OsxPhotosLibraryResolver.preferredLibraryPath() {
+            args.append(contentsOf: ["--library", libraryPath])
+        }
         if !options.keepOriginalsAlongsideEdits {
             args.append("--skip-original-if-edited")
         }
