@@ -60,27 +60,6 @@ enum ArchiveSettings {
         }
     }
 
-    // MARK: - Folder layout
-
-    enum ArchiveFolderLayout: String {
-        /// All files land in `Archive/YYYY/MM/DD`. Simple flat structure.
-        case dateOnly     = "dateOnly"
-        /// Photos land in `Photos/YYYY/MM/DD`. Categorised content (screenshots, documents, etc.)
-        /// lands in `Other/{type}/YYYY/MM/DD`. Aligns with spec section 23.2.
-        case kindThenDate = "kindThenDate"
-    }
-
-    static let folderLayoutKey = "com.librarian.app.archiveFolderLayout"
-
-    static var folderLayout: ArchiveFolderLayout {
-        get {
-            guard let raw = UserDefaults.standard.string(forKey: folderLayoutKey),
-                  let layout = ArchiveFolderLayout(rawValue: raw) else { return .dateOnly }
-            return layout
-        }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: folderLayoutKey) }
-    }
-
     // MARK: - Keys
 
     static let bookmarkKey       = "com.librarian.app.archiveRootBookmark"
@@ -390,21 +369,15 @@ enum ArchiveSettings {
     }
 
     /// The archive subfolder inside the user-chosen root — always `{root}/Archive/`.
-    /// This is where `.librarian/` lives, where the red icon is applied, and the root
-    /// from which the indexer and organizer scan.
-    /// - `dateOnly`:     content at `{root}/Archive/YYYY/MM/DD/`
-    /// - `kindThenDate`: content at `{root}/Archive/Photos/YYYY/MM/DD/` etc.
+    /// Content lands in `{root}/Archive/YYYY/MM/DD/`.
     static func archiveTreeRootURL(from rootURL: URL) -> URL {
         rootURL.appendingPathComponent(archiveFolderName, isDirectory: true)
     }
 
     /// The folder where Path-B imports (Add Photos to Archive) write new files.
+    /// Same as the archive tree root — all content uses `YYYY/MM/DD` structure.
     static func importDestinationRoot(from rootURL: URL) -> URL {
-        let archiveFolder = archiveTreeRootURL(from: rootURL)
-        switch folderLayout {
-        case .dateOnly:     return archiveFolder
-        case .kindThenDate: return archiveFolder.appendingPathComponent("Photos", isDirectory: true)
-        }
+        archiveTreeRootURL(from: rootURL)
     }
 
     static func currentArchiveTreeRootURL() -> URL? {
@@ -1724,8 +1697,8 @@ struct ArchiveExportOptions: Sendable {
     var keepLivePhotos: Bool
 
     static let `default` = ArchiveExportOptions(
-        keepOriginalsAlongsideEdits: false,
-        keepLivePhotos: false
+        keepOriginalsAlongsideEdits: true,
+        keepLivePhotos: true
     )
 }
 

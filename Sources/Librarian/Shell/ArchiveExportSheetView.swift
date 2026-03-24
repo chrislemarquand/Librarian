@@ -29,8 +29,8 @@ final class ArchiveExportSession: ObservableObject {
     init(destinationURL: URL, scopedLocalIdentifiers: [String]?) {
         self.destinationURL = destinationURL
         self.scopedLocalIdentifiers = scopedLocalIdentifiers
-        self.keepOriginalsChoice = .off
-        self.keepLivePhotosChoice = .off
+        self.keepOriginalsChoice = .on
+        self.keepLivePhotosChoice = .on
     }
 
     var exportOptions: ArchiveExportOptions {

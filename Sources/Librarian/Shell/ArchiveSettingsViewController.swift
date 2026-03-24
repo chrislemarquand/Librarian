@@ -30,10 +30,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
-    private lazy var dateOnlyRadio     = makeRadioButton(title: "Date",
-                                                        action: #selector(folderLayoutChanged(_:)))
-    private lazy var kindThenDateRadio = makeRadioButton(title: "Type then Date",
-                                                        action: #selector(folderLayoutChanged(_:)))
     private lazy var organizeButton   = makeActionButton(title: "Organize Archive",      action: #selector(organizeArchiveManually))
     private lazy var organizeLabel    = makeDescriptionLabel("Scans the archive and normalizes folders to YYYY/MM/DD.")
     private lazy var addPhotosButton  = makeActionButton(title: "Add Photos to Archive…", action: #selector(addPhotosToArchive))
@@ -75,7 +71,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         refreshLinkedLibraryPath()
         refreshNewButtonState()
         refreshMoveButtonState()
-        refreshFolderLayoutState()
         refreshOrganizeButtonState()
         refreshAddPhotosButtonState()
     }
@@ -89,8 +84,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             [makeCategoryLabel(title: "Archive Location:"), archivePathControl,   NSView()],
             [makeCategoryLabel(title: "Linked Photos Library:"), linkedLibraryContainer, NSView()],
             [NSView(),                                      archiveActionButtons, NSView()],
-            [makeCategoryLabel(title: "Folder structure:"), dateOnlyRadio,        NSView()],
-            [NSView(),                                      kindThenDateRadio,    NSView()],
             [makeCategoryLabel(title: "Archive organization:"), organizeLabel,  organizeButton],
             [makeCategoryLabel(title: "Add photos:"),           addPhotosLabel, addPhotosButton],
         ]
@@ -210,20 +203,11 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
 
     // MARK: - Notification handler
 
-    @objc private func folderLayoutChanged(_ sender: NSButton) {
-        if sender === dateOnlyRadio {
-            ArchiveSettings.folderLayout = .dateOnly
-        } else if sender === kindThenDateRadio {
-            ArchiveSettings.folderLayout = .kindThenDate
-        }
-    }
-
     @objc private func archiveRootChanged() {
         refreshArchivePath()
         refreshLinkedLibraryPath()
         refreshNewButtonState()
         refreshMoveButtonState()
-        refreshFolderLayoutState()
         refreshOrganizeButtonState()
         refreshAddPhotosButtonState()
     }
@@ -277,12 +261,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         let hasRoot = ArchiveSettings.restoreArchiveRootURL() != nil
         moveButton.isEnabled = hasRoot && !isMovingArchive
         moveButton.title = isMovingArchive ? "Moving…" : "Move…"
-    }
-
-    private func refreshFolderLayoutState() {
-        let current = ArchiveSettings.folderLayout
-        dateOnlyRadio.state     = current == .dateOnly     ? .on : .off
-        kindThenDateRadio.state = current == .kindThenDate ? .on : .off
     }
 
     private func refreshOrganizeButtonState() {

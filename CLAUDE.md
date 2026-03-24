@@ -41,7 +41,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 | Archive root change | Offer migration job to move existing archives |
 | Photos access denied/revoked | Locked state UI, preserve local database |
 | Limited Photos access | Refuse — require full access |
-| Archive folder structure | Two top-level folders: `Photos/` and `Other/`. Duplicates → `Photos/YYYY/MM`. Screenshots, Likely Bad, Review Later → `Other/{Category}/YYYY/MM`. |
+| Archive folder structure | Flat `YYYY/MM/DD` date buckets. No category-based subfolder routing — category detection is unreliable and creates state-split problems if toggled after exports. |
 | Distribution posture | Direct distribution with Developer ID signing + notarization; no App Sandbox target for v1 |
 | Media types in v1 | Photos only (PHAssetMediaType.image). Videos excluded from all views and indexing. |
 | Review marking behaviour | Single-press commits to archive queue, no confirmation dialog |
@@ -89,10 +89,7 @@ Do not treat them as design choices — they are bugs to fix.
 
 | Topic | Spec decision | Current behaviour | Where |
 |---|---|---|---|
-| Edited photo export | Both original and edited versions | `--skip-original-if-edited` passed to osxphotos — exports edited only | `AppModel.swift` → `runOsxPhotosExportBatch` |
-| Live Photos export | Live Photos should export both image and video component | `--skip-live` passed to osxphotos — drops the video component | `AppModel.swift` → `runOsxPhotosExportBatch` |
 | osxphotos invocation boundary | Tool boundary should be isolated and testable | Direct `Process()` subprocess in main app; acceptable for direct distribution, but still architecture debt vs dedicated runner/XPC service | `AppModel.swift` → `runOsxPhotos` |
-| Stale export state | Partial failures visible and recoverable | `exporting` rows survive an app crash and are never retried | `AppModel.swift` → `setup()` (no reset on launch) |
 
 ## Logging
 

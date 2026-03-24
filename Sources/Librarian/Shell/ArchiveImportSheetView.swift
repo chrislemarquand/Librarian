@@ -383,25 +383,14 @@ final class ArchiveImportSession: ObservableObject {
             guard values.isRegularFile == true else { continue }
 
             let parentComponents = Array(relativeComponents.dropLast())
-            guard !isOrganizedPath(parentComponents, layout: ArchiveSettings.folderLayout) else { continue }
+            guard !isOrganizedPath(parentComponents) else { continue }
             files.append(standardized)
         }
         return files
     }
 
-    nonisolated private static func isOrganizedPath(_ components: [String], layout: ArchiveSettings.ArchiveFolderLayout) -> Bool {
-        switch layout {
-        case .dateOnly:
-            return components.count == 3 && isOrganizedDatePath(components)
-        case .kindThenDate:
-            if components.count == 4 && components[0] == "Photos" {
-                return isOrganizedDatePath(Array(components.suffix(3)))
-            }
-            if components.count == 5 && components[0] == "Other" {
-                return isOrganizedDatePath(Array(components.suffix(3)))
-            }
-            return false
-        }
+    nonisolated private static func isOrganizedPath(_ components: [String]) -> Bool {
+        components.count == 3 && isOrganizedDatePath(components)
     }
 
     nonisolated private static func isOrganizedDatePath(_ components: [String]) -> Bool {

@@ -1717,24 +1717,9 @@ struct ArchiveOrganizationResult {
     let collisionCount: Int
 }
 
-enum ArchiveOrganizationLayout {
-    /// `Archive/YYYY/MM/DD` — flat date buckets under a single `Archive` folder.
-    case rootDateBuckets
-    /// `Photos/YYYY/MM/DD` for photos; `Other/{type}/YYYY/MM/DD` for categorised content.
-    case kindDateBuckets
-}
-
 final class ArchiveOrganizer: @unchecked Sendable {
     private let fileManager = FileManager.default
     private let imageExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
-    private let layout: ArchiveOrganizationLayout
-
-    init() {
-        switch ArchiveSettings.folderLayout {
-        case .dateOnly:     self.layout = .rootDateBuckets
-        case .kindThenDate: self.layout = .kindDateBuckets
-        }
-    }
 
     func scanUnorganizedCount(in archiveTreeRoot: URL) throws -> Int {
         try withArchiveAccess(root: archiveTreeRoot) { root in
@@ -1860,32 +1845,11 @@ final class ArchiveOrganizer: @unchecked Sendable {
     }
 
     private func isOrganizedPath(_ components: [String]) -> Bool {
-        switch layout {
-        case .rootDateBuckets:
-            return components.count == 3 && isOrganizedDatePath(components)
-        case .kindDateBuckets:
-            // Photos/YYYY/MM/DD
-            if components.count == 4 && components[0] == "Photos" {
-                return isOrganizedDatePath(Array(components.suffix(3)))
-            }
-            // Other/{category}/YYYY/MM/DD
-            if components.count == 5 && components[0] == "Other" {
-                return isOrganizedDatePath(Array(components.suffix(3)))
-            }
-            return false
-        }
+        components.count == 3 && isOrganizedDatePath(components)
     }
 
     private func destinationPathComponents(for datePath: [String]) -> [String] {
-        switch layout {
-        case .rootDateBuckets:
-            return datePath
-        case .kindDateBuckets:
-            // Unrecognised files from the organizer go to Photos/ by default.
-            // Queue-aware routing (Other/Screenshots, Other/Documents, etc.) is handled
-            // by the export pipeline at the osxphotos template level (see ROADMAP).
-            return ["Photos"] + datePath
-        }
+        datePath
     }
 
     private func isYear(_ value: String) -> Bool {
