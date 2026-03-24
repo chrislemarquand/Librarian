@@ -148,7 +148,10 @@ final class ContentController: NSViewController {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
 
-        let phView = NSHostingView(rootView: GalleryPlaceholderView(viewModel: placeholderViewModel))
+        let placeholderHost = NSHostingController(rootView: GalleryPlaceholderView(viewModel: placeholderViewModel))
+        placeholderHost.sizingOptions = []
+        addChild(placeholderHost)
+        let phView = placeholderHost.view
         phView.translatesAutoresizingMaskIntoConstraints = false
         phView.isHidden = true
         container.addSubview(phView)
