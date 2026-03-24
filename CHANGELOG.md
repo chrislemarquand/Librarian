@@ -9,9 +9,11 @@ All notable changes to Librarian are tracked here.
 - Converged planning docs to a single source: `ROADMAP.md` now replaces the separate shipping-plan document.
 - Added `docs/CURRENT_STATE.md` as the implementation snapshot and `docs/README.md` as the canonical docs index.
 - Aligned core docs (`CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/Engineering Baseline.md`) to current runtime/dependency behaviour.
+- Tightened `SPEC.MD` + `CLAUDE.md` alignment so spec intent, execution priorities, and implementation snapshot references are explicit and consistent.
 
 ### Docs
 - Archived superseded planning/handoff/investigation docs under `docs/_archive/2026-03-24-doc-convergence/`.
+- Archived stale root-level handoff/planning docs under `docs/_archive/2026-03-24-root-docs-sweep/`.
 
 ## 2026-03-21
 

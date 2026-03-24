@@ -1,5 +1,12 @@
 # Librarian — Product and Engineering Spec (v0.5)
 
+## Document status
+
+- This file defines product/engineering intent.
+- `ROADMAP.md` is the single planning/execution source.
+- `docs/CURRENT_STATE.md` is the implementation snapshot.
+- If implementation detail differs from this spec, reconcile by updating either this spec or current-state docs promptly.
+
 ## 1. Product summary
 
 **Librarian** is a native macOS companion app for Apple Photos that helps a user reduce an overwhelming photo library into a smaller, more meaningful active library, while **never permanently deleting anything without archiving it first**.
@@ -101,12 +108,13 @@ It does **not** write metadata, keywords, captions, or albums back into Photos i
 - export templating
 - archive folder layout execution
 - sidecar/metadata-preserving export workflows
+- analysis data extraction/import support
 
 ### 7.3 Critical rule
 
 **Do not use osxphotos as the primary live read path for the app UI.**
 
-PhotoKit is the main runtime interface for browsing, selection, thumbnails, metadata reads, and change tracking. `osxphotos` is tightly scoped to export/archive tasks only.
+PhotoKit is the main runtime interface for browsing, selection, thumbnails, metadata reads, and change tracking. `osxphotos` is scoped to runner-bound export/archive and analysis ingestion tasks only, never as the live browse/index source.
 
 ### 7.4 osxphotos provisioning
 

@@ -21,5 +21,6 @@ This folder now contains only active operational/reference docs.
 
 - Superseded design notes, handoff docs, and one-off investigations are moved to:
   - `docs/_archive/<YYYY-MM-DD>-<topic>/`
+- Root-level historical docs are also moved into `docs/_archive/...` during cleanup passes.
 - Archived docs are historical only and are not planning sources.
 - If a document contradicts `SPEC.MD`, `CURRENT_STATE.md`, or `ROADMAP.md`, treat the archived document as obsolete.

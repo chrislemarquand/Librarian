@@ -5,6 +5,7 @@
 1. Read this file fully.
 2. Read `SPEC.MD` in this directory for the full product and engineering spec.
 3. Read the Ledger source at `/Users/chrislemarquand/Xcode Projects/Ledger` before writing any window shell, split-view, toolbar, inspector, or navigation code. Understand the patterns and adapt them — do not copy-paste blindly. Ledger's centre pane is list/table-oriented and should not be inherited; reuse the frame, not the purpose.
+4. Read `ROADMAP.md` and `docs/CURRENT_STATE.md` for current execution priorities and implementation reality.
 
 Do not write any code until you have read all three and confirmed your understanding.
 
