@@ -624,7 +624,9 @@ final class ContentController: NSViewController {
             }
             return EmptyContentResult(.unavailable(title: "No Archive Photos", symbolName: "archivebox", description: "Archive photos will appear here after export."))
         case .duplicates:
-            if !model.analysisHasRunBefore {
+            if model.isAnalysing {
+                return EmptyContentResult(.unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "Items will appear here after analysis is complete."))
+            } else if !model.analysisHasRunBefore {
                 return EmptyContentResult(
                     .action(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
                     actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
@@ -632,7 +634,9 @@ final class ContentController: NSViewController {
             }
             return EmptyContentResult(.unavailable(title: "No Duplicates", symbolName: "photo.on.rectangle", description: "No duplicate or near-duplicate photos found."))
         case .lowQuality:
-            if !model.analysisHasRunBefore {
+            if model.isAnalysing {
+                return EmptyContentResult(.unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "Items will appear here after analysis is complete."))
+            } else if !model.analysisHasRunBefore {
                 return EmptyContentResult(
                     .action(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
                     actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
@@ -640,7 +644,9 @@ final class ContentController: NSViewController {
             }
             return EmptyContentResult(.unavailable(title: "No Low Quality Photos", symbolName: "wand.and.stars.inverse", description: "No photos with a low quality score found."))
         case .receiptsAndDocuments:
-            if !model.analysisHasRunBefore {
+            if model.isAnalysing {
+                return EmptyContentResult(.unavailable(title: "No Documents", symbolName: "doc.text", description: "Items will appear here after analysis is complete."))
+            } else if !model.analysisHasRunBefore {
                 return EmptyContentResult(
                     .action(title: "No Documents", symbolName: "doc.text", description: "Run analysis to find items for this box.", actionTitle: "Analyse Now"),
                     actionHandler: { [weak self] in Task { await self?.model.runLibraryAnalysis() } }
