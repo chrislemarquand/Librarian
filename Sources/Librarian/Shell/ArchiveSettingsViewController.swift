@@ -87,7 +87,7 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             [makeCategoryLabel(title: "Archive Location:"), archivePathControl,   NSView()],
             [makeCategoryLabel(title: "Linked Photos Library:"), linkedLibraryContainer, NSView()],
             [NSView(),                                      archiveActionButtons, NSView()],
-            [makeCategoryLabel(title: "Archive organization:"), organizeLabel,  organizeButton],
+            [makeCategoryLabel(title: "Archive organisation:"), organizeLabel,  organizeButton],
             [makeCategoryLabel(title: "Add photos:"),           addPhotosLabel, addPhotosButton],
         ]
     }
@@ -287,17 +287,12 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
         organizeLabel.stringValue = "Scanning Archive…"
         organizeStatusTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let status: (unorganised: Int, needsReview: Int, suppressedLast7Days: Int)
+            let status: (unorganised: Int, needsReview: Int)
             do {
                 status = try await Task.detached(priority: .utility) {
                     let unorganised = try self.archiveOrganizer.scanUnorganizedCount(in: archiveTreeRoot)
                     let needsReview = try self.archiveOrganizer.scanNeedsReviewCount(in: archiveTreeRoot)
-                    let since = Date().addingTimeInterval(-7 * 24 * 60 * 60)
-                    let suppressedLast7Days = try self.model.database.assetRepository.countArchiveDuplicateEvents(
-                        reason: "exact_match",
-                        since: since
-                    )
-                    return (unorganised, needsReview, suppressedLast7Days)
+                    return (unorganised, needsReview)
                 }.value
             } catch {
                 if !Task.isCancelled {
@@ -314,9 +309,6 @@ final class ArchiveSettingsViewController: SettingsGridViewController {
             }
             if status.needsReview > 0 {
                 parts.append("\(status.needsReview.formatted()) in Needs Review")
-            }
-            if status.suppressedLast7Days > 0 {
-                parts.append("\(status.suppressedLast7Days.formatted()) duplicates suppressed (7 days)")
             }
             self.organizeLabel.stringValue = parts.joined(separator: ". ") + "."
         }
