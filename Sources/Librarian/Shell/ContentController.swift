@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import SharedUI
 import Quartz
 
-private enum DisplayAsset {
+enum DisplayAsset {
     case photos(IndexedAsset)
     case archived(ArchivedItem)
 
@@ -58,42 +58,42 @@ final class ContentController: NSViewController {
 
     let model: AppModel
 
-    private let galleryPageSize = 600
-    private let loadMoreRemainingThreshold: CGFloat = 1800
-    private var collectionView: SharedGalleryCollectionView!
-    private let galleryLayout = SharedGalleryLayout(showsSupplementaryDetail: false)
-    private var scrollView: NSScrollView!
-    private let placeholderViewModel = GalleryPlaceholderViewModel()
-    private var placeholderHostingView: NSView?
-    private var noticeBar: NoticeBar!
-    private var scrollTopToNoticeBarConstraint: NSLayoutConstraint!
-    private var scrollTopToContainerConstraint: NSLayoutConstraint!
-    private var contextMenuTargetIndices: [Int] = []
-    private let quickLookCoordinator = QuickLookPanelCoordinator<String>()
-    private var quickLookSourceFrames: [String: NSRect] = [:]
-    private var quickLookTempDirectoryURL: URL?
-    private var quickLookDisplayURLByID: [String: URL] = [:]
-    private var quickLookUnavailableIDs: Set<String> = []
-    private var displayAssets: [DisplayAsset] = []
-    private var isLoadingAssets = false
-    private var canLoadMoreAssets = true
-    private var loadGeneration = 0
-    private var lastLoadedIndexedCount = -1
-    private var lastLoadedAssetDataVersion = -1
-    private var lastLoadedSidebarKind: SidebarItem.Kind?
-    private var zoomRestoreToken = 0
-    private let pinchZoomAccumulator = PinchZoomAccumulator()
-    private var selectionAnchorIndex: Int?
+    let galleryPageSize = 600
+    let loadMoreRemainingThreshold: CGFloat = 1800
+    var collectionView: SharedGalleryCollectionView!
+    let galleryLayout = SharedGalleryLayout(showsSupplementaryDetail: false)
+    var scrollView: NSScrollView!
+    let placeholderViewModel = GalleryPlaceholderViewModel()
+    var placeholderHostingView: NSView?
+    var noticeBar: NoticeBar!
+    var scrollTopToNoticeBarConstraint: NSLayoutConstraint!
+    var scrollTopToContainerConstraint: NSLayoutConstraint!
+    var contextMenuTargetIndices: [Int] = []
+    let quickLookCoordinator = QuickLookPanelCoordinator<String>()
+    var quickLookSourceFrames: [String: NSRect] = [:]
+    var quickLookTempDirectoryURL: URL?
+    var quickLookDisplayURLByID: [String: URL] = [:]
+    var quickLookUnavailableIDs: Set<String> = []
+    var displayAssets: [DisplayAsset] = []
+    var isLoadingAssets = false
+    var canLoadMoreAssets = true
+    var loadGeneration = 0
+    var lastLoadedIndexedCount = -1
+    var lastLoadedAssetDataVersion = -1
+    var lastLoadedSidebarKind: SidebarItem.Kind?
+    var zoomRestoreToken = 0
+    let pinchZoomAccumulator = PinchZoomAccumulator()
+    var selectionAnchorIndex: Int?
     /// Set before a forced reload to restore focus to the next item after the
     /// reloaded data source drops the previously selected items (e.g. Set Aside).
-    private var pendingPostReloadIndex: Int?
-    private let archivedIndexer: ArchiveIndexer
-    private let archiveOrganizer = ArchiveOrganizer()
-    private let archivedThumbnailService = ArchivedThumbnailService()
-    private var archivedUnorganizedCount = 0
-    private var archivedNeedsReviewCount = 0
-    private var archivedBannerDismissedForLaunch = false
-    private var isOrganizingArchivedFiles = false
+    var pendingPostReloadIndex: Int?
+    let archivedIndexer: ArchiveIndexer
+    let archiveOrganizer = ArchiveOrganizer()
+    let archivedThumbnailService = ArchivedThumbnailService()
+    var archivedUnorganizedCount = 0
+    var archivedNeedsReviewCount = 0
+    var archivedBannerDismissedForLaunch = false
+    var isOrganizingArchivedFiles = false
 
     init(model: AppModel) {
         self.model = model
@@ -637,13 +637,13 @@ final class ContentController: NSViewController {
         }
     }
 
-    private func thumbnailTargetSize() -> CGSize {
+    func thumbnailTargetSize() -> CGSize {
         let size = NSSize(width: galleryLayout.tileSide, height: galleryLayout.tileSide)
         let scale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
 
-    private func thumbnailTileSide() -> CGFloat {
+    func thumbnailTileSide() -> CGFloat {
         galleryLayout.tileSide
     }
 
@@ -1252,392 +1252,4 @@ final class ContentController: NSViewController {
         loadAssetsIfNeeded(force: true)
     }
 
-}
-
-// MARK: - NSCollectionViewDataSource
-
-extension ContentController: NSCollectionViewDataSource {
-    func numberOfSections(in collectionView: NSCollectionView) -> Int {
-        1
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
-        displayAssets.count
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
-        guard let item = collectionView.makeItem(withIdentifier: .assetGridItem, for: indexPath) as? AssetGridItem else {
-            return NSCollectionViewItem()
-        }
-
-        let asset = displayAssets[indexPath.item]
-        let preferredAspectRatio: CGFloat? = {
-            guard asset.pixelWidth > 0, asset.pixelHeight > 0 else { return nil }
-            return CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
-        }()
-        item.prepare(
-            localIdentifier: asset.id,
-            preferredAspectRatio: preferredAspectRatio,
-            tileSide: thumbnailTileSide(),
-            showsSharedLibraryBadge: asset.photoAsset?.isCloudShared == true
-        )
-
-        switch asset {
-        case .photos(let photoAsset):
-            guard let phAsset = model.photosService.fetchAsset(localIdentifier: photoAsset.localIdentifier) else {
-                item.applyImage(nil, forLocalIdentifier: asset.id)
-                return item
-            }
-
-            let targetSize = thumbnailTargetSize()
-            _ = model.photosService.requestThumbnail(for: phAsset, targetSize: targetSize) { [weak item] image in
-                guard let item else { return }
-                item.applyImage(image, forLocalIdentifier: asset.id)
-            }
-        case .archived(let archivedItem):
-            let targetSize = thumbnailTargetSize()
-            archivedThumbnailService.requestThumbnail(for: archivedItem, targetSize: targetSize) { [weak item] image in
-                guard let item else { return }
-                Task { @MainActor in
-                    item.applyImage(image, forLocalIdentifier: asset.id)
-                }
-            }
-        }
-
-        return item
-    }
-}
-
-// MARK: - NSCollectionViewDelegate
-
-extension ContentController: NSCollectionViewDelegate {}
-extension ContentController: NSCollectionViewPrefetching {
-    func collectionView(_ collectionView: NSCollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-        let assets = indexPaths.compactMap { indexPath -> PHAsset? in
-            guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
-            guard let localIdentifier = displayAssets[indexPath.item].photoIdentifier else { return nil }
-            return model.photosService.fetchAsset(localIdentifier: localIdentifier)
-        }
-        model.photosService.startCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
-        let assets = indexPaths.compactMap { indexPath -> PHAsset? in
-            guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
-            guard let localIdentifier = displayAssets[indexPath.item].photoIdentifier else { return nil }
-            return model.photosService.fetchAsset(localIdentifier: localIdentifier)
-        }
-        model.photosService.stopCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
-    }
-}
-
-extension ContentController {
-    func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
-        syncModelSelectionFromCollection()
-        updateQuickLookArtifacts()
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
-        syncModelSelectionFromCollection()
-        updateQuickLookArtifacts()
-    }
-
-    private func syncModelSelectionFromCollection() {
-        let count = collectionView.selectionIndexPaths.count
-        guard let selectedIndex = collectionView.selectionIndexPaths.first?.item,
-              selectedIndex >= 0,
-              selectedIndex < displayAssets.count else {
-            model.setSelectedAsset(nil, count: 0)
-            return
-        }
-        if let selectedAsset = displayAssets[selectedIndex].photoAsset {
-            model.setSelectedAsset(selectedAsset, count: count)
-        } else if let selectedArchivedItem = displayAssets[selectedIndex].archivedItem {
-            model.setSelectedArchivedItem(selectedArchivedItem, count: count)
-        } else {
-            model.setSelectedAsset(nil, count: 0)
-        }
-    }
-
-    private func updateQuickLookArtifacts() {
-        guard let window = collectionView.window else { return }
-        var updatedFrames: [String: NSRect] = [:]
-        for indexPath in collectionView.selectionIndexPaths {
-            guard indexPath.item >= 0, indexPath.item < displayAssets.count else { continue }
-            guard let item = collectionView.item(at: indexPath) as? AssetGridItem else { continue }
-            let imageView = item.thumbnailImageView
-            let rectInCollection = imageView.convert(imageView.bounds, to: collectionView)
-            let rectInWindow = collectionView.convert(rectInCollection, to: nil)
-            let rectOnScreen = window.convertToScreen(rectInWindow)
-            updatedFrames[displayAssets[indexPath.item].id] = rectOnScreen
-        }
-        quickLookSourceFrames = updatedFrames
-    }
-
-    private func handleModifiedItemClick(indexPath: IndexPath, modifiers: NSEvent.ModifierFlags) {
-        guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return }
-        let hasCommand = modifiers.contains(.command)
-        let hasShift = modifiers.contains(.shift)
-        let clicked = indexPath.item
-
-        var nextSelection = collectionView.selectionIndexPaths
-        if hasShift {
-            let anchor = selectionAnchorIndex ?? collectionView.selectionIndexPaths.first?.item ?? clicked
-            let range = min(anchor, clicked)...max(anchor, clicked)
-            let rangeSelection = Set(range.map { IndexPath(item: $0, section: 0) })
-            if hasCommand {
-                nextSelection.formUnion(rangeSelection)
-            } else {
-                nextSelection = rangeSelection
-            }
-            selectionAnchorIndex = anchor
-        } else if hasCommand {
-            let clickedPath = IndexPath(item: clicked, section: 0)
-            if nextSelection.contains(clickedPath) {
-                nextSelection.remove(clickedPath)
-            } else {
-                nextSelection.insert(clickedPath)
-            }
-            selectionAnchorIndex = clicked
-        }
-
-        collectionView.selectionIndexPaths = nextSelection
-        collectionView.scrollToItems(at: [IndexPath(item: clicked, section: 0)], scrollPosition: .nearestVerticalEdge)
-        syncModelSelectionFromCollection()
-        updateQuickLookArtifacts()
-    }
-
-    private func moveSelection(_ direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) {
-        guard !displayAssets.isEmpty else { return }
-        let current = collectionView.selectionIndexPaths.map(\.item).sorted()
-        let focus = current.last ?? 0
-        let columns = max(model.galleryColumnCount, 1)
-
-        let candidate: Int
-        switch direction {
-        case .left:
-            candidate = focus - 1
-        case .right:
-            candidate = focus + 1
-        case .up:
-            candidate = focus - columns
-        case .down:
-            candidate = focus + columns
-        }
-        let next = max(0, min(displayAssets.count - 1, candidate))
-        guard next != focus || current.isEmpty else { return }
-
-        if extendingSelection {
-            let anchor = selectionAnchorIndex ?? focus
-            selectionAnchorIndex = anchor
-            let range = min(anchor, next)...max(anchor, next)
-            let nextSelection = Set(range.map { IndexPath(item: $0, section: 0) })
-            collectionView.selectionIndexPaths = nextSelection
-        } else {
-            selectionAnchorIndex = next
-            collectionView.selectionIndexPaths = [IndexPath(item: next, section: 0)]
-        }
-
-        collectionView.scrollToItems(at: [IndexPath(item: next, section: 0)], scrollPosition: .nearestVerticalEdge)
-        syncModelSelectionFromCollection()
-        updateQuickLookArtifacts()
-    }
-}
-
-// MARK: - Item identifier
-
-private extension NSUserInterfaceItemIdentifier {
-    static let assetGridItem = NSUserInterfaceItemIdentifier("AssetGridItem")
-}
-
-// MARK: - Asset grid item
-
-private final class AssetGridItem: NSCollectionViewItem {
-
-    private let fallback = NSImageView()
-    private let selectionBackgroundView = NSView()
-    private let thumbnailCornerRadius: CGFloat = GalleryMetrics.default.thumbnailCornerRadius
-    private let imageInset: CGFloat = GalleryMetrics.default.imageInset
-    private var representedLocalIdentifier: String?
-    private var preferredAspectRatio: CGFloat?
-    private var currentTileSide: CGFloat = 160
-    private var imageWidthConstraint: NSLayoutConstraint?
-    private var imageHeightConstraint: NSLayoutConstraint?
-    private var sharedLibraryBadgeView: NSImageView?
-
-    var thumbnailImageView: NSView {
-        imageView ?? view
-    }
-
-    override func loadView() {
-        view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
-
-        let imageView = NSImageView()
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.animates = true
-        imageView.wantsLayer = true
-        imageView.layer?.cornerRadius = thumbnailCornerRadius
-        imageView.layer?.masksToBounds = true
-        self.imageView = imageView
-        
-        selectionBackgroundView.translatesAutoresizingMaskIntoConstraints = false
-        selectionBackgroundView.wantsLayer = true
-        selectionBackgroundView.layer?.cornerRadius = thumbnailCornerRadius
-        selectionBackgroundView.layer?.masksToBounds = true
-        selectionBackgroundView.layer?.backgroundColor = NSColor.clear.cgColor
-        view.addSubview(selectionBackgroundView)
-        view.addSubview(imageView)
-
-        fallback.translatesAutoresizingMaskIntoConstraints = false
-        fallback.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Photo")
-        fallback.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 22, weight: .regular)
-        fallback.contentTintColor = .tertiaryLabelColor
-        view.addSubview(fallback)
-
-        let sharedBadge = NSImageView()
-        sharedBadge.translatesAutoresizingMaskIntoConstraints = false
-        sharedBadge.image = NSImage(systemSymbolName: "person.2.fill", accessibilityDescription: "Shared library")
-        sharedBadge.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-        sharedBadge.contentTintColor = .white
-        sharedBadge.wantsLayer = true
-        sharedBadge.layer?.shadowColor = NSColor.black.cgColor
-        sharedBadge.layer?.shadowOpacity = 0.35
-        sharedBadge.layer?.shadowRadius = 1.0
-        sharedBadge.layer?.shadowOffset = CGSize(width: 0, height: -0.5)
-        sharedBadge.isHidden = true
-        imageView.addSubview(sharedBadge)
-        sharedLibraryBadgeView = sharedBadge
-
-        NSLayoutConstraint.activate([
-            selectionBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            selectionBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            selectionBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
-            selectionBackgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            imageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-
-            fallback.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            fallback.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-
-            sharedBadge.topAnchor.constraint(equalTo: imageView.topAnchor, constant: 6),
-            sharedBadge.trailingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: -6),
-            sharedBadge.widthAnchor.constraint(equalToConstant: 15),
-            sharedBadge.heightAnchor.constraint(equalToConstant: 10),
-        ])
-        imageWidthConstraint = imageView.widthAnchor.constraint(equalToConstant: 20)
-        imageHeightConstraint = imageView.heightAnchor.constraint(equalToConstant: 20)
-        imageWidthConstraint?.isActive = true
-        imageHeightConstraint?.isActive = true
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        let side = max(1, floor(min(view.bounds.width, view.bounds.height)))
-        updateTileSide(side)
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        representedLocalIdentifier = nil
-        preferredAspectRatio = nil
-        imageView?.image = nil
-        fallback.isHidden = false
-        sharedLibraryBadgeView?.isHidden = true
-        isSelected = false
-    }
-
-    func prepare(localIdentifier: String, preferredAspectRatio: CGFloat?, tileSide: CGFloat, showsSharedLibraryBadge: Bool) {
-        representedLocalIdentifier = localIdentifier
-        self.preferredAspectRatio = preferredAspectRatio
-        imageView?.image = nil
-        fallback.isHidden = false
-        sharedLibraryBadgeView?.isHidden = !showsSharedLibraryBadge
-        updateTileSide(tileSide)
-    }
-
-    func applyImage(_ image: NSImage?, forLocalIdentifier identifier: String) {
-        guard representedLocalIdentifier == identifier else { return }
-        imageView?.image = image
-        fallback.isHidden = image != nil
-        updateGeometry()
-    }
-
-    override var isSelected: Bool {
-        didSet {
-            selectionBackgroundView.layer?.backgroundColor = isSelected
-                ? AppTheme.accentNSColor.withAlphaComponent(0.22).cgColor
-                : NSColor.clear.cgColor
-        }
-    }
-
-    private func updateTileSide(_ tileSide: CGFloat) {
-        currentTileSide = tileSide
-        updateGeometry()
-    }
-
-    func updateTileSide(_ tileSide: CGFloat, animated: Bool) {
-        currentTileSide = tileSide
-        updateGeometry(animated: animated)
-    }
-
-    private func updateGeometry() {
-        updateGeometry(animated: false)
-    }
-
-    private func updateGeometry(animated: Bool) {
-        let fitted = fittedImageSize(in: currentTileSide)
-        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            imageWidthConstraint?.constant = fitted.width
-            imageHeightConstraint?.constant = fitted.height
-            return
-        }
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
-            imageWidthConstraint?.animator().constant = fitted.width
-            imageHeightConstraint?.animator().constant = fitted.height
-        }
-    }
-
-    private func fittedImageSize(in tileSide: CGFloat) -> CGSize {
-        let availableSide = max(1, floor(tileSide - imageInset * 2))
-        let aspect: CGFloat
-        if let size = resolvedImageSize(imageView?.image), size.width > 0, size.height > 0 {
-            aspect = size.width / size.height
-        } else if let preferredAspectRatio, preferredAspectRatio > 0 {
-            aspect = preferredAspectRatio
-        } else {
-            aspect = 1
-        }
-
-        if aspect >= 1 {
-            return CGSize(width: availableSide, height: max(1, floor(availableSide / aspect)))
-        } else {
-            return CGSize(width: max(1, floor(availableSide * aspect)), height: availableSide)
-        }
-    }
-
-    private func resolvedImageSize(_ image: NSImage?) -> CGSize? {
-        guard let image else { return nil }
-        if image.size.width > 0, image.size.height > 0 {
-            return image.size
-        }
-        if let bitmap = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first,
-           bitmap.pixelsWide > 0,
-           bitmap.pixelsHigh > 0 {
-            return CGSize(width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
-        }
-        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-           cgImage.width > 0,
-           cgImage.height > 0 {
-            return CGSize(width: cgImage.width, height: cgImage.height)
-        }
-        return nil
-    }
 }
