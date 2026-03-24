@@ -653,6 +653,19 @@ final class AssetRepository: @unchecked Sendable {
         return try await db.read { db in try Self.countForSidebarKind(kind, recentCutoff: recentCutoff, minOCR: minOCR, db: db) }
     }
 
+    func sidebarBadgeCounts(for kinds: [SidebarItem.Kind]) async throws -> [SidebarItem.Kind: Int] {
+        let recentCutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
+        let minOCR = minimumDocumentOCRCharacters
+        return try await db.read { db in
+            var counts: [SidebarItem.Kind: Int] = [:]
+            counts.reserveCapacity(kinds.count)
+            for kind in kinds {
+                counts[kind] = try Self.countForSidebarKind(kind, recentCutoff: recentCutoff, minOCR: minOCR, db: db)
+            }
+            return counts
+        }
+    }
+
     private static func countForSidebarKind(_ kind: SidebarItem.Kind, recentCutoff: Date, minOCR: Int, db: GRDB.Database) throws -> Int {
         switch kind {
         case .allPhotos:

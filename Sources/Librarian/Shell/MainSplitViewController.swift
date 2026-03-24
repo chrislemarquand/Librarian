@@ -277,10 +277,13 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         guard let repository = model.database.assetRepository else {
             return SidebarItem.allItems
         }
+        let items = SidebarItem.allItems
+        let counts = (try? await repository.sidebarBadgeCounts(for: items.map(\.kind))) ?? [:]
         var result: [SidebarItem] = []
-        for item in SidebarItem.allItems {
+        result.reserveCapacity(items.count)
+        for item in items {
             var updated = item
-            let count = (try? await repository.countForSidebarKind(item.kind)) ?? 0
+            let count = counts[item.kind] ?? 0
             updated.badgeText = compactBadgeText(for: count)
             result.append(updated)
         }
@@ -396,6 +399,20 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     @objc func setArchiveLocationAction(_ sender: Any?) {
         guard let chosen = promptForArchiveRoot() else { return }
         _ = model.updateArchiveRoot(chosen)
+    }
+
+    @objc func updateCatalogueAction(_ sender: Any?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.model.rebuildIndexManually()
+        }
+    }
+
+    @objc func analyseLibraryAction(_ sender: Any?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.model.runLibraryAnalysis()
+        }
     }
 
     // MARK: - Sidebar context menus
@@ -734,6 +751,12 @@ extension MainSplitViewController {
         if item.action == #selector(sendToArchiveAction(_:)) {
             return model.pendingArchiveCandidateCount > 0 && !model.isSendingArchive
         }
+        if item.action == #selector(updateCatalogueAction(_:)) {
+            return !model.isIndexing
+        }
+        if item.action == #selector(analyseLibraryAction(_:)) {
+            return !model.isAnalysing
+        }
         if item.action == #selector(openSelectionInPhotos(_:)) {
             return isGallerySidebarSelection && contentController.hasSelectedAssets
         }
@@ -742,6 +765,9 @@ extension MainSplitViewController {
         }
         if item.action == #selector(zoomInAction(_:)) || item.action == #selector(zoomOutAction(_:)) {
             return isGallerySidebarSelection
+        }
+        if item.action == #selector(toggleInspector(_:)) {
+            return true
         }
         return super.validateUserInterfaceItem(item)
     }
