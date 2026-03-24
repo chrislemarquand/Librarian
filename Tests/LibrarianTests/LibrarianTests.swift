@@ -195,26 +195,17 @@ import Foundation
     #expect(migrated?.photoLibraryBinding == nil)
 }
 
-@Test func archiveLibraryBindingEvaluatorReturnsUnboundWhenNoBinding() throws {
+@Test func archiveControlConfigStartsUnboundByDefault() throws {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-bind-unbound-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
 
     #expect(ArchiveSettings.ensureControlFolder(at: root))
-    let evaluation = ArchiveLibraryBindingEvaluator.evaluate(
-        rootURL: root,
-        currentFingerprintProvider: {
-            PhotoLibraryFingerprint(
-                fingerprint: "sha256:current",
-                source: "test",
-                pathHint: "/tmp/Test.photoslibrary"
-            )
-        }
-    )
-    #expect(evaluation.state == .unbound)
+    let config = ArchiveSettings.controlConfig(for: root)
+    #expect(config?.photoLibraryBinding == nil)
 }
 
-@Test func archiveLibraryBindingEvaluatorReturnsMismatchWhenFingerprintDiffers() throws {
+@Test func archiveControlConfigPersistsBindingDetails() throws {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-bind-mismatch-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
@@ -234,20 +225,13 @@ import Foundation
         }
     )
 
-    let evaluation = ArchiveLibraryBindingEvaluator.evaluate(
-        rootURL: root,
-        currentFingerprintProvider: {
-            PhotoLibraryFingerprint(
-                fingerprint: "sha256:current",
-                source: "test",
-                pathHint: "/tmp/Current.photoslibrary"
-            )
-        }
-    )
-    #expect(evaluation.state == .mismatch)
+    let config = ArchiveSettings.controlConfig(for: root)
+    #expect(config?.photoLibraryBinding?.libraryFingerprint == "sha256:bound")
+    #expect(config?.photoLibraryBinding?.libraryPathHint == "/tmp/Bound.photoslibrary")
+    #expect(config?.photoLibraryBinding?.bindingMode == .strict)
 }
 
-@Test func archiveLibraryBindingEvaluatorPersistsLastSeenMatchAtOnMatch() throws {
+@Test func archiveControlConfigPersistsLastSeenMatchAt() throws {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-bind-match-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
@@ -267,20 +251,11 @@ import Foundation
         }
     )
 
-    let evaluation = ArchiveLibraryBindingEvaluator.evaluate(
-        rootURL: root,
-        currentFingerprintProvider: {
-            PhotoLibraryFingerprint(
-                fingerprint: "sha256:same",
-                source: "test",
-                pathHint: "/tmp/Same.photoslibrary"
-            )
-        },
-        persistMatchTimestamp: true,
-        now: now
+    #expect(
+        ArchiveSettings.updateControlConfig(at: root) { config in
+            config.photoLibraryBinding?.lastSeenMatchAt = now
+        }
     )
-    #expect(evaluation.state == .match)
-    #expect(evaluation.didPersistMatchTimestamp)
     let config = ArchiveSettings.controlConfig(for: root)
     #expect(config?.photoLibraryBinding?.lastSeenMatchAt == now)
 }
@@ -346,7 +321,7 @@ import Foundation
     #expect(!AssetIndexer.isWhatsAppFilename("3b159952-8a6a-4fcc-a420-712584139f72.txt"))
 }
 
-@Test func archiveLibraryBindingEvaluatorReturnsUnknownWhenFingerprintUnavailable() throws {
+@Test func archiveControlConfigPersistsBindingPathHint() throws {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("librarian-bind-unknown-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
@@ -365,14 +340,13 @@ import Foundation
         }
     )
 
-    let evaluation = ArchiveLibraryBindingEvaluator.evaluate(
-        rootURL: root,
-        currentFingerprintProvider: {
-            throw PhotoLibraryFingerprintError.noLibraryURLFound
+    #expect(
+        ArchiveSettings.updateControlConfig(at: root) { config in
+            config.photoLibraryBinding?.libraryPathHint = "/tmp/Current.photoslibrary"
         }
     )
-    #expect(evaluation.state == .unknown)
-    #expect(evaluation.reason == "current_library_fingerprint_unavailable")
+    let config = ArchiveSettings.controlConfig(for: root)
+    #expect(config?.photoLibraryBinding?.libraryPathHint == "/tmp/Current.photoslibrary")
 }
 
 @Test func resolveArchiveRootPrefersParentWhenArchiveFolderIsSelected() throws {
@@ -422,9 +396,9 @@ import Foundation
     #expect(resolution.availability == .unavailable)
 }
 
-@Test @MainActor func archiveImportFlowIsBlockedWhenLibraryBindingRequiresResolution() async throws {
+@Test @MainActor func archiveImportFlowFailsWhenArchiveIsNotConfigured() async throws {
     let fm = FileManager.default
-    let root = fm.temporaryDirectory.appendingPathComponent("librarian-gate-import-\(UUID().uuidString)", isDirectory: true)
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-gate-import-unconfigured-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
 
     let defaults = UserDefaults.standard
@@ -442,21 +416,8 @@ import Foundation
             defaults.removeObject(forKey: ArchiveSettings.archiveIDKey)
         }
     }
-
-    #expect(ArchiveSettings.ensureControlFolder(at: root))
-    #expect(ArchiveSettings.persistArchiveRootURL(root))
-    #expect(
-        ArchiveSettings.updateControlConfig(at: root) { config in
-            config.photoLibraryBinding = .init(
-                libraryFingerprint: "sha256:definitely-not-the-current-library-fingerprint",
-                libraryIDSource: "test",
-                libraryPathHint: "/tmp/Bound.photoslibrary",
-                boundAt: Date(timeIntervalSince1970: 1_700_000_000),
-                bindingMode: .strict,
-                lastSeenMatchAt: nil
-            )
-        }
-    )
+    defaults.removeObject(forKey: ArchiveSettings.bookmarkKey)
+    defaults.removeObject(forKey: ArchiveSettings.archiveIDKey)
 
     let model = AppModel()
     let preflight = ArchiveImportPreflightResult(
@@ -469,46 +430,31 @@ import Foundation
 
     do {
         _ = try await model.runArchiveImport(sourceFolders: [], preflight: preflight)
-        Issue.record("Expected runArchiveImport to fail when binding requires resolution")
+        Issue.record("Expected runArchiveImport to fail when Archive is not configured")
     } catch {
         let nsError = error as NSError
         let message = (nsError.userInfo[NSLocalizedDescriptionKey] as? String) ?? ""
-        #expect(message.contains("Resolve") || message.contains("linked") || message.contains("verify"))
+        #expect(message.contains("No Archive destination is configured"))
     }
 }
 
-@Test @MainActor func archivePathBEquivalentWriteFlowIsBlockedWhenLibraryBindingRequiresResolution() async throws {
+@Test @MainActor func sendArchiveCandidatesReturnsEmptyOutcomeWhenNoCandidates() async throws {
     let fm = FileManager.default
-    let root = fm.temporaryDirectory.appendingPathComponent("librarian-gate-export-\(UUID().uuidString)", isDirectory: true)
+    let root = fm.temporaryDirectory.appendingPathComponent("librarian-gate-export-empty-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: root) }
 
     #expect(ArchiveSettings.ensureControlFolder(at: root))
-    #expect(
-        ArchiveSettings.updateControlConfig(at: root) { config in
-            config.photoLibraryBinding = .init(
-                libraryFingerprint: "sha256:definitely-not-the-current-library-fingerprint",
-                libraryIDSource: "test",
-                libraryPathHint: "/tmp/Bound.photoslibrary",
-                boundAt: Date(timeIntervalSince1970: 1_700_000_000),
-                bindingMode: .strict,
-                lastSeenMatchAt: nil
-            )
-        }
-    )
 
     let model = AppModel()
-    do {
-        _ = try await model.sendArchiveCandidatesWithOutcome(
-            to: root,
-            options: .default,
-            localIdentifiers: []
-        )
-        Issue.record("Expected sendArchiveCandidatesWithOutcome to fail when binding requires resolution")
-    } catch {
-        let nsError = error as NSError
-        let message = (nsError.userInfo[NSLocalizedDescriptionKey] as? String) ?? ""
-        #expect(message.contains("Resolve") || message.contains("linked") || message.contains("verify"))
-    }
+    try model.database.open()
+    let outcome = try await model.sendArchiveCandidatesWithOutcome(
+        to: root,
+        options: .default,
+        localIdentifiers: []
+    )
+    #expect(outcome.exportedCount == 0)
+    #expect(outcome.failedCount == 0)
+    #expect(outcome.notDeletedCount == 0)
 }
 
 @Test func windowSubtitlePriorityPrefersActiveOperationsBeforeStatus() {
@@ -520,8 +466,8 @@ import Foundation
         indexingStatusText: "Running (4 / 12)",
         isAnalysing: true,
         analysisStatusText: "Scanning…",
+        pendingAnalysisCount: 5,
         archiveRootAvailability: .unavailable,
-        archiveBindingState: .mismatch,
         statusMessage: "Set Aside: 3 photo(s)."
     )
     #expect(subtitle == "Importing 2 / 10…")
@@ -536,13 +482,13 @@ import Foundation
         indexingStatusText: "Idle",
         isAnalysing: false,
         analysisStatusText: "",
+        pendingAnalysisCount: 0,
         archiveRootAvailability: .unavailable,
-        archiveBindingState: .mismatch,
         statusMessage: "Set Aside: 3 photo(s)."
     )
     #expect(archiveUnavailable == ArchiveSettings.ArchiveRootAvailability.unavailable.userVisibleDescription)
 
-    let bindingMismatch = LibrarianWindowSubtitlePriority.compute(
+    let pendingAnalysis = LibrarianWindowSubtitlePriority.compute(
         isSendingArchive: false,
         isImportingArchive: false,
         importStatusText: "",
@@ -550,11 +496,11 @@ import Foundation
         indexingStatusText: "Idle",
         isAnalysing: false,
         analysisStatusText: "",
+        pendingAnalysisCount: 7,
         archiveRootAvailability: .available,
-        archiveBindingState: .mismatch,
         statusMessage: "Set Aside: 3 photo(s)."
     )
-    #expect(bindingMismatch == "Archive linked to a different photo library.")
+    #expect(pendingAnalysis == "7 photos to analyse")
 
     let statusMessage = LibrarianWindowSubtitlePriority.compute(
         isSendingArchive: false,
@@ -564,8 +510,8 @@ import Foundation
         indexingStatusText: "Idle",
         isAnalysing: false,
         analysisStatusText: "",
+        pendingAnalysisCount: 0,
         archiveRootAvailability: .available,
-        archiveBindingState: .match,
         statusMessage: "Set Aside: 3 photo(s)."
     )
     #expect(statusMessage == "Set Aside: 3 photo(s).")
@@ -686,4 +632,57 @@ import Foundation
     #expect(model.updateArchiveRoot(rootB))
     #expect(model.archiveRootURL?.standardizedFileURL == rootB.standardizedFileURL)
     #expect(model.archiveRootAvailability == .available)
+}
+
+@Test func osxPhotosRunnerReturnsMissingWhenBundledExecutableIsUnavailable() {
+    let runner = OsxPhotosRunner(
+        resolveBundledOsxPhotosExecutableOverride: {
+            throw NSError(domain: "test", code: 1)
+        }
+    )
+
+    let result = runner.run(arguments: ["query", "--json"], includeExifToolEnvironment: false)
+    #expect(result.exitCode == 1)
+    #expect(result.outputText == "Required export components are missing.")
+    #expect(result.executableURL.path == "/usr/bin/false")
+    #expect(result.usedExternalFallback == false)
+}
+
+@Test func osxPhotosRunnerFailsFastWhenBundledExifToolIsMissing() {
+    var didInvokeProcess = false
+    let runner = OsxPhotosRunner(
+        resolveBundledOsxPhotosExecutableOverride: {
+            URL(fileURLWithPath: "/tmp/fake-osxphotos")
+        },
+        resolveBundledExifToolExecutableOverride: {
+            throw NSError(domain: "test", code: 2)
+        },
+        runProcessOverride: { _, _, _, _ in
+            didInvokeProcess = true
+            return (0, "")
+        }
+    )
+
+    let result = runner.run(arguments: ["export", "/tmp/out"], includeExifToolEnvironment: true)
+    #expect(result.exitCode == 1)
+    #expect(result.outputText == "Bundled exiftool is missing.")
+    #expect(result.executableURL.path == "/usr/bin/false")
+    #expect(result.usedExternalFallback == false)
+    #expect(didInvokeProcess == false)
+}
+
+@Test func osxPhotosRunnerDoesNotFallbackExternallyOnPyInstallerSemaphoreError() {
+    let bundledURL = URL(fileURLWithPath: "/tmp/fake-osxphotos")
+    let runner = OsxPhotosRunner(
+        resolveBundledOsxPhotosExecutableOverride: { bundledURL },
+        runProcessOverride: { _, _, _, _ in
+            (7, "failed to initialize sync semaphore")
+        }
+    )
+
+    let result = runner.run(arguments: ["query", "--json"], includeExifToolEnvironment: false)
+    #expect(result.exitCode == 1)
+    #expect(result.executableURL == bundledURL)
+    #expect(result.usedExternalFallback == false)
+    #expect(result.outputText.contains("Bundled osxphotos failed to initialize"))
 }

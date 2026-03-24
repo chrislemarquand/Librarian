@@ -168,10 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let appModel,
-              appModel.isSendingArchive
-                || appModel.isIndexing
+              appModel.isIndexing
                 || appModel.isAnalysisInNonResumableStage
-                || appModel.isImportingArchive
         else {
             return .terminateNow
         }
@@ -183,8 +181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "An operation is still in progress."
-        alert.informativeText = "Quit now? The operation will be interrupted."
+        alert.messageText = "Quit While Work Is In Progress?"
+        alert.informativeText = "Librarian is still updating your Catalogue or analysing your library."
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
 
@@ -288,6 +286,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]
         sendToArchiveItem.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: nil)
         photoMenu.addItem(sendToArchiveItem)
+
+        // Tools menu
+        let toolsItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
+        mainMenu.addItem(toolsItem)
+        let toolsMenu = NSMenu(title: "Tools")
+        toolsItem.submenu = toolsMenu
+        let updateCatalogueItem = NSMenuItem(title: "Update Catalogue", action: #selector(MainSplitViewController.updateCatalogueAction(_:)), keyEquivalent: "")
+        updateCatalogueItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        toolsMenu.addItem(updateCatalogueItem)
+        let analyseLibraryItem = NSMenuItem(title: "Analyse Library", action: #selector(MainSplitViewController.analyseLibraryAction(_:)), keyEquivalent: "")
+        analyseLibraryItem.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
+        toolsMenu.addItem(analyseLibraryItem)
 
         // View menu
         let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")

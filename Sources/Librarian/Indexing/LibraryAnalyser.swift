@@ -324,9 +324,9 @@ private nonisolated func buildNearDuplicateAssignments(entries: [FeaturePrintEnt
         if lhs == rhs { return $0.localIdentifier < $1.localIdentifier }
         return lhs < rhs
     }
-    let unionFind = UnionFind(count: sorted.count)
-    let maxTimeDelta: TimeInterval = 10
+    let maxTimeDelta: TimeInterval = 6
     let distanceThreshold: Float = 1.0
+    var neighbours: [Set<Int>] = Array(repeating: [], count: sorted.count)
 
     for i in 0..<sorted.count {
         let leftPrint = sorted[i].featurePrint
@@ -344,27 +344,71 @@ private nonisolated func buildNearDuplicateAssignments(entries: [FeaturePrintEnt
             }
             var distance: Float = 0
             if (try? leftPrint.computeDistance(&distance, to: rightPrint)) != nil, distance <= distanceThreshold {
-                unionFind.union(i, j)
+                neighbours[i].insert(j)
+                neighbours[j].insert(i)
             }
             j += 1
         }
     }
 
-    var groups: [Int: [Int]] = [:]
-    for index in 0..<sorted.count {
-        groups[unionFind.find(index), default: []].append(index)
+    var visited = Array(repeating: false, count: sorted.count)
+    var components: [[Int]] = []
+    components.reserveCapacity(sorted.count / 2)
+
+    for start in 0..<sorted.count where !visited[start] {
+        guard !neighbours[start].isEmpty else {
+            visited[start] = true
+            continue
+        }
+
+        var stack: [Int] = [start]
+        visited[start] = true
+        var component: [Int] = []
+        while let current = stack.popLast() {
+            component.append(current)
+            for next in neighbours[current] where !visited[next] {
+                visited[next] = true
+                stack.append(next)
+            }
+        }
+        if component.count > 1 {
+            components.append(component.sorted())
+        }
     }
 
     var assignments: [NearDuplicateClusterAssignment] = []
-    for members in groups.values where members.count > 1 {
-        let clusterID = UUID().uuidString
-        for memberIndex in members {
-            assignments.append(
-                NearDuplicateClusterAssignment(
-                    localIdentifier: sorted[memberIndex].localIdentifier,
-                    clusterID: clusterID
+    for component in components {
+        // Split connected components into clique-like groups so chain links
+        // (A~B and B~C) do not force A and C into the same duplicate group.
+        var refinedGroups: [[Int]] = []
+        for candidate in component {
+            var inserted = false
+            for index in refinedGroups.indices {
+                let group = refinedGroups[index]
+                let isCompatible = group.allSatisfy { member in
+                    neighbours[candidate].contains(member)
+                }
+                if isCompatible {
+                    refinedGroups[index].append(candidate)
+                    inserted = true
+                    break
+                }
+            }
+            if !inserted {
+                refinedGroups.append([candidate])
+            }
+        }
+
+        for group in refinedGroups where group.count > 1 {
+            let clusterID = UUID().uuidString
+            for memberIndex in group {
+                assignments.append(
+                    NearDuplicateClusterAssignment(
+                        localIdentifier: sorted[memberIndex].localIdentifier,
+                        clusterID: clusterID
+                    )
                 )
-            )
+            }
         }
     }
     return assignments
@@ -385,38 +429,6 @@ private nonisolated func areComparableDimensions(lhs: FeaturePrintEntry, rhs: Fe
     let rightPixels = Double(rw * rh)
     let areaRatio = max(leftPixels, rightPixels) / max(min(leftPixels, rightPixels), 1)
     return areaRatio <= 1.8
-}
-
-private final class UnionFind {
-    private var parent: [Int]
-    private var rank: [Int]
-
-    init(count: Int) {
-        self.parent = Array(0..<count)
-        self.rank = Array(repeating: 0, count: count)
-    }
-
-    func find(_ x: Int) -> Int {
-        if parent[x] != x {
-            parent[x] = find(parent[x])
-        }
-        return parent[x]
-    }
-
-    func union(_ a: Int, _ b: Int) {
-        let rootA = find(a)
-        let rootB = find(b)
-        guard rootA != rootB else { return }
-
-        if rank[rootA] < rank[rootB] {
-            parent[rootA] = rootB
-        } else if rank[rootA] > rank[rootB] {
-            parent[rootB] = rootA
-        } else {
-            parent[rootB] = rootA
-            rank[rootA] += 1
-        }
-    }
 }
 
 // MARK: - osxphotos subprocess
@@ -440,6 +452,15 @@ nonisolated private func runOsxPhotosQuery() throws -> Data {
         captureStdoutToFile: fullJSONURL,
         includeExifToolEnvironment: false
     )
+    Task { @MainActor in
+        AppLog.shared.info("osxphotos query command: osxphotos query --json")
+        AppLog.shared.info("osxphotos query executable: \(runResult.executableURL.path)")
+        AppLog.shared.info("osxphotos query used external fallback: \(runResult.usedExternalFallback)")
+        AppLog.shared.info("osxphotos query exit code: \(runResult.exitCode)")
+        if !runResult.outputText.isEmpty {
+            AppLog.shared.infoMultiline(prefix: "osxphotos query output", text: runResult.outputText)
+        }
+    }
     guard runResult.exitCode == 0 else {
         let detail = runResult.outputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let message = detail.isEmpty

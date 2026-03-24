@@ -16,36 +16,54 @@ protocol OsxPhotosRunnerProtocol {
 }
 
 struct OsxPhotosRunner: OsxPhotosRunnerProtocol {
+    private let resolveBundledOsxPhotosExecutableOverride: (() throws -> URL)?
+    private let resolveBundledExifToolExecutableOverride: (() throws -> URL)?
+    private let runProcessOverride: ((URL, [String], [String: String]?, URL?) -> (exitCode: Int32, outputText: String))?
+
+    init(
+        resolveBundledOsxPhotosExecutableOverride: (() throws -> URL)? = nil,
+        resolveBundledExifToolExecutableOverride: (() throws -> URL)? = nil,
+        runProcessOverride: ((URL, [String], [String: String]?, URL?) -> (exitCode: Int32, outputText: String))? = nil
+    ) {
+        self.resolveBundledOsxPhotosExecutableOverride = resolveBundledOsxPhotosExecutableOverride
+        self.resolveBundledExifToolExecutableOverride = resolveBundledExifToolExecutableOverride
+        self.runProcessOverride = runProcessOverride
+    }
+
     func run(
         arguments: [String],
         captureStdoutToFile outputURL: URL? = nil,
         includeExifToolEnvironment: Bool
     ) -> OsxPhotosRunResult {
-        let bundledExifTool = includeExifToolEnvironment ? try? resolveBundledExifToolExecutable() : nil
+        let bundledExifTool: URL?
+        if includeExifToolEnvironment {
+            guard let resolvedExifTool = try? resolveBundledExifToolExecutableForRun() else {
+                return OsxPhotosRunResult(
+                    exitCode: 1,
+                    outputText: "Bundled exiftool is missing.",
+                    executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                    usedExternalFallback: false
+                )
+            }
+            bundledExifTool = resolvedExifTool
+        } else {
+            bundledExifTool = nil
+        }
         let processEnvironment = makeOsxPhotosEnvironment(exiftoolExecutableURL: bundledExifTool)
 
-        if let bundledExecutable = try? resolveBundledOsxPhotosExecutable() {
-            let bundledResult = runProcess(
+        if let bundledExecutable = try? resolveBundledOsxPhotosExecutableForRun() {
+            var bundledResult = runProcessForRun(
                 executableURL: bundledExecutable,
                 arguments: arguments,
                 environment: processEnvironment,
                 captureStdoutToFile: outputURL
             )
-            if bundledResult.exitCode != 0,
-               isPyInstallerSemaphoreError(outputText: bundledResult.outputText),
-               let externalExecutable = resolveExternalOsxPhotosExecutable() {
-                let externalResult = runProcess(
-                    executableURL: externalExecutable,
-                    arguments: arguments,
-                    environment: processEnvironment,
-                    captureStdoutToFile: outputURL
-                )
-                return OsxPhotosRunResult(
-                    exitCode: externalResult.exitCode,
-                    outputText: externalResult.outputText,
-                    executableURL: externalExecutable,
-                    usedExternalFallback: true
-                )
+            if bundledResult.exitCode != 0, isPyInstallerSemaphoreError(outputText: bundledResult.outputText) {
+                let suffix = bundledResult.outputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let message = suffix.isEmpty
+                    ? "Bundled osxphotos failed to initialize."
+                    : "Bundled osxphotos failed to initialize: \(suffix)"
+                bundledResult = (1, message)
             }
             return OsxPhotosRunResult(
                 exitCode: bundledResult.exitCode,
@@ -55,26 +73,42 @@ struct OsxPhotosRunner: OsxPhotosRunnerProtocol {
             )
         }
 
-        if let externalExecutable = resolveExternalOsxPhotosExecutable() {
-            let externalResult = runProcess(
-                executableURL: externalExecutable,
-                arguments: arguments,
-                environment: processEnvironment,
-                captureStdoutToFile: outputURL
-            )
-            return OsxPhotosRunResult(
-                exitCode: externalResult.exitCode,
-                outputText: externalResult.outputText,
-                executableURL: externalExecutable,
-                usedExternalFallback: true
-            )
-        }
-
         return OsxPhotosRunResult(
             exitCode: 1,
             outputText: "Required export components are missing.",
             executableURL: URL(fileURLWithPath: "/usr/bin/false"),
             usedExternalFallback: false
+        )
+    }
+
+    private func resolveBundledOsxPhotosExecutableForRun() throws -> URL {
+        if let override = resolveBundledOsxPhotosExecutableOverride {
+            return try override()
+        }
+        return try resolveBundledOsxPhotosExecutable()
+    }
+
+    private func resolveBundledExifToolExecutableForRun() throws -> URL {
+        if let override = resolveBundledExifToolExecutableOverride {
+            return try override()
+        }
+        return try resolveBundledExifToolExecutable()
+    }
+
+    private func runProcessForRun(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String]?,
+        captureStdoutToFile outputURL: URL?
+    ) -> (exitCode: Int32, outputText: String) {
+        if let override = runProcessOverride {
+            return override(executableURL, arguments, environment, outputURL)
+        }
+        return runProcess(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            captureStdoutToFile: outputURL
         )
     }
 
@@ -214,46 +248,4 @@ struct OsxPhotosRunner: OsxPhotosRunnerProtocol {
         return environment
     }
 
-    private func resolveExternalOsxPhotosExecutable() -> URL? {
-        let fm = FileManager.default
-        var candidates = [
-            "/opt/homebrew/bin/osxphotos",
-            "/usr/local/bin/osxphotos",
-            "/usr/bin/osxphotos",
-            NSHomeDirectory() + "/.local/bin/osxphotos"
-        ].map(URL.init(fileURLWithPath:))
-
-        if let pathURL = resolveOsxPhotosFromPATH() {
-            candidates.insert(pathURL, at: 0)
-        }
-
-        for url in candidates where fm.isExecutableFile(atPath: url.path) {
-            return url
-        }
-        return nil
-    }
-
-    private func resolveOsxPhotosFromPATH() -> URL? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["osxphotos"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let path = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !path.isEmpty
-        else {
-            return nil
-        }
-        return URL(fileURLWithPath: path)
-    }
 }

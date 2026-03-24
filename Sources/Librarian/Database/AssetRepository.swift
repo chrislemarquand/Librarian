@@ -546,30 +546,14 @@ final class AssetRepository: @unchecked Sendable {
                 sql: """
                     SELECT a.*
                     FROM asset_active a
-                    WHERE (
-                        (
-                            a.fingerprint IS NOT NULL
-                            AND a.fingerprint IN (
-                                SELECT fingerprint
-                                FROM asset
-                                WHERE isDeletedFromPhotos = 0
-                                  AND fingerprint IS NOT NULL
-                                GROUP BY fingerprint
-                                HAVING COUNT(*) > 1
-                            )
-                        )
-                        OR (
-                            a.nearDuplicateClusterID IS NOT NULL
-                            AND a.nearDuplicateClusterID IN (
-                                SELECT nearDuplicateClusterID
-                                FROM asset
-                                WHERE isDeletedFromPhotos = 0
-                                  AND nearDuplicateClusterID IS NOT NULL
-                                GROUP BY nearDuplicateClusterID
-                                HAVING COUNT(*) > 1
-                            )
-                        )
-                    )
+                    WHERE a.nearDuplicateClusterID IS NOT NULL
+                      AND a.nearDuplicateClusterID IN (
+                        SELECT nearDuplicateClusterID
+                        FROM asset_active
+                        WHERE nearDuplicateClusterID IS NOT NULL
+                        GROUP BY nearDuplicateClusterID
+                        HAVING COUNT(*) > 1
+                      )
                     ORDER BY a.creationDate DESC, a.localIdentifier DESC
                     LIMIT ? OFFSET ?
                 """,
@@ -681,30 +665,14 @@ final class AssetRepository: @unchecked Sendable {
         case .duplicates:
             return try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM asset_active a
-                WHERE (
-                    (
-                        a.fingerprint IS NOT NULL
-                        AND a.fingerprint IN (
-                            SELECT fingerprint
-                            FROM asset
-                            WHERE isDeletedFromPhotos = 0
-                              AND fingerprint IS NOT NULL
-                            GROUP BY fingerprint
-                            HAVING COUNT(*) > 1
-                        )
-                    )
-                    OR (
-                        a.nearDuplicateClusterID IS NOT NULL
-                        AND a.nearDuplicateClusterID IN (
-                            SELECT nearDuplicateClusterID
-                            FROM asset
-                            WHERE isDeletedFromPhotos = 0
-                              AND nearDuplicateClusterID IS NOT NULL
-                            GROUP BY nearDuplicateClusterID
-                            HAVING COUNT(*) > 1
-                        )
-                    )
-                )
+                WHERE a.nearDuplicateClusterID IS NOT NULL
+                  AND a.nearDuplicateClusterID IN (
+                    SELECT nearDuplicateClusterID
+                    FROM asset_active
+                    WHERE nearDuplicateClusterID IS NOT NULL
+                    GROUP BY nearDuplicateClusterID
+                    HAVING COUNT(*) > 1
+                  )
             """) ?? 0
         case .lowQuality:
             return try Int.fetchOne(db, sql: """

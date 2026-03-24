@@ -577,9 +577,11 @@ final class AppModel: ObservableObject {
     private var pendingUnknownReconcileTask: Task<Void, Never>?
     private var pendingLibraryIdentityCheckTask: Task<Void, Never>?
     private var pendingArchiveMonitorTask: Task<Void, Never>?
+    private var pendingAnalysisAutoResumeTask: Task<Void, Never>?
     private var libraryMonitorTimer: Timer?
     private var archiveMonitorTimer: Timer?
     private var isArchiveBackgroundReconcileRunning = false
+    private var hasAutoResumedAnalysisThisLaunch = false
     private var lastObservedArchiveRelativePaths: Set<String> = []
     private var didNotifyArchiveNeedsRelinkForCurrentOutage = false
     private var didNotifyArchiveUnavailableSystemNotificationForCurrentOutage = false
@@ -591,6 +593,8 @@ final class AppModel: ObservableObject {
 
     static let galleryColumnRange = 2 ... 9
     private static let galleryGridLevelKey = "ui.gallery.grid.level"
+    private static let analysisAutoResumeLaunchDelayMilliseconds: UInt64 = 15_000
+    private static let analysisAutoResumeRetryDelayMilliseconds: UInt64 = 45_000
     static let inspectorFieldVisibilityKey = "ui.inspector.field.visibility"
 
     // MARK: - Init
@@ -654,6 +658,10 @@ final class AppModel: ObservableObject {
         checkPhotoLibraryPathAtLaunch()
 
         await requestPhotosAccess()
+        scheduleAnalysisAutoResume(
+            reason: "setupComplete",
+            initialDelayMilliseconds: Self.analysisAutoResumeLaunchDelayMilliseconds
+        )
     }
 
     // MARK: - Photos access
@@ -672,6 +680,10 @@ final class AppModel: ObservableObject {
                 await startInitialIndex()
             } else {
                 AppLog.shared.info("Skipping full launch re-index; existing index count is \(indexedAssetCount)")
+                scheduleAnalysisAutoResume(
+                    reason: "authorizedWithExistingCatalogue",
+                    initialDelayMilliseconds: Self.analysisAutoResumeLaunchDelayMilliseconds
+                )
             }
         case .limited:
             // Limited access: show locked state — full access required
@@ -691,6 +703,11 @@ final class AppModel: ObservableObject {
             registerChangeTracking()
             if indexedAssetCount == 0 {
                 await startInitialIndex()
+            } else {
+                scheduleAnalysisAutoResume(
+                    reason: "retryAuthorizedWithExistingCatalogue",
+                    initialDelayMilliseconds: Self.analysisAutoResumeLaunchDelayMilliseconds
+                )
             }
         } else {
             unregisterChangeTracking()
@@ -766,6 +783,7 @@ final class AppModel: ObservableObject {
         } else if reason == "initial" && !isAnalysing && analysisHasRunBefore && pendingAnalysisCount > 0 {
             Task { await runLibraryAnalysis() }
         }
+        scheduleAnalysisAutoResume(reason: "indexingCompleted:\(reason)")
     }
 
     private func notifyIndexingStateChanged() {
@@ -888,6 +906,7 @@ final class AppModel: ObservableObject {
 
     func runLibraryAnalysis() async {
         guard !isAnalysing else { return }
+        pendingAnalysisAutoResumeTask?.cancel()
         isAnalysing = true
         isAnalysisInNonResumableStage = true
         analysisStatusText = "Analysing…"
@@ -929,6 +948,59 @@ final class AppModel: ObservableObject {
         isAnalysisInNonResumableStage = false
         isAnalysing = false
         refreshAnalysisStatus()
+    }
+
+    private var hasPendingResumableAnalysisWork: Bool {
+        analysisHasRunBefore && pendingAnalysisCount > 0
+    }
+
+    private var canRunAnalysisNow: Bool {
+        !isIndexing && !isImportingArchive && !isSendingArchive && !isAnalysing
+    }
+
+    private var isAutoResumeEnvironmentSuitable: Bool {
+        let processInfo = ProcessInfo.processInfo
+        guard !processInfo.isLowPowerModeEnabled else { return false }
+        switch processInfo.thermalState {
+        case .serious, .critical:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func scheduleAnalysisAutoResume(
+        reason: String,
+        initialDelayMilliseconds: UInt64 = 0
+    ) {
+        guard photosAuthState == .authorized else { return }
+        guard hasPendingResumableAnalysisWork else { return }
+        guard !hasAutoResumedAnalysisThisLaunch else { return }
+
+        pendingAnalysisAutoResumeTask?.cancel()
+        pendingAnalysisAutoResumeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if initialDelayMilliseconds > 0 {
+                try? await Task.sleep(nanoseconds: initialDelayMilliseconds * 1_000_000)
+            }
+
+            while !Task.isCancelled {
+                guard self.photosAuthState == .authorized else { return }
+                guard self.hasPendingResumableAnalysisWork else { return }
+                guard !self.hasAutoResumedAnalysisThisLaunch else { return }
+
+                if self.canRunAnalysisNow && self.isAutoResumeEnvironmentSuitable {
+                    self.hasAutoResumedAnalysisThisLaunch = true
+                    AppLog.shared.info("Auto-resuming library analysis (\(reason))")
+                    await self.runLibraryAnalysis()
+                    return
+                }
+
+                try? await Task.sleep(
+                    nanoseconds: Self.analysisAutoResumeRetryDelayMilliseconds * 1_000_000
+                )
+            }
+        }
     }
 
     private func notifyAnalysisStateChanged() {
@@ -978,6 +1050,7 @@ final class AppModel: ObservableObject {
         importStatusText = "Starting import…"
         defer {
             isImportingArchive = false
+            scheduleAnalysisAutoResume(reason: "archiveImportFinished")
         }
 
         let jobStartedAt = Date()
@@ -1132,6 +1205,7 @@ final class AppModel: ObservableObject {
         defer {
             isSendingArchive = false
             archiveSendStatusText = ""
+            scheduleAnalysisAutoResume(reason: "archiveSendFinished")
         }
 
         let job = try await database.jobRepository.create(type: .archiveExport)
@@ -1344,6 +1418,7 @@ final class AppModel: ObservableObject {
         pendingUnknownReconcileTask?.cancel()
         pendingLibraryIdentityCheckTask?.cancel()
         pendingArchiveMonitorTask?.cancel()
+        pendingAnalysisAutoResumeTask?.cancel()
     }
 
     var currentSystemPhotoLibraryURL: URL? {
@@ -1813,6 +1888,8 @@ nonisolated private func runOsxPhotosExportBatch(
         logInfoAsync("osxphotos command: \(renderShellCommand(arguments: args))")
 
         var result = osxPhotosRunner.run(arguments: args, includeExifToolEnvironment: true)
+        logInfoAsync("osxphotos executable: \(result.executableURL.path)")
+        logInfoAsync("osxphotos used external fallback: \(result.usedExternalFallback)")
         logInfoAsync("osxphotos exit code: \(result.exitCode)")
         if !result.outputText.isEmpty {
             logInfoMultilineAsync(prefix: "osxphotos output", text: result.outputText)
@@ -1821,6 +1898,8 @@ nonisolated private func runOsxPhotosExportBatch(
             args = args.filter { $0 != "--exiftool" }
             logInfoAsync("Retrying osxphotos export without --exiftool")
             result = osxPhotosRunner.run(arguments: args, includeExifToolEnvironment: false)
+            logInfoAsync("osxphotos retry executable: \(result.executableURL.path)")
+            logInfoAsync("osxphotos retry used external fallback: \(result.usedExternalFallback)")
             logInfoAsync("osxphotos retry exit code: \(result.exitCode)")
             if !result.outputText.isEmpty {
                 logInfoMultilineAsync(prefix: "osxphotos retry output", text: result.outputText)

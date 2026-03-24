@@ -56,7 +56,7 @@ func runArchiveRelinkFlow(model: AppModel, presentingWindow: NSWindow?) async {
         case .unresolved:
             let errorAlert = NSAlert()
             errorAlert.alertStyle = .warning
-            errorAlert.messageText = "Archive Not Recognized"
+            errorAlert.messageText = "Archive Not Recognised"
             errorAlert.informativeText = "The selected folder does not appear to contain a Librarian Archive. Select the Archive itself, or its parent folder."
             errorAlert.addButton(withTitle: "OK")
             _ = await errorAlert.runSheetOrModal(for: presentingWindow)

@@ -23,7 +23,6 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         case lowQuality
         case receiptsAndDocuments
         case whatsapp
-        case indexing
     }
 
     let section: SidebarSection
@@ -102,7 +101,6 @@ extension SidebarItem.Kind {
         case .lowQuality: return "lowQuality"
         case .receiptsAndDocuments: return "receiptsAndDocuments"
         case .whatsapp: return "whatsapp"
-        case .indexing: return "indexing"
         }
     }
 
@@ -118,7 +116,6 @@ extension SidebarItem.Kind {
         case .lowQuality: return "lowQuality"
         case .receiptsAndDocuments: return "receiptsAndDocuments"
         case .whatsapp: return "whatsapp"
-        case .indexing: return "indexing"
         }
     }
 }

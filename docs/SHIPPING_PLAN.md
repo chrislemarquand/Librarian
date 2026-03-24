@@ -46,13 +46,10 @@ What remains before shipping:
 
 ---
 
-## Block 4: Cleanup before ship
+## Block 4: Cleanup before ship ✅
 
-- [ ] **10. Move archive services out of ContentController**
-  `ArchiveOrganizer`, `ArchiveIndexer`, `ArchivedThumbnailService` belong in Model layer. Pure reorganisation, no behaviour change.
-
-- [ ] **11. Remove redundant Indexing sidebar item**
-  Indexing state already shown in toolbar/subtitle. The sidebar item shows an empty placeholder.
+- [x] **10. Move archive services out of ContentController** — Extracted `ArchiveOrganizer` (+`ArchiveOrganizationResult`), `ArchiveIndexer` (+`ArchiveIndexRefreshSummary`), and `ArchivedThumbnailService` into separate files in `Sources/Librarian/Model/`. Removed unused `CryptoKit` and `ImageIO` imports from ContentController.
+- [x] **11. Remove redundant Indexing sidebar item** — Removed `.indexing` case from `SidebarItem.Kind` and all switch branches across ContentController, MainSplitViewController, ToolbarDelegate, and AssetRepository. Indexing state remains visible in toolbar subtitle and Settings.
 
 - [ ] **12. Full flow test pass**
   Exercise: index → analyse → browse queues → set aside → export → verify archive → delete from Photos. Repeat on a secondary Photos library to verify the library-changed alert fires.
