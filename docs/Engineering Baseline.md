@@ -16,8 +16,8 @@ This document defines the required engineering baseline for Librarian and Ledger
 
 ## Dependencies
 
-- Cross-repo shared dependencies (for example `SharedUI`) must use remote Git package references pinned to tags.
-- Do not use local path package references on release branches.
+- Current Librarian development mode uses local-path lockstep for `SharedUI` (`.package(path: "../SharedUI")`).
+- Remote/tagged SharedUI references are a release-time action only and must be done explicitly.
 - Commit `Package.resolved` for reproducible builds.
 
 ## Release and Quality Gates

@@ -3,7 +3,7 @@
 ## Read these before doing anything else
 
 1. Read this file fully.
-2. Read `Librarian_Spec_v0_5.md` in this directory for the full product and engineering spec.
+2. Read `SPEC.MD` in this directory for the full product and engineering spec.
 3. Read the Ledger source at `/Users/chrislemarquand/Xcode Projects/Ledger` before writing any window shell, split-view, toolbar, inspector, or navigation code. Understand the patterns and adapt them — do not copy-paste blindly. Ledger's centre pane is list/table-oriented and should not be inherited; reuse the frame, not the purpose.
 
 Do not write any code until you have read all three and confirmed your understanding.
@@ -12,7 +12,7 @@ Do not write any code until you have read all three and confirmed your understan
 
 Librarian is a native macOS companion app for Apple Photos. It helps users reduce a large photo library into a smaller, more meaningful one by providing review queues, safe archival export, and contextual curation. It never permanently deletes anything without archiving and verifying first.
 
-The full spec is in `Librarian_Spec_v0_5.md`.
+The full spec is in `SPEC.MD`.
 
 ## Stack — no deviations without discussion
 
@@ -25,7 +25,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 
 ## Architecture rules
 
-1. PhotoKit is the live runtime interface. osxphotos is invoked only for explicit user-initiated actions — never passively, never as a live data source. Never blur this boundary. Currently approved actions: archive export, library analysis pass (see Key decisions).
+1. PhotoKit is the live runtime interface. osxphotos is never used as a live data source. It is invoked only through the internal runner boundary for archive export and analysis flows (including controlled analysis resume after interruption).
 2. All schema changes are GRDB migrations — named, sequential, append-only, applied at startup before any database access.
 3. Distribution target is direct-download notarized macOS app (Developer ID), not App Store. Keep Hardened Runtime on for release, avoid user-machine tool dependencies, and keep archive access through security-scoped bookmarks.
 4. Nothing is deleted from Photos until: iCloud download complete → export succeeded → verification passed → ArchiveRecord written.
@@ -49,7 +49,7 @@ The full spec is in `Librarian_Spec_v0_5.md`.
 | Explanation snippets | Foundation Models where available, heuristic fallback |
 | Logging | Structured log file in Application Support + os_log, viewable in Tasks/Log pane |
 | Schema migrations | GRDB built-in migration system |
-| osxphotos scope | User-initiated actions only: archive export and library analysis pass. Never passive or automatic. |
+| osxphotos scope | Tool-runner boundary only: archive export and analysis flows (including controlled auto-resume for interrupted analysis). Never used as live browse/index source. |
 | Library analysis — trigger | Offered (non-modal prompt) after initial index completes; re-runnable from Settings. Never a blocking setup step — app must be fully usable without it. |
 | Library analysis — data imported | Quality scores (overall + components), file size in bytes, named-person presence + count, ML content labels, perceptual fingerprint. Specific columns in `asset` table — no full JSON blob storage. |
 | Library analysis — UUID join | osxphotos returns bare UUIDs; `localIdentifier` in GRDB is `UUID/L0/001` format. Strip suffix before joining (same logic as export batch). |
@@ -85,12 +85,7 @@ Reuse: window shell, split-view, toolbar philosophy, inspector pattern, command/
 
 ## Known divergences from spec (must be resolved)
 
-These are places where the current implementation contradicts a locked decision above.
-Do not treat them as design choices — they are bugs to fix.
-
-| Topic | Spec decision | Current behaviour | Where |
-|---|---|---|---|
-| osxphotos invocation boundary | Tool boundary should be isolated and testable | Direct `Process()` subprocess in main app; acceptable for direct distribution, but still architecture debt vs dedicated runner/XPC service | `AppModel.swift` → `runOsxPhotos` |
+None currently tracked here. If a divergence is identified, add it with file-level pointers and treat it as a bug.
 
 ## Logging
 

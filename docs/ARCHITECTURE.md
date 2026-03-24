@@ -5,7 +5,7 @@ Librarian is a macOS-only Photos-library curation and archive workflow app.
 - Deployment target: `macOS 26`
 - Swift language mode: `Swift 6`
 - UI model: AppKit shell with SwiftUI feature surfaces
-- Shared dependency: `SharedUI` (pinned tag)
+- Shared dependency: `SharedUI` (local lockstep path in normal development)
 
 ## Repo structure
 
@@ -109,6 +109,8 @@ Or open it in Console.app by navigating to the path above. `AppLog` is not user-
 
 ## Key docs
 
+- `docs/README.md`
+- `docs/CURRENT_STATE.md`
 - `docs/Engineering Baseline.md`
 - `docs/RELEASE_CHECKLIST.md`
 - `docs/Swift6 Migration Backlog.md`

@@ -2,6 +2,17 @@
 
 All notable changes to Librarian are tracked here.
 
+## 2026-03-24
+
+### Changed
+- Renamed the product spec document to `SPEC.MD` (repo root) and updated primary references.
+- Converged planning docs to a single source: `ROADMAP.md` now replaces the separate shipping-plan document.
+- Added `docs/CURRENT_STATE.md` as the implementation snapshot and `docs/README.md` as the canonical docs index.
+- Aligned core docs (`CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/Engineering Baseline.md`) to current runtime/dependency behaviour.
+
+### Docs
+- Archived superseded planning/handoff/investigation docs under `docs/_archive/2026-03-24-doc-convergence/`.
+
 ## 2026-03-21
 
 ### Added
