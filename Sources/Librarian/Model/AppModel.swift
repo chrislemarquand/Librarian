@@ -994,30 +994,40 @@ final class AppModel: ObservableObject {
         stopArchiveFSEventMonitoring()
         guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else { return }
         let exportRoot = archiveRootForExport(archiveRoot)
-        let fd = open(exportRoot.path, O_EVTONLY)
-        guard fd >= 0 else {
+        guard let source = Self.makeArchiveFSEventSource(path: exportRoot.path, owner: self) else {
             AppLog.shared.error("Cannot open archive root for FSEvents monitoring: \(exportRoot.path)")
             return
         }
+        archiveFSEventSource = source
+        AppLog.shared.info("Started FSEvents monitoring on archive root: \(exportRoot.path)")
+    }
+
+    /// Creates the DispatchSource in a nonisolated context so the event/cancel
+    /// handler closures are not implicitly @MainActor-isolated.
+    private nonisolated static func makeArchiveFSEventSource(
+        path: String,
+        owner: AppModel
+    ) -> DispatchSourceFileSystemObject? {
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .delete, .rename, .extend],
             queue: .global(qos: .utility)
         )
-        source.setEventHandler { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.archiveMonitorInterval = Self.archiveMonitorBaseInterval
-                self.scheduleArchiveMonitorTick(reason: "fsEvent")
-                self.scheduleArchiveMonitorTimer()
+        source.setEventHandler { [weak owner] in
+            DispatchQueue.main.async { [weak owner] in
+                guard let owner else { return }
+                owner.archiveMonitorInterval = Self.archiveMonitorBaseInterval
+                owner.scheduleArchiveMonitorTick(reason: "fsEvent")
+                owner.scheduleArchiveMonitorTimer()
             }
         }
         source.setCancelHandler {
             close(fd)
         }
         source.resume()
-        archiveFSEventSource = source
-        AppLog.shared.info("Started FSEvents monitoring on archive root: \(exportRoot.path)")
+        return source
     }
 
     private func stopArchiveFSEventMonitoring() {
