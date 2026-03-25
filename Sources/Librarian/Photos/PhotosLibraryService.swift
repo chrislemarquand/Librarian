@@ -46,6 +46,18 @@ final class PhotosLibraryService {
         return assets
     }
 
+    /// Fetches multiple assets and returns them keyed by localIdentifier for efficient lookup.
+    func fetchAssetsKeyed(localIdentifiers: [String]) -> [String: PHAsset] {
+        guard !localIdentifiers.isEmpty else { return [:] }
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: localIdentifiers, options: nil)
+        var map: [String: PHAsset] = [:]
+        map.reserveCapacity(fetchResult.count)
+        fetchResult.enumerateObjects { asset, _, _ in
+            map[asset.localIdentifier] = asset
+        }
+        return map
+    }
+
     // MARK: - Thumbnail
 
     func requestThumbnail(

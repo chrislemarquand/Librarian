@@ -61,20 +61,20 @@ extension ContentController: NSCollectionViewDataSource {
 extension ContentController: NSCollectionViewDelegate {}
 extension ContentController: NSCollectionViewPrefetching {
     func collectionView(_ collectionView: NSCollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-        let assets = indexPaths.compactMap { indexPath -> PHAsset? in
+        let identifiers = indexPaths.compactMap { indexPath -> String? in
             guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
-            guard let localIdentifier = displayAssets[indexPath.item].photoIdentifier else { return nil }
-            return model.photosService.fetchAsset(localIdentifier: localIdentifier)
+            return displayAssets[indexPath.item].photoIdentifier
         }
+        let assets = Array(model.photosService.fetchAssetsKeyed(localIdentifiers: identifiers).values)
         model.photosService.startCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
     }
 
     func collectionView(_ collectionView: NSCollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
-        let assets = indexPaths.compactMap { indexPath -> PHAsset? in
+        let identifiers = indexPaths.compactMap { indexPath -> String? in
             guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return nil }
-            guard let localIdentifier = displayAssets[indexPath.item].photoIdentifier else { return nil }
-            return model.photosService.fetchAsset(localIdentifier: localIdentifier)
+            return displayAssets[indexPath.item].photoIdentifier
         }
+        let assets = Array(model.photosService.fetchAssetsKeyed(localIdentifiers: identifiers).values)
         model.photosService.stopCachingThumbnails(for: assets, targetSize: thumbnailTargetSize())
     }
 }
