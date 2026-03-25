@@ -233,37 +233,59 @@ final class AssetRepository: @unchecked Sendable {
 
     func setScreenshotDecision(identifiers: [String], decision: ScreenshotReviewDecision, at date: Date = Date()) throws {
         guard !identifiers.isEmpty else { return }
+        // 3 params per row; SQLite limit ~999 params → batch at 300
+        let batchSize = 300
         try db.write { db in
-            for identifier in identifiers {
+            var offset = 0
+            while offset < identifiers.count {
+                let end = min(offset + batchSize, identifiers.count)
+                let batch = identifiers[offset..<end]
+                let valuePlaceholders = batch.map { _ in "(?, ?, ?)" }.joined(separator: ", ")
+                var arguments = StatementArguments()
+                for identifier in batch {
+                    arguments += [identifier, decision.rawValue, date]
+                }
                 try db.execute(
                     sql: """
                         INSERT INTO screenshot_review (assetLocalIdentifier, decision, decidedAt)
-                        VALUES (?, ?, ?)
+                        VALUES \(valuePlaceholders)
                         ON CONFLICT(assetLocalIdentifier) DO UPDATE SET
                             decision = excluded.decision,
                             decidedAt = excluded.decidedAt
                     """,
-                    arguments: [identifier, decision.rawValue, date]
+                    arguments: arguments
                 )
+                offset = end
             }
         }
     }
 
     func queueForArchive(identifiers: [String], at date: Date = Date()) throws {
         guard !identifiers.isEmpty else { return }
+        // 3 params per row (4th is literal NULL); batch at 300
+        let batchSize = 300
         try db.write { db in
-            for identifier in identifiers {
+            var offset = 0
+            while offset < identifiers.count {
+                let end = min(offset + batchSize, identifiers.count)
+                let batch = identifiers[offset..<end]
+                let valuePlaceholders = batch.map { _ in "(?, ?, ?, NULL)" }.joined(separator: ", ")
+                var arguments = StatementArguments()
+                for identifier in batch {
+                    arguments += [identifier, ArchiveCandidateStatus.pending.rawValue, date]
+                }
                 try db.execute(
                     sql: """
                         INSERT INTO archive_candidate (assetLocalIdentifier, status, queuedAt, lastError)
-                        VALUES (?, ?, ?, NULL)
+                        VALUES \(valuePlaceholders)
                         ON CONFLICT(assetLocalIdentifier) DO UPDATE SET
                             status = excluded.status,
                             queuedAt = excluded.queuedAt,
                             lastError = NULL
                     """,
-                    arguments: [identifier, ArchiveCandidateStatus.pending.rawValue, date]
+                    arguments: arguments
                 )
+                offset = end
             }
         }
     }
