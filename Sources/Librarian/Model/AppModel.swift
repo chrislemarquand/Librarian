@@ -71,7 +71,14 @@ final class AppModel: ObservableObject {
     private var pendingArchiveMonitorTask: Task<Void, Never>?
     private var pendingAnalysisAutoResumeTask: Task<Void, Never>?
     private var libraryMonitorTimer: Timer?
+    private var libraryMonitorInterval: TimeInterval = 60
+    private static let libraryMonitorBaseInterval: TimeInterval = 60
+    private static let libraryMonitorMaxInterval: TimeInterval = 300
     private var archiveMonitorTimer: Timer?
+    private var archiveMonitorInterval: TimeInterval = 120
+    private static let archiveMonitorBaseInterval: TimeInterval = 120
+    private static let archiveMonitorMaxInterval: TimeInterval = 600
+    private var archiveFSEventSource: DispatchSourceFileSystemObject?
     private var isArchiveBackgroundReconcileRunning = false
     private var hasAutoResumedAnalysisThisLaunch = false
     private var lastObservedArchiveRelativePaths: Set<String> = []
@@ -145,9 +152,6 @@ final class AppModel: ObservableObject {
         startArchiveMonitoring()
         scheduleSystemPhotoLibraryRefresh(reason: "startup", debounceMilliseconds: 0)
         scheduleArchiveMonitorTick(reason: "startup", debounceMilliseconds: 0)
-
-        // Simple library path check: warn if the Photos library changed since last use.
-        checkPhotoLibraryPathAtLaunch()
 
         await requestPhotosAccess()
         scheduleAnalysisAutoResume(
@@ -372,6 +376,7 @@ final class AppModel: ObservableObject {
         let didChange = previous != current || previousURL != currentURL
         if didChange {
             lastObservedArchiveRelativePaths.removeAll()
+            startArchiveFSEventMonitoring()
             NotificationCenter.default.post(name: .librarianArchiveRootChanged, object: nil)
             NotificationCenter.default.post(name: .librarianArchiveQueueChanged, object: nil)
             scheduleArchiveMonitorTick(reason: "archiveRootChanged", debounceMilliseconds: 0)
@@ -918,39 +923,6 @@ final class AppModel: ObservableObject {
         return URL(fileURLWithPath: path)
     }
 
-    /// At launch, compare the current system photo library path against the path
-    /// stored in the archive config. If they differ, post a notification so
-    /// AppDelegate can show a simple two-button alert.
-    private func checkPhotoLibraryPathAtLaunch() {
-        guard archiveRootAvailability == .available,
-              let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
-              let config = ArchiveSettings.controlConfig(for: archiveRoot),
-              let storedPath = config.photoLibraryBinding?.libraryPathHint,
-              !storedPath.isEmpty
-        else { return }
-
-        guard let currentPath = ArchiveSettings.currentPhotoLibraryPath(),
-              !currentPath.isEmpty
-        else { return }
-
-        let stored = URL(fileURLWithPath: storedPath).standardizedFileURL.path
-        let current = URL(fileURLWithPath: currentPath).standardizedFileURL.path
-        guard stored != current else { return }
-
-        let storedName = URL(fileURLWithPath: storedPath).deletingPathExtension().lastPathComponent
-        let currentName = URL(fileURLWithPath: currentPath).deletingPathExtension().lastPathComponent
-        AppLog.shared.info("Photo library changed: \(storedName) → \(currentName)")
-        NotificationCenter.default.post(
-            name: .librarianPhotoLibraryChanged,
-            object: nil,
-            userInfo: [
-                "storedName": storedName,
-                "currentName": currentName,
-                "currentPath": currentPath,
-            ]
-        )
-    }
-
     func scheduleSystemPhotoLibraryRefresh(reason: String, debounceMilliseconds: UInt64 = 450) {
         pendingLibraryIdentityCheckTask?.cancel()
         pendingLibraryIdentityCheckTask = Task { @MainActor [weak self] in
@@ -965,20 +937,92 @@ final class AppModel: ObservableObject {
 
     private func startSystemPhotoLibraryMonitoring() {
         guard libraryMonitorTimer == nil else { return }
-        libraryMonitorTimer = Timer.scheduledTimer(withTimeInterval: 6.0, repeats: true) { [weak self] _ in
+        scheduleLibraryMonitorTimer()
+    }
+
+    private func scheduleLibraryMonitorTimer() {
+        libraryMonitorTimer?.invalidate()
+        let interval = libraryMonitorInterval
+        libraryMonitorTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.scheduleSystemPhotoLibraryRefresh(reason: "periodicPoll")
+                guard let self else { return }
+                let previousPath = self.currentSystemPhotoLibraryPath
+                self.scheduleSystemPhotoLibraryRefresh(reason: "periodicPoll")
+                // Adaptive backoff: if nothing changed, double the interval
+                if self.currentSystemPhotoLibraryPath == previousPath {
+                    self.libraryMonitorInterval = min(
+                        self.libraryMonitorInterval * 2,
+                        Self.libraryMonitorMaxInterval
+                    )
+                } else {
+                    self.libraryMonitorInterval = Self.libraryMonitorBaseInterval
+                }
+                self.scheduleLibraryMonitorTimer()
             }
         }
     }
 
     private func startArchiveMonitoring() {
         guard archiveMonitorTimer == nil else { return }
-        archiveMonitorTimer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: true) { [weak self] _ in
+        startArchiveFSEventMonitoring()
+        scheduleArchiveMonitorTimer()
+    }
+
+    private func scheduleArchiveMonitorTimer() {
+        archiveMonitorTimer?.invalidate()
+        let interval = archiveMonitorInterval
+        archiveMonitorTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.scheduleArchiveMonitorTick(reason: "periodicPoll")
+                guard let self else { return }
+                let previousPaths = self.lastObservedArchiveRelativePaths
+                self.scheduleArchiveMonitorTick(reason: "fallbackPoll")
+                // Adaptive backoff: if nothing changed, double the interval
+                if self.lastObservedArchiveRelativePaths == previousPaths {
+                    self.archiveMonitorInterval = min(
+                        self.archiveMonitorInterval * 2,
+                        Self.archiveMonitorMaxInterval
+                    )
+                } else {
+                    self.archiveMonitorInterval = Self.archiveMonitorBaseInterval
+                }
+                self.scheduleArchiveMonitorTimer()
             }
         }
+    }
+
+    private func startArchiveFSEventMonitoring() {
+        stopArchiveFSEventMonitoring()
+        guard let archiveRoot = ArchiveSettings.restoreArchiveRootURL() else { return }
+        let exportRoot = archiveRootForExport(archiveRoot)
+        let fd = open(exportRoot.path, O_EVTONLY)
+        guard fd >= 0 else {
+            AppLog.shared.error("Cannot open archive root for FSEvents monitoring: \(exportRoot.path)")
+            return
+        }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename, .extend],
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.archiveMonitorInterval = Self.archiveMonitorBaseInterval
+                self.scheduleArchiveMonitorTick(reason: "fsEvent")
+                self.scheduleArchiveMonitorTimer()
+            }
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        archiveFSEventSource = source
+        AppLog.shared.info("Started FSEvents monitoring on archive root: \(exportRoot.path)")
+    }
+
+    private func stopArchiveFSEventMonitoring() {
+        archiveFSEventSource?.cancel()
+        archiveFSEventSource = nil
     }
 
     private func scheduleArchiveMonitorTick(reason: String, debounceMilliseconds: UInt64 = 650) {
@@ -1074,6 +1118,18 @@ final class AppModel: ObservableObject {
         let previousPath = currentSystemPhotoLibraryPath
         let nextPath = ArchiveSettings.currentPhotoLibraryPath()
         currentSystemPhotoLibraryPath = nextPath
+
+        // Stamp the config with the current library path if not yet recorded,
+        // so future changes can be detected.
+        if let nextPath,
+           let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
+           let config = ArchiveSettings.controlConfig(for: archiveRoot),
+           config.lastKnownPhotoLibraryPath == nil {
+            ArchiveSettings.updateControlConfig(at: archiveRoot) { config in
+                config.lastKnownPhotoLibraryPath = nextPath
+            }
+        }
+
         if previousPath != nextPath {
             NotificationCenter.default.post(name: .librarianSystemPhotoLibraryChanged, object: nil)
         }
