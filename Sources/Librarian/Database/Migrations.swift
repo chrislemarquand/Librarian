@@ -292,5 +292,10 @@ enum LibrarianMigrations {
                 t.add(column: "skippedExistsInArchive", .integer).notNull().defaults(to: 0)
             }
         }
+
+        migrator.registerMigration("v19_add_performance_indexes") { db in
+            try db.create(index: "asset_isFavorite", on: "asset", columns: ["isFavorite"])
+            try db.create(index: "asset_isDeletedFromPhotos_mediaType", on: "asset", columns: ["isDeletedFromPhotos", "mediaType"])
+        }
     }
 }
