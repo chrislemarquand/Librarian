@@ -116,13 +116,7 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
                 action: #selector(MainSplitViewController.toggleInspector(_:)),
                 toolTip: label
             )
-            item.autovalidates = false
-            item.isEnabled = true
             inspectorToggleItem = item
-
-            if let model = splitVC?.model {
-                updateInspectorToggle(model: model)
-            }
             return item
 
         case .librarianZoomOut:
