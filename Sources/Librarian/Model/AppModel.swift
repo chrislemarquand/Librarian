@@ -1005,7 +1005,7 @@ final class AppModel: ObservableObject {
             queue: .global(qos: .utility)
         )
         source.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.archiveMonitorInterval = Self.archiveMonitorBaseInterval
                 self.scheduleArchiveMonitorTick(reason: "fsEvent")
