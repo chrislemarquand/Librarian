@@ -787,6 +787,30 @@ final class ContentController: NSViewController {
         let focusedID = selectedAssets.first?.id
         updateQuickLookArtifacts()
 
+        // Pre-materialize Quick Look URLs: archived items resolve instantly,
+        // photo assets need image data which we do off the main thread.
+        let photosToMaterialize = selectedAssets.compactMap { asset -> String? in
+            if quickLookDisplayURLByID[asset.id] != nil { return nil }
+            if quickLookUnavailableIDs.contains(asset.id) { return nil }
+            guard let photoID = asset.photoIdentifier else {
+                // Archived asset — resolve synchronously (just a file path check)
+                _ = quickLookDisplayURL(for: asset)
+                return nil
+            }
+            return photoID
+        }
+
+        if photosToMaterialize.isEmpty {
+            presentQuickLookPanel(sourceIDs: sourceIDs, focusedID: focusedID, selectedAssets: selectedAssets)
+        } else {
+            Task {
+                await materializePhotoAssetsForQuickLook(localIdentifiers: photosToMaterialize)
+                presentQuickLookPanel(sourceIDs: sourceIDs, focusedID: focusedID, selectedAssets: selectedAssets)
+            }
+        }
+    }
+
+    private func presentQuickLookPanel(sourceIDs: [String], focusedID: String?, selectedAssets: [DisplayAsset]) {
         var availableCount = 0
         for asset in selectedAssets {
             if quickLookDisplayURL(for: asset) != nil {
@@ -842,6 +866,68 @@ final class ContentController: NSViewController {
         return resolved
     }
 
+    /// Pre-materializes photo assets for Quick Look off the main thread.
+    private func materializePhotoAssetsForQuickLook(localIdentifiers: [String]) async {
+        let directoryURL = ensureQuickLookTempDirectory()
+        guard let directoryURL else { return }
+
+        let assets = model.photosService.fetchAssetsKeyed(localIdentifiers: localIdentifiers)
+        await withTaskGroup(of: (String, URL?).self) { group in
+            for (identifier, asset) in assets {
+                guard asset.mediaType == .image else { continue }
+                group.addTask {
+                    let url = await self.materializeSinglePhotoAsset(asset: asset, directoryURL: directoryURL)
+                    return (identifier, url)
+                }
+            }
+            for await (identifier, url) in group {
+                if let url {
+                    // Build the DisplayAsset ID the same way quickLookDisplayURL does
+                    let displayID = identifier
+                    quickLookDisplayURLByID[displayID] = url
+                } else {
+                    quickLookUnavailableIDs.insert(identifier)
+                }
+            }
+        }
+    }
+
+    private nonisolated func materializeSinglePhotoAsset(asset: PHAsset, directoryURL: URL) async -> URL? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.isSynchronous = false
+            options.deliveryMode = .highQualityFormat
+            options.resizeMode = .none
+            options.isNetworkAccessAllowed = false
+
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, dataUTI, _, info in
+                if let isInCloud = info?[PHImageResultIsInCloudKey] as? Bool, isInCloud, data == nil {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                guard let data, !data.isEmpty else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let ext: String = {
+                    if let uti = dataUTI, let type = UTType(uti), let preferred = type.preferredFilenameExtension {
+                        return preferred
+                    }
+                    return "jpg"
+                }()
+                let outputURL = directoryURL.appendingPathComponent("\(UUID().uuidString).\(ext)", isDirectory: false)
+                do {
+                    try data.write(to: outputURL, options: .atomic)
+                    continuation.resume(returning: outputURL)
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// Legacy synchronous path used only by the QL coordinator's displayURLForSource callback.
     private func materializePhotoAssetForQuickLook(localIdentifier: String) -> URL? {
         guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else { return nil }
         if asset.mediaType != .image { return nil }
@@ -863,18 +949,8 @@ final class ContentController: NSViewController {
         }
 
         guard let data = resultData, !data.isEmpty else { return nil }
-        let fileManager = FileManager.default
-        let directoryURL: URL
-        if let existing = quickLookTempDirectoryURL {
-            directoryURL = existing
-        } else {
-            let created = fileManager.temporaryDirectory
-                .appendingPathComponent("librarian-quicklook", isDirectory: true)
-                .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            try? fileManager.createDirectory(at: created, withIntermediateDirectories: true)
-            quickLookTempDirectoryURL = created
-            directoryURL = created
-        }
+        let directoryURL = ensureQuickLookTempDirectory()
+        guard let directoryURL else { return nil }
 
         let ext: String = {
             if let uti = resultUTI, let type = UTType(uti), let preferred = type.preferredFilenameExtension {
@@ -890,6 +966,16 @@ final class ContentController: NSViewController {
             AppLog.shared.error("Failed to materialize Quick Look file: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func ensureQuickLookTempDirectory() -> URL? {
+        if let existing = quickLookTempDirectoryURL { return existing }
+        let created = FileManager.default.temporaryDirectory
+            .appendingPathComponent("librarian-quicklook", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: created, withIntermediateDirectories: true)
+        quickLookTempDirectoryURL = created
+        return created
     }
 
     private func cleanupQuickLookSession() {
