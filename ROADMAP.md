@@ -38,11 +38,9 @@ This is the single planning document for Librarian. It replaces `docs/SHIPPING_P
 
 ## Remaining Before v1 Ship
 
-1. Full manual flow validation pass on primary and secondary Photos libraries:
+1. Full manual flow validation pass on primary Photos library:
    - index -> analyse -> review queues -> set aside -> export -> verify Archive -> delete from Photos.
-2. Duplicates quality tuning validation on real libraries (false-positive/false-negative sampling after threshold updates).
-3. Final copy polish sweep (UK English, HIG tone, Archive/Catalogue consistency).
-4. Release dry run using release scripts and checklist, including `./scripts/release/trust_boundary_smoke.sh`.
+2. Release dry run using release scripts and checklist, including `./scripts/release/trust_boundary_smoke.sh`.
 
 ## Out of Scope for v1
 

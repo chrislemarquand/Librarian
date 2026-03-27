@@ -256,7 +256,7 @@ enum OsxPhotosLibraryResolver {
 
         if let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
            let config = ArchiveSettings.controlConfig(for: archiveRoot),
-           let pathHint = config.photoLibraryBinding?.libraryPathHint,
+           let pathHint = config.lastKnownPhotoLibraryPath,
            !pathHint.isEmpty,
            fileManager.fileExists(atPath: pathHint) {
             return URL(fileURLWithPath: pathHint).standardizedFileURL.path

@@ -56,7 +56,7 @@ The full spec is in `SPEC.MD`.
 | Library analysis — UUID join | osxphotos returns bare UUIDs; `localIdentifier` in GRDB is `UUID/L0/001` format. Strip suffix before joining (same logic as export batch). |
 | Library analysis — staleness | Display "last analysed" date in Settings (and near any score-dependent queue). Offer refresh if asset count has grown significantly but do not nag. |
 | Low Quality queue | Hidden (not greyed out) until analysis has been run at least once. Show one-line explanation and direct link to run analysis if user navigates to where it will appear. |
-| Multi-library handling | Simple launch-time path comparison. No fingerprinting, no binding evaluator, no write gate. If the Photos library path changed since last use, show an informational alert. No blocking of archive operations. |
+| Photo library scope | PhotoKit always connects to the System Photo Library. No multi-library support. If the system library path changes at runtime, show an informational alert suggesting the user check their Archive location. |
 
 ## Build order
 

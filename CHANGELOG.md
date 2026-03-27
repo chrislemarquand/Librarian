@@ -4,17 +4,64 @@ All notable changes to Librarian are tracked here.
 
 ## 2026-03-24
 
+### Added
+- Archive exact deduplication across import, organise, export, and monitor flows (SHA-256 fingerprint matching with canonical path tracking and duplicate event audit trail).
+- Archive dedupe observability in Settings and notice bar.
+- Analysis-in-progress placeholder states in empty queue views with direct link to run analysis.
+- Notice bar integration for archive organisation and analysis messaging.
+- Trust-boundary smoke gate script (`./scripts/release/trust_boundary_smoke.sh`).
+- Gallery zoom transition support via SharedUI.
+- First-run welcome screen with post-index analysis chain.
+
 ### Changed
-- Renamed the product spec document to `SPEC.MD` (repo root) and updated primary references.
-- Converged planning docs to a single source: `ROADMAP.md` now replaces the separate shipping-plan document.
-- Added `docs/CURRENT_STATE.md` as the implementation snapshot and `docs/README.md` as the canonical docs index.
-- Aligned core docs (`CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/Engineering Baseline.md`) to current runtime/dependency behaviour.
-- Tightened `SPEC.MD` + `CLAUDE.md` alignment so spec intent, execution priorities, and implementation snapshot references are explicit and consistent.
+- Simplified photo library handling: removed multi-library binding/fingerprint system; Librarian always uses the System Photo Library. Runtime path change still triggers an informational alert.
+- Rewrote user-facing copy to Catalogue/Archive terminology with UK English throughout.
+- Corrected export defaults and removed alternate `kindThenDate` folder layout; canonical layout is `YYYY/MM/DD` only.
+- Tightened near-duplicate matching thresholds for better precision on real libraries.
+- Batched sidebar badge counts into a single database query for faster updates.
+- Split large model and controller files into focused modules.
+- Near-duplicate clustering now runs against the full dataset.
+- Removed gallery bottom action bar UI.
+- Removed unused Vision requests from analysis pipeline.
+- Streamlined analysis status text to hide implementation detail.
+
+### Fixed
+- Window sizing regression: `NSHostingView` for the gallery placeholder propagated SwiftUI intrinsic size through Auto Layout, collapsing the window to toolbar height on first show. Replaced with `NSHostingController` using `sizingOptions = []`.
+- Open in Photos now reliably reveals the selected item.
+- Passed explicit `--library` path to bundled osxphotos so it targets the correct Photos library.
+- Hardened bundled osxphotos diagnostics for better error reporting.
+- Eliminated main-thread hangs during analysis.
+- Inspector toggle state now updates correctly after analysis.
+- Notification click now focuses the existing window instead of doing nothing.
+
+### Tests
+- Split test coverage by domain (archive boundary, config, import, osxphotos runner, app model).
 
 ### Docs
-- Archived superseded planning/handoff/investigation docs under `docs/_archive/2026-03-24-doc-convergence/`.
-- Archived stale root-level handoff/planning docs under `docs/_archive/2026-03-24-root-docs-sweep/`.
-- Consolidated archived docs into a single local `docs/_archive/` folder and git-ignored it to keep historical scratch docs out of repository history.
+- Converged planning docs to a single source: `ROADMAP.md` replaces the separate shipping-plan document.
+- Added `docs/CURRENT_STATE.md` as the implementation snapshot.
+- Archived superseded docs under `docs/_archive/` (git-ignored).
+
+## 2026-03-22 – 2026-03-23
+
+### Added
+- Vision analysis is now resumable after interruption; progress picks up where it left off.
+- Sidebar queue reordering with persisted order via SharedUI callback.
+- SF Symbols added to all menu bar and sidebar context menu items.
+- First-run welcome screen with archive location picker and post-index analysis prompt.
+
+### Changed
+- Adopted SharedUI toolbar shell and window frame persistence.
+- Toolbar appearance now updates correctly on light/dark mode switch.
+- Toolbar items (`Set Aside`, `Put Back`, `Send to Archive`) use bordered style.
+- Refined box classification heuristics and removed the "keep" concept.
+- Analysis status copy unified under "Analysing" label.
+
+### Fixed
+- Welcome sheet now dismisses correctly on "Get Started".
+- Spinner no longer persists after analysis completes.
+- Selection restored after Set Aside action.
+- Toolbar appearance adapter moved to correct lifecycle stage to avoid flicker.
 
 ## 2026-03-21
 

@@ -80,31 +80,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NotificationCenter.default.addObserver(
-            forName: .librarianPhotoLibraryChanged,
+            forName: .librarianSystemPhotoLibraryChanged,
             object: nil,
             queue: .main
-        ) { [weak self] notification in
-            let storedName = notification.userInfo?["storedName"] as? String ?? "Unknown"
-            let currentName = notification.userInfo?["currentName"] as? String ?? "Unknown"
-            let currentPath = notification.userInfo?["currentPath"] as? String
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard let currentPath = ArchiveSettings.currentPhotoLibraryPath(),
+                      let archiveRoot = ArchiveSettings.restoreArchiveRootURL(),
+                      let config = ArchiveSettings.controlConfig(for: archiveRoot),
+                      let storedPath = config.lastKnownPhotoLibraryPath,
+                      !storedPath.isEmpty else { return }
 
+                let stored = URL(fileURLWithPath: storedPath).standardizedFileURL.path
+                let current = URL(fileURLWithPath: currentPath).standardizedFileURL.path
+                guard stored != current else { return }
+
+                let currentName = URL(fileURLWithPath: currentPath).deletingPathExtension().lastPathComponent
                 let alert = NSAlert()
                 alert.alertStyle = .informational
                 alert.messageText = "Photos Library Changed"
-                alert.informativeText = "Your system Photos Library has changed from \"\(storedName)\" to \"\(currentName)\".\n\nYou may want to create a new Archive for this library, or switch back to the previous library in Photos preferences."
+                alert.informativeText = "Your system Photos Library is now \"\(currentName)\".\n\nYou may want to choose a different Archive location for this library."
                 alert.addButton(withTitle: "OK")
                 _ = await alert.runSheetOrModal(
                     for: self.mainWindowController?.window
                 )
 
-                // Update the stored path hint so this alert doesn't fire again.
-                if let currentPath,
-                   let archiveRoot = ArchiveSettings.restoreArchiveRootURL() {
-                    ArchiveSettings.updateControlConfig(at: archiveRoot) { config in
-                        config.photoLibraryBinding?.libraryPathHint = currentPath
-                    }
+                ArchiveSettings.updateControlConfig(at: archiveRoot) { config in
+                    config.lastKnownPhotoLibraryPath = currentPath
                 }
             }
         }

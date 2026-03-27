@@ -74,25 +74,11 @@ enum ArchiveSettings {
         var createdByVersion: String
         var layoutMode: String
         var paths: Paths
-        var photoLibraryBinding: PhotoLibraryBinding?
+        var lastKnownPhotoLibraryPath: String?
 
         struct Paths: Codable {
             var thumbnails: String
             var reports: String
-        }
-
-        struct PhotoLibraryBinding: Codable, Equatable {
-            enum BindingMode: String, Codable {
-                case strict
-                case advisory
-            }
-
-            var libraryFingerprint: String
-            var libraryIDSource: String
-            var libraryPathHint: String?
-            var boundAt: Date
-            var bindingMode: BindingMode
-            var lastSeenMatchAt: Date?
         }
     }
 
@@ -195,7 +181,7 @@ enum ArchiveSettings {
                 thumbnails: "thumbnails",
                 reports: "reports"
             ),
-            photoLibraryBinding: nil
+            lastKnownPhotoLibraryPath: nil
         )
         try writeControlConfig(config, to: configURL)
     }
