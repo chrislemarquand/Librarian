@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                 viewController: ArchiveSettingsViewController(model: model)),
             SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",
-                viewController: InspectorSettingsViewController(model: model), preferredHeight: 520),
+                viewController: InspectorSettingsViewController(model: model), preferredHeight: 520, preferredWidth: 490),
         ])
         let windowController = MainWindowController(model: model)
         mainWindowController = windowController
