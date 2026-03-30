@@ -122,39 +122,6 @@ extension ContentController {
         quickLookSourceFrames = updatedFrames
     }
 
-    func handleModifiedItemClick(indexPath: IndexPath, modifiers: NSEvent.ModifierFlags) {
-        guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return }
-        let hasCommand = modifiers.contains(.command)
-        let hasShift = modifiers.contains(.shift)
-        let clicked = indexPath.item
-
-        var nextSelection = collectionView.selectionIndexPaths
-        if hasShift {
-            let anchor = selectionAnchorIndex ?? collectionView.selectionIndexPaths.first?.item ?? clicked
-            let range = min(anchor, clicked)...max(anchor, clicked)
-            let rangeSelection = Set(range.map { IndexPath(item: $0, section: 0) })
-            if hasCommand {
-                nextSelection.formUnion(rangeSelection)
-            } else {
-                nextSelection = rangeSelection
-            }
-            selectionAnchorIndex = anchor
-        } else if hasCommand {
-            let clickedPath = IndexPath(item: clicked, section: 0)
-            if nextSelection.contains(clickedPath) {
-                nextSelection.remove(clickedPath)
-            } else {
-                nextSelection.insert(clickedPath)
-            }
-            selectionAnchorIndex = clicked
-        }
-
-        collectionView.selectionIndexPaths = nextSelection
-        collectionView.scrollToItems(at: [IndexPath(item: clicked, section: 0)], scrollPosition: .nearestVerticalEdge)
-        syncModelSelectionFromCollection()
-        updateQuickLookArtifacts()
-    }
-
     func moveSelection(_ direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) {
         guard !displayAssets.isEmpty else { return }
         let current = collectionView.selectionIndexPaths.map(\.item).sorted()

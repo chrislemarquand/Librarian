@@ -126,9 +126,6 @@ final class ContentController: NSViewController {
             self.selectionAnchorIndex = nil
             self.model.setSelectedAsset(nil)
         }
-        collectionView.onModifiedItemClick = { [weak self] indexPath, modifiers in
-            self?.handleModifiedItemClick(indexPath: indexPath, modifiers: modifiers)
-        }
         collectionView.onMoveSelection = { [weak self] (direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) in
             self?.moveSelection(direction, extendingSelection: extendingSelection)
         }
