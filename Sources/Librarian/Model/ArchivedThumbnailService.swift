@@ -1,6 +1,5 @@
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
+import SharedUI
 
 final class ArchivedThumbnailService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "\(AppBrand.identifierPrefix).archived-thumbnails", qos: .utility)
@@ -44,29 +43,28 @@ final class ArchivedThumbnailService: @unchecked Sendable {
         let sourceURL = URL(fileURLWithPath: item.absolutePath)
         let thumbnailURL = archiveTreeRoot.appendingPathComponent(item.thumbnailRelativePath, isDirectory: false)
 
+        // Return disk-cached thumbnail if available.
         if fileManager.fileExists(atPath: thumbnailURL.path), let cachedImage = NSImage(contentsOf: thumbnailURL) {
             return cachedImage
         }
 
-        guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil) else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(maxPixelSize, 64)
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        // Generate fresh thumbnail via SharedUI.
+        guard let image = ThumbnailGenerator.generateOrientedThumbnail(
+            fileURL: sourceURL,
+            maxPixelSize: CGFloat(max(maxPixelSize, 64))
+        ) else {
             return nil
         }
 
+        // Persist to archive-relative disk cache.
         let directoryURL = thumbnailURL.deletingLastPathComponent()
         try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        if let destination = CGImageDestinationCreateWithURL(thumbnailURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil) {
-            CGImageDestinationAddImage(destination, cgImage, [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary)
-            _ = CGImageDestinationFinalize(destination)
+        if let tiff = image.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiff),
+           let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.82]) {
+            try? jpeg.write(to: thumbnailURL, options: .atomic)
         }
 
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        return image
     }
 }
