@@ -43,8 +43,10 @@ final class ArchivedThumbnailService: @unchecked Sendable {
         let sourceURL = URL(fileURLWithPath: item.absolutePath)
         let thumbnailURL = archiveTreeRoot.appendingPathComponent(item.thumbnailRelativePath, isDirectory: false)
 
-        // Return disk-cached thumbnail if available.
-        if fileManager.fileExists(atPath: thumbnailURL.path), let cachedImage = NSImage(contentsOf: thumbnailURL) {
+        // Return disk-cached thumbnail if available and not stale.
+        if fileManager.fileExists(atPath: thumbnailURL.path),
+           !ThumbnailGenerator.isDiskCacheStale(sourceURL: sourceURL, cacheURL: thumbnailURL),
+           let cachedImage = NSImage(contentsOf: thumbnailURL) {
             return cachedImage
         }
 
