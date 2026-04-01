@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsTabDescriptor(symbolName: "archivebox", label: "Archive",
                 viewController: ArchiveSettingsViewController(model: model)),
             SettingsTabDescriptor(symbolName: "sidebar.right", label: "Inspector",
-                viewController: InspectorSettingsViewController(model: model), preferredHeight: 520, preferredWidth: 490),
+                viewController: InspectorSettingsViewController(model: model), preferredHeight: 520),
         ])
         let windowController = MainWindowController(model: model)
         mainWindowController = windowController
@@ -116,11 +116,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let coordinator = WelcomeScreenCoordinator(model: model) {
                 Task { await model.setup() }
             }
-            windowController.window?.contentViewController?.presentAsSheet(
-                coordinator.makeViewController()
-            )
-            // Retain coordinator for the lifetime of the sheet
             self.welcomeCoordinator = coordinator
+            Task { @MainActor in
+                await Task.yield()
+                model.activeWelcomePresentation = coordinator.makePresentation()
+            }
         } else {
             Task { await model.setup() }
         }

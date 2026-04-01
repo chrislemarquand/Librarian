@@ -26,7 +26,7 @@ final class InspectorController: NSViewController {
         let container = NSView()
         container.wantsLayer = true
         let rootView = AnyView(
-            InspectorReadOnlyView(viewModel: viewModel)
+            InspectorRootView(model: model, viewModel: viewModel)
                 .tint(AppTheme.accentColor)
         )
         let host = NSHostingController(rootView: rootView)
@@ -105,6 +105,18 @@ final class InspectorController: NSViewController {
         } else {
             showEmpty()
         }
+    }
+}
+
+private struct InspectorRootView: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var viewModel: InspectorReadOnlyViewModel
+
+    var body: some View {
+        InspectorReadOnlyView(viewModel: viewModel)
+            .sheet(item: $model.activeWelcomePresentation) { presentation in
+                AppWelcomeSheetView(presentation: presentation)
+            }
     }
 }
 

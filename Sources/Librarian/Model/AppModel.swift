@@ -47,6 +47,7 @@ final class AppModel: ObservableObject {
     @Published var selectedAsset: IndexedAsset?
     @Published var selectedArchivedItem: ArchivedItem?
     @Published var selectedAssetCount: Int = 0
+    @Published var activeWelcomePresentation: AppWelcomePresentation?
     @Published var activeInspectorFieldCatalog: [InspectorFieldCatalogEntry] = AppModel.defaultInspectorFieldCatalog()
     @Published var indexingProgress: IndexingProgress = .idle
     @Published var archiveRootAvailability: ArchiveSettings.ArchiveRootAvailability = .notConfigured
