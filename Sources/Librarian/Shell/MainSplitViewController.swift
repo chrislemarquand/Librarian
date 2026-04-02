@@ -21,6 +21,8 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private var subtitleObservers: Set<AnyCancellable> = []
     private var toolbarShellController: ToolbarShellController?
     private var didConfigureToolbar = false
+    private let modelStateRefreshCoalescer = MainActorCoalescer()
+    private let subtitleRefreshCoalescer = MainActorCoalescer()
 
     init(model: AppModel) {
         self.model = model
@@ -203,7 +205,9 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             publisher
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
-                    self?.refreshWindowSubtitle()
+                    self?.subtitleRefreshCoalescer.schedule { [weak self] in
+                        self?.refreshWindowSubtitle()
+                    }
                 }
                 .store(in: &subtitleObservers)
         }
@@ -221,24 +225,35 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     @objc private func modelStateChanged() {
-        refreshSidebarItemsWithBadges()
-        toolbarDelegate.refresh(model: model)
-        refreshWindowSubtitle()
+        modelStateRefreshCoalescer.schedule { [weak self] in
+            guard let self else { return }
+            self.refreshSidebarItemsWithBadges()
+            self.toolbarDelegate.refresh(model: self.model)
+            self.refreshWindowSubtitle()
+        }
     }
 
     @objc private func sidebarIndexingStateChanged() {
-        refreshSidebarItemsWithBadges()
+        modelStateRefreshCoalescer.schedule { [weak self] in
+            self?.refreshSidebarItemsWithBadges()
+        }
     }
 
     @objc private func sidebarSelectionChanged() {
         refreshWindowTitle()
-        refreshWindowSubtitle()
-        toolbarDelegate.refresh(model: model)
+        modelStateRefreshCoalescer.schedule { [weak self] in
+            guard let self else { return }
+            self.refreshWindowSubtitle()
+            self.toolbarDelegate.refresh(model: self.model)
+        }
     }
 
     @objc private func contentDataChanged() {
-        refreshSidebarItemsWithBadges()
-        refreshWindowSubtitle()
+        modelStateRefreshCoalescer.schedule { [weak self] in
+            guard let self else { return }
+            self.refreshSidebarItemsWithBadges()
+            self.refreshWindowSubtitle()
+        }
     }
 
     private func refreshWindowTitle() {
