@@ -102,6 +102,7 @@ struct ArchiveExportSheetView: View {
 
     @StateObject private var session: ArchiveExportSession
     @State private var showDetails = false
+    private static let sectionSpacing = WorkflowSheetSectionSpacing.uniform(20)
 
     init(model: AppModel, initialDestinationURL: URL, scopedLocalIdentifiers: [String]? = nil, onClose: @escaping () -> Void) {
         self.model = model
@@ -114,83 +115,95 @@ struct ArchiveExportSheetView: View {
             title: "Send to Archive",
             infoText: session.scopedLocalIdentifiers == nil
                 ? "Exports all photos currently in Set Aside. Failed items remain in Set Aside for follow-up."
-                : "Exports selected photos currently in Set Aside. Failed items remain in Set Aside for follow-up."
+                : "Exports selected photos currently in Set Aside. Failed items remain in Set Aside for follow-up.",
+            sectionSpacing: Self.sectionSpacing
         ) {
-            HStack {
-                TextField("", text: Binding(
-                    get: { session.destinationURL.path },
-                    set: { _ in }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .disabled(true)
+            VStack(alignment: .leading, spacing: 0) {
+                // Destination section
+                HStack {
+                    TextField("", text: Binding(
+                        get: { session.destinationURL.path },
+                        set: { _ in }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(true)
 
-                Button("Choose…") {
-                    session.chooseDestination()
-                }
-                .disabled(session.isBusy)
-            }
-
-            HStack(alignment: .top, spacing: 28) {
-                WorkflowOptionGroup("Keep originals alongside edits:") {
-                    Picker("", selection: $session.keepOriginalsChoice) {
-                        Text("On").tag(ArchiveExportSession.ToggleChoice.on)
-                        Text("Off").tag(ArchiveExportSession.ToggleChoice.off)
+                    Button("Choose…") {
+                        session.chooseDestination()
                     }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
                     .disabled(session.isBusy)
                 }
+                .padding(.bottom, Self.sectionSpacing.topToMain)
 
-                WorkflowOptionGroup("Keep Live Photos:") {
-                    Picker("", selection: $session.keepLivePhotosChoice) {
-                        Text("On").tag(ArchiveExportSession.ToggleChoice.on)
-                        Text("Off").tag(ArchiveExportSession.ToggleChoice.off)
+                // Options section
+                HStack(alignment: .top, spacing: 28) {
+                    WorkflowOptionGroup("Keep originals alongside edits:") {
+                        Picker("", selection: $session.keepOriginalsChoice) {
+                            Text("On").tag(ArchiveExportSession.ToggleChoice.on)
+                            Text("Off").tag(ArchiveExportSession.ToggleChoice.off)
+                        }
+                        .pickerStyle(.radioGroup)
+                        .labelsHidden()
+                        .disabled(session.isBusy)
                     }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
+
+                    WorkflowOptionGroup("Keep Live Photos:") {
+                        Picker("", selection: $session.keepLivePhotosChoice) {
+                            Text("On").tag(ArchiveExportSession.ToggleChoice.on)
+                            Text("Off").tag(ArchiveExportSession.ToggleChoice.off)
+                        }
+                        .pickerStyle(.radioGroup)
+                        .labelsHidden()
+                        .disabled(session.isBusy)
+                    }
+                }
+                .padding(.bottom, Self.sectionSpacing.topToMain)
+
+                // Status section
+                VStack(alignment: .leading, spacing: 12) {
+                    if session.isBusy {
+                        WorkflowInlineMessageBanner(messages: [sheetProgressText])
+                    } else if let banner = activeBanner {
+                        WorkflowInlineMessageBanner(messages: banner)
+                    }
+
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .opacity(session.isBusy ? 1 : 0)
+                }
+                .padding(.bottom, Self.sectionSpacing.mainToFooter)
+
+                // Footer section
+                HStack {
+                    Button("Details…") {
+                        showDetails = true
+                    }
+                    .disabled(session.detailsText.isEmpty)
+                    .popover(isPresented: $showDetails) {
+                        WorkflowDetailsPopover(
+                            text: session.detailsText.isEmpty ? "No details available." : session.detailsText
+                        )
+                    }
+
+                    Spacer()
+
+                    if !isComplete {
+                        Button("Cancel") {
+                            onClose()
+                        }
+                        .keyboardShortcut(.cancelAction)
+                    }
+
+                    Button(isComplete ? "Close" : "Export") {
+                        if isComplete {
+                            onClose()
+                        } else {
+                            performExport()
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
                     .disabled(session.isBusy)
                 }
-            }
-
-            if session.isBusy {
-                WorkflowInlineMessageBanner(messages: [sheetProgressText])
-            } else if let banner = activeBanner {
-                WorkflowInlineMessageBanner(messages: banner)
-            }
-
-            ProgressView()
-                .progressViewStyle(.linear)
-                .opacity(session.isBusy ? 1 : 0)
-
-            HStack {
-                Button("Details…") {
-                    showDetails = true
-                }
-                .disabled(session.detailsText.isEmpty)
-                .popover(isPresented: $showDetails) {
-                    WorkflowDetailsPopover(
-                        text: session.detailsText.isEmpty ? "No details available." : session.detailsText
-                    )
-                }
-
-                Spacer()
-
-                if !isComplete {
-                    Button("Cancel") {
-                        onClose()
-                    }
-                    .keyboardShortcut(.cancelAction)
-                }
-
-                Button(isComplete ? "Close" : "Export") {
-                    if isComplete {
-                        onClose()
-                    } else {
-                        performExport()
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(session.isBusy)
             }
         }
     }

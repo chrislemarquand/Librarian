@@ -90,6 +90,7 @@ final class ContentController: NSViewController {
     let archivedIndexer: ArchiveIndexer
     let archiveOrganizer = ArchiveOrganizer()
     let archivedThumbnailService = ArchivedThumbnailService()
+    var selectionAppearanceObserver: GallerySelectionAppearanceObserver?
     var archivedUnorganizedCount = 0
     var archivedNeedsReviewCount = 0
     var archivedBannerDismissedForLaunch = false
@@ -109,7 +110,7 @@ final class ContentController: NSViewController {
 
         collectionView = SharedGalleryCollectionView()
         galleryLayout.columnCount = model.galleryColumnCount
-        collectionView.collectionViewLayout = galleryLayout
+        collectionView.collectionViewLayout = galleryLayout.collectionViewLayout
         collectionView.backgroundColors = [.clear]
         collectionView.wantsLayer = true
         collectionView.isSelectable = true
@@ -128,6 +129,9 @@ final class ContentController: NSViewController {
         }
         collectionView.onMoveSelection = { [weak self] (direction: SharedUI.MoveCommandDirection, extendingSelection: Bool) in
             self?.moveSelection(direction, extendingSelection: extendingSelection)
+        }
+        collectionView.onModifiedItemClick = { [weak self] indexPath, modifiers in
+            self?.handleModifiedItemClick(indexPath: indexPath, modifiers: modifiers)
         }
         collectionView.contextMenuProvider = { [weak self] indexPath in
             self?.menuForItem(at: indexPath)
@@ -189,14 +193,33 @@ final class ContentController: NSViewController {
         observeModel()
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        if selectionAppearanceObserver == nil {
+            selectionAppearanceObserver = GallerySelectionAppearanceObserver(hostView: view) { [weak self] in
+                self?.refreshSelectionAppearanceForVisibleCells()
+            }
+        }
+        selectionAppearanceObserver?.start()
+        refreshSelectionAppearanceForVisibleCells()
+    }
+
     override func viewWillDisappear() {
         super.viewWillDisappear()
+        selectionAppearanceObserver?.stop()
         model.photosService.stopAllThumbnailCaching()
         cleanupQuickLookSession()
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    func refreshSelectionAppearanceForVisibleCells() {
+        for indexPath in collectionView.indexPathsForVisibleItems() {
+            guard let item = collectionView.item(at: indexPath) as? AssetGridItem else { continue }
+            item.refreshSelectionAppearance()
+        }
     }
 
     private func observeModel() {

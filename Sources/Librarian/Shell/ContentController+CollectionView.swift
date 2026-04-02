@@ -157,4 +157,26 @@ extension ContentController {
         syncModelSelectionFromCollection()
         updateQuickLookArtifacts()
     }
+
+    func handleModifiedItemClick(indexPath: IndexPath, modifiers: NSEvent.ModifierFlags) {
+        guard indexPath.item >= 0, indexPath.item < displayAssets.count else { return }
+
+        if modifiers.contains(.shift) {
+            let anchor = selectionAnchorIndex ?? (collectionView.selectionIndexPaths.map(\.item).min() ?? indexPath.item)
+            let range = min(anchor, indexPath.item)...max(anchor, indexPath.item)
+            collectionView.selectionIndexPaths = Set(range.map { IndexPath(item: $0, section: 0) })
+        } else if modifiers.contains(.command) {
+            var current = collectionView.selectionIndexPaths
+            if current.contains(indexPath) {
+                current.remove(indexPath)
+            } else {
+                current.insert(indexPath)
+                selectionAnchorIndex = indexPath.item
+            }
+            collectionView.selectionIndexPaths = current
+        }
+
+        syncModelSelectionFromCollection()
+        updateQuickLookArtifacts()
+    }
 }

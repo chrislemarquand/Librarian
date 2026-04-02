@@ -27,7 +27,11 @@ final class AssetGridItem: NSCollectionViewItem {
     }
 
     override func loadView() {
-        view = NSView()
+        let rootView = AppearanceAwareView()
+        rootView.onEffectiveAppearanceChange = { [weak self] in
+            self?.applySelectionState()
+        }
+        view = rootView
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
 
@@ -124,11 +128,23 @@ final class AssetGridItem: NSCollectionViewItem {
     }
 
     override var isSelected: Bool {
-        didSet {
-            selectionBackgroundView.layer?.backgroundColor = isSelected
-                ? AppTheme.accentNSColor.withAlphaComponent(0.22).cgColor
-                : NSColor.clear.cgColor
-        }
+        didSet { applySelectionState() }
+    }
+
+    override var highlightState: NSCollectionViewItem.HighlightState {
+        didSet { applySelectionState() }
+    }
+
+    func refreshSelectionAppearance() {
+        applySelectionState()
+    }
+
+    private func applySelectionState() {
+        let selectionCGColor = GallerySelectionStyling.resolvedTileSelectionBackgroundCGColor(for: view)
+        let active = isSelected || highlightState == .forSelection
+        selectionBackgroundView.layer?.backgroundColor = active
+            ? selectionCGColor
+            : NSColor.clear.cgColor
     }
 
     private func updateTileSide(_ tileSide: CGFloat) {

@@ -589,6 +589,7 @@ struct ArchiveImportSheetView: View {
 
     @StateObject private var session: ArchiveImportSession
     @State private var showDetails = false
+    private static let sectionSpacing = WorkflowSheetSectionSpacing.uniform(20)
 
     init(model: AppModel, mode: ArchiveImportSheetMode, onClose: @escaping () -> Void) {
         self.model = model
@@ -597,58 +598,71 @@ struct ArchiveImportSheetView: View {
     }
 
     var body: some View {
-        WorkflowSheetContainer(title: session.mode.title, infoText: session.mode.infoText) {
-            HStack {
-                TextField("", text: Binding(
-                    get: { session.sourceSummaryText },
-                    set: { _ in }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .disabled(true)
+        WorkflowSheetContainer(
+            title: session.mode.title,
+            infoText: session.mode.infoText,
+            sectionSpacing: Self.sectionSpacing
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Source section
+                HStack {
+                    TextField("", text: Binding(
+                        get: { session.sourceSummaryText },
+                        set: { _ in }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(true)
 
-                if session.canChooseSources {
-                    Button("Choose…") {
-                        session.chooseSourceFolders()
+                    if session.canChooseSources {
+                        Button("Choose…") {
+                            session.chooseSourceFolders()
+                        }
+                        .disabled(session.isBusy)
                     }
+                }
+                .padding(.bottom, Self.sectionSpacing.topToMain)
+
+                // Status section
+                VStack(alignment: .leading, spacing: 12) {
+                    if let banner = activeBanner {
+                        WorkflowInlineMessageBanner(messages: banner)
+                    }
+
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .opacity(session.isBusy ? 1 : 0)
+                }
+                .padding(.bottom, Self.sectionSpacing.mainToFooter)
+
+                // Footer section
+                HStack {
+                    Button("Details…") {
+                        showDetails = true
+                    }
+                    .disabled(session.detailsText.isEmpty)
+                    .popover(isPresented: $showDetails) {
+                        WorkflowDetailsPopover(text: session.detailsText)
+                    }
+
+                    Spacer()
+
+                    if !isComplete {
+                        Button("Cancel") {
+                            onClose()
+                        }
+                        .keyboardShortcut(.cancelAction)
+                    }
+
+                    Button(isComplete ? "Close" : "Import") {
+                        if isComplete {
+                            onClose()
+                        } else {
+                            Task { await session.run(model: model) }
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
                     .disabled(session.isBusy)
                 }
-            }
-
-            if let banner = activeBanner {
-                WorkflowInlineMessageBanner(messages: banner)
-            }
-
-            ProgressView()
-                .progressViewStyle(.linear)
-                .opacity(session.isBusy ? 1 : 0)
-
-            HStack {
-                Button("Details…") {
-                    showDetails = true
-                }
-                .disabled(session.detailsText.isEmpty)
-                .popover(isPresented: $showDetails) {
-                    WorkflowDetailsPopover(text: session.detailsText)
-                }
-
-                Spacer()
-
-                if !isComplete {
-                    Button("Cancel") {
-                        onClose()
-                    }
-                    .keyboardShortcut(.cancelAction)
-                }
-
-                Button(isComplete ? "Close" : "Import") {
-                    if isComplete {
-                        onClose()
-                    } else {
-                        Task { await session.run(model: model) }
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(session.isBusy)
             }
         }
     }
