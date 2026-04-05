@@ -839,7 +839,7 @@ private struct InspectorReadOnlyView: View {
                                 set: { _ in viewModel.toggleSection(section.title) }
                             )
                         ) {
-                            LazyVStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 10) {
                                 ForEach(section.rows) { row in
                                     InspectorFieldRow {
                                         InspectorFieldLabel(row.title)
@@ -883,7 +883,7 @@ private struct InspectorReadOnlyView: View {
                                 set: { _ in viewModel.toggleSection(section.title) }
                             )
                         ) {
-                            LazyVStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 10) {
                                 ForEach(section.rows) { row in
                                     InspectorFieldRow {
                                         InspectorFieldLabel(row.title)
