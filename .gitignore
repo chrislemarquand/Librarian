@@ -23,3 +23,6 @@ Librarian.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # Local archive for superseded docs; keep out of repo history.
 docs/_archive/
+
+# Sparkle private key — never commit this
+*sparkle_private_key*
