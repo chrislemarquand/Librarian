@@ -34,7 +34,17 @@ if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-# Re-sign with explicit Hardened Runtime + timestamp (required for notarization).
+# Sign all nested Mach-O binaries that xcodebuild didn't sign (bundled tools,
+# Perl XS extensions, etc.). Detect by file content, not extension, to catch
+# plain executables like osxphotos.
+echo "Signing nested Mach-O binaries..." >&2
+while IFS= read -r f; do
+  if /usr/bin/file "$f" 2>/dev/null | /usr/bin/grep -qE "Mach-O (executable|bundle|dynamically linked shared library)"; then
+    codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$f" >&2
+  fi
+done < <(find "$APP_PATH" -type f -not -path "*/MacOS/*")
+
+# Re-sign the top-level app bundle to incorporate newly-signed nested binaries.
 echo "Re-signing app bundle for notarization..." >&2
 codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime \
   --entitlements "$ROOT_DIR/Config/Librarian.entitlements" "$APP_PATH" >&2
