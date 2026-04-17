@@ -28,6 +28,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout SharedUI
+        uses: actions/checkout@v4
+        with:
+          repository: chrislemarquand/SharedUI
+          path: ../SharedUI
+
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
