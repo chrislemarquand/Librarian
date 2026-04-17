@@ -35,14 +35,15 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode.app
 
       - name: Resolve package dependencies
-        run: xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Librarian
+        run: xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Librarian -derivedDataPath build/derived
 
       - name: Locate Sparkle generate_appcast
         run: |
-          SPARKLE_GENERATE_APPCAST="$(find ~/Library/Developer/Xcode/DerivedData -type f -name 'generate_appcast' | head -n 1)"
+          SPARKLE_GENERATE_APPCAST="$(find build/derived -type f -name 'generate_appcast' | head -n 1)"
           if [[ -z "$SPARKLE_GENERATE_APPCAST" ]]; then
-            echo "Could not locate Sparkle generate_appcast after package resolution" >&2
-            find ~/Library/Developer/Xcode/DerivedData -name 'generate_appcast' -o -name 'Sparkle' -type d 2>/dev/null | head -20 >&2
+            echo "Could not locate Sparkle generate_appcast — searching broadly:" >&2
+            find build/derived -name 'Sparkle' -type d 2>/dev/null | head -10 >&2
+            find build/derived -name '*.bin' -o -name 'generate_appcast' 2>/dev/null | head -10 >&2
             exit 1
           fi
           echo "Found generate_appcast at: $SPARKLE_GENERATE_APPCAST" >&2
