@@ -21,4 +21,6 @@ if [[ "${GENERATE_APPCAST:-0}" == "1" ]]; then
   $ROOT_DIR/scripts/release/generate_appcast.sh "$ZIP_PATH" >&2
 fi
 
-echo "Release artifact: $DMG_PATH"
+echo "Release artifacts:"
+echo "  ZIP: $ZIP_PATH"
+echo "  DMG: $DMG_PATH"
