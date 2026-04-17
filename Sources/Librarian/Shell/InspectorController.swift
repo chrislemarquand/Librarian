@@ -214,12 +214,12 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         metadataRequestGeneration += 1
         selectedAsset = asset
         selectedArchivedItem = nil
-        archiveCandidateInfo = model.archiveCandidateInfo(for: asset.localIdentifier)
+        archiveCandidateInfo = nil
         previewImage = nil
         resetMetadata()
         representedPreviewIdentifier = asset.localIdentifier
         requestPreviewImage(for: asset.localIdentifier)
-        requestAssetMetadata(for: asset.localIdentifier)
+        requestAssetMetadata(for: asset.localIdentifier, generation: metadataRequestGeneration)
     }
 
     func showArchivedItem(_ item: ArchivedItem) {
@@ -459,67 +459,51 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         return String(format: "%.0f KB", Double(bytes) / 1024)
     }
 
-    private func requestAssetMetadata(for localIdentifier: String) {
-        if let phAsset = model.photosService.fetchAsset(localIdentifier: localIdentifier) {
-            // File info
-            let resources = PHAssetResource.assetResources(for: phAsset)
-            let primary = resources.first(where: { $0.type == .photo })
-                ?? resources.first(where: { $0.type == .fullSizePhoto })
-                ?? resources.first
-            if let resource = primary {
-                originalFilename = resource.originalFilename
-                fileFormat = UTType(resource.uniformTypeIdentifier)?.localizedDescription ?? ""
-            }
-            hasLivePhotoVideo = resources.contains(where: { $0.type == .pairedVideo })
+    private func requestAssetMetadata(for localIdentifier: String, generation: Int) {
+        guard let phAsset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else { return }
 
-            // PHAsset location validity:
-            // Core Location can carry coordinate/altitude values even when accuracy is invalid.
-            // Treat invalid accuracy as "no data" so inspector does not show misleading zeros.
-            if let location = phAsset.location {
-                if location.horizontalAccuracy >= 0 {
-                    latitude = location.coordinate.latitude
-                    longitude = location.coordinate.longitude
-                } else {
-                    latitude = nil
-                    longitude = nil
-                }
-
-                if location.verticalAccuracy >= 0 {
-                    altitude = location.altitude
-                } else {
-                    altitude = nil
-                }
-            } else {
-                latitude = nil
-                longitude = nil
-                altitude = nil
-            }
-            isBurst = phAsset.representsBurst
-            isEdited = phAsset.adjustmentFormatIdentifier != nil
-
-            // Albums (synchronous Photos fetch)
-            let albumFetch = PHAssetCollection.fetchAssetCollectionsContaining(
-                phAsset, with: .album, options: nil
+        let database = model.database
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let snapshot = Self.buildAssetMetadataSnapshot(
+                localIdentifier: localIdentifier,
+                phAsset: phAsset,
+                database: database
             )
-            var names: [String] = []
-            albumFetch.enumerateObjects { collection, _, _ in
-                if let title = collection.localizedTitle { names.append(title) }
-            }
-            albums = names
-
-            // EXIF — async, requires image data
-            requestEXIF(for: phAsset, localIdentifier: localIdentifier, generation: metadataRequestGeneration)
+            await self?.applyAssetMetadataSnapshot(
+                snapshot,
+                representedIdentifier: localIdentifier,
+                generation: generation
+            )
         }
 
-        // DB reads
-        fileSizeBytes = try? model.database.assetRepository.fetchFileSizeBytes(localIdentifier: localIdentifier)
-        if let analysis = try? model.database.assetRepository.fetchAnalysisFields(localIdentifier: localIdentifier) {
-            overallScore = analysis.overallScore
-            aiCaption = analysis.aiCaption ?? ""
-            namedPersonCount = analysis.namedPersonCount
-            detectedPersonCount = analysis.detectedPersonCount
-            extractedText = analysis.visionOcrText ?? ""
-        }
+        // EXIF — async, requires image data
+        requestEXIF(for: phAsset, localIdentifier: localIdentifier, generation: generation)
+    }
+
+    private func applyAssetMetadataSnapshot(
+        _ snapshot: AssetMetadataSnapshot,
+        representedIdentifier: String,
+        generation: Int
+    ) {
+        guard metadataRequestGeneration == generation else { return }
+        guard representedPreviewIdentifier == representedIdentifier else { return }
+
+        originalFilename = snapshot.originalFilename
+        fileFormat = snapshot.fileFormat
+        fileSizeBytes = snapshot.fileSizeBytes
+        latitude = snapshot.latitude
+        longitude = snapshot.longitude
+        altitude = snapshot.altitude
+        isBurst = snapshot.isBurst
+        isEdited = snapshot.isEdited
+        hasLivePhotoVideo = snapshot.hasLivePhotoVideo
+        albums = snapshot.albums
+        overallScore = snapshot.overallScore
+        aiCaption = snapshot.aiCaption
+        namedPersonCount = snapshot.namedPersonCount
+        detectedPersonCount = snapshot.detectedPersonCount
+        extractedText = snapshot.extractedText
+        archiveCandidateInfo = snapshot.archiveCandidateInfo
     }
 
     private func requestEXIF(for phAsset: PHAsset, localIdentifier: String, generation: Int) {
@@ -763,6 +747,72 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         return nil
     }
 
+    nonisolated private static func buildAssetMetadataSnapshot(
+        localIdentifier: String,
+        phAsset: PHAsset,
+        database: DatabaseManager
+    ) -> AssetMetadataSnapshot {
+        let resources = PHAssetResource.assetResources(for: phAsset)
+        let primary = resources.first(where: { $0.type == .photo })
+            ?? resources.first(where: { $0.type == .fullSizePhoto })
+            ?? resources.first
+
+        let originalFilename = primary?.originalFilename ?? ""
+        let fileFormat = primary.map { UTType($0.uniformTypeIdentifier)?.localizedDescription ?? "" } ?? ""
+        let hasLivePhotoVideo = resources.contains(where: { $0.type == .pairedVideo })
+
+        let latitude: Double?
+        let longitude: Double?
+        let altitude: Double?
+        if let location = phAsset.location {
+            if location.horizontalAccuracy >= 0 {
+                latitude = location.coordinate.latitude
+                longitude = location.coordinate.longitude
+            } else {
+                latitude = nil
+                longitude = nil
+            }
+
+            altitude = location.verticalAccuracy >= 0 ? location.altitude : nil
+        } else {
+            latitude = nil
+            longitude = nil
+            altitude = nil
+        }
+
+        let albumFetch = PHAssetCollection.fetchAssetCollectionsContaining(
+            phAsset, with: .album, options: nil
+        )
+        var albums: [String] = []
+        albumFetch.enumerateObjects { collection, _, _ in
+            if let title = collection.localizedTitle {
+                albums.append(title)
+            }
+        }
+
+        let analysis = try? database.assetRepository.fetchAnalysisFields(localIdentifier: localIdentifier)
+        let archiveCandidateInfo = try? database.assetRepository.fetchArchiveCandidateInfo(localIdentifier: localIdentifier)
+
+        return AssetMetadataSnapshot(
+            originalFilename: originalFilename,
+            fileFormat: fileFormat,
+            fileSizeBytes: try? database.assetRepository.fetchFileSizeBytes(localIdentifier: localIdentifier),
+            latitude: latitude,
+            longitude: longitude,
+            altitude: altitude,
+            isBurst: phAsset.representsBurst,
+            isEdited: phAsset.adjustmentFormatIdentifier != nil,
+            hasLivePhotoVideo: hasLivePhotoVideo,
+            albums: albums,
+            overallScore: analysis?.overallScore,
+            aiCaption: analysis?.aiCaption ?? "",
+            namedPersonCount: analysis?.namedPersonCount,
+            detectedPersonCount: analysis?.detectedPersonCount,
+            extractedText: analysis?.visionOcrText ?? "",
+            archiveCandidateInfo: archiveCandidateInfo
+        )
+    }
+
     private func requestPreviewImage(for localIdentifier: String) {
         guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else {
             isPreviewLoading = false
@@ -870,6 +920,25 @@ private struct ParsedMetadata {
     let latitude: Double?
     let longitude: Double?
     let altitude: Double?
+}
+
+private struct AssetMetadataSnapshot {
+    let originalFilename: String
+    let fileFormat: String
+    let fileSizeBytes: Int?
+    let latitude: Double?
+    let longitude: Double?
+    let altitude: Double?
+    let isBurst: Bool
+    let isEdited: Bool
+    let hasLivePhotoVideo: Bool
+    let albums: [String]
+    let overallScore: Double?
+    let aiCaption: String
+    let namedPersonCount: Int?
+    let detectedPersonCount: Int?
+    let extractedText: String
+    let archiveCandidateInfo: ArchiveCandidateInfo?
 }
 
 private extension String {

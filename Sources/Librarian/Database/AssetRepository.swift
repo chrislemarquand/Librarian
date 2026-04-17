@@ -979,7 +979,7 @@ final class AssetRepository: @unchecked Sendable {
 
 
     func upsertAnalysisData(_ results: [AssetAnalysisResult], analysedAt: Date) async throws {
-        let batchSize = 500
+        let batchSize = 100
         var offset = 0
         while offset < results.count {
             let batch = Array(results[offset ..< min(offset + batchSize, results.count)])
@@ -1015,6 +1015,7 @@ final class AssetRepository: @unchecked Sendable {
                 }
             }
             offset += batchSize
+            await Task.yield()
         }
     }
 
