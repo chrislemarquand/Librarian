@@ -48,6 +48,11 @@ while IFS= read -r xpc; do
   codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$xpc" >&2
 done < <(find "$APP_PATH" -type d -name "*.xpc" | awk '{ print length, $0 }' | sort -rn | cut -d" " -f2-)
 
+echo "Re-signing nested app bundles..." >&2
+while IFS= read -r nested_app; do
+  codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$nested_app" >&2
+done < <(find "$APP_PATH" -type d -name "*.app" ! -path "$APP_PATH" | awk '{ print length, $0 }' | sort -rn | cut -d" " -f2-)
+
 echo "Re-signing nested frameworks..." >&2
 while IFS= read -r framework; do
   codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$framework" >&2
