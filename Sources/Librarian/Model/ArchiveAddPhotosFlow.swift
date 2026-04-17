@@ -15,7 +15,7 @@ func runAddPhotosToArchiveFlow(model: AppModel, presentingWindow: NSWindow?) asy
         alert.messageText = "No Archive Configured"
         alert.informativeText = "Choose an Archive location in Settings before adding photos."
         alert.addButton(withTitle: "OK")
-        await alert.runSheetOrModal(for: presentingWindow)
+        _ = await alert.runSheetOrModal(for: presentingWindow)
         return
     }
 
@@ -50,7 +50,7 @@ func runAddPhotosToArchiveFlow(model: AppModel, presentingWindow: NSWindow?) asy
         alert.messageText = "Scan Failed"
         alert.informativeText = error.localizedDescription
         alert.addButton(withTitle: "OK")
-        await alert.runSheetOrModal(for: presentingWindow)
+        _ = await alert.runSheetOrModal(for: presentingWindow)
         return
     }
 
@@ -68,7 +68,7 @@ func runAddPhotosToArchiveFlow(model: AppModel, presentingWindow: NSWindow?) asy
         alert.messageText = "Import Failed"
         alert.informativeText = error.localizedDescription
         alert.addButton(withTitle: "OK")
-        await alert.runSheetOrModal(for: presentingWindow)
+        _ = await alert.runSheetOrModal(for: presentingWindow)
         return
     }
 

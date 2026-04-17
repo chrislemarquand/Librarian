@@ -162,6 +162,8 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     private let model: AppModel
     private var representedPreviewIdentifier: String?
+    private var metadataRequestGeneration = 0
+    private var metadataCache: [String: ParsedMetadata] = [:]
 
     // v2 key so old section-name collapse state doesn't carry over.
     private static let collapsedSectionsKey = "ui.librarian.inspector.collapsed.sections.v2"
@@ -185,6 +187,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     @Published private(set) var multipleSelectionCount: Int = 0
 
     func showEmpty() {
+        metadataRequestGeneration += 1
         selectedAsset = nil
         selectedArchivedItem = nil
         multipleSelectionCount = 0
@@ -196,6 +199,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     func showMultiple(count: Int) {
+        metadataRequestGeneration += 1
         selectedAsset = nil
         selectedArchivedItem = nil
         multipleSelectionCount = count
@@ -207,6 +211,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     func showAsset(_ asset: IndexedAsset) {
+        metadataRequestGeneration += 1
         selectedAsset = asset
         selectedArchivedItem = nil
         archiveCandidateInfo = model.archiveCandidateInfo(for: asset.localIdentifier)
@@ -218,6 +223,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     func showArchivedItem(_ item: ArchivedItem) {
+        metadataRequestGeneration += 1
         selectedAsset = nil
         selectedArchivedItem = item
         archiveCandidateInfo = nil
@@ -502,7 +508,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             albums = names
 
             // EXIF — async, requires image data
-            requestEXIF(for: phAsset, localIdentifier: localIdentifier)
+            requestEXIF(for: phAsset, localIdentifier: localIdentifier, generation: metadataRequestGeneration)
         }
 
         // DB reads
@@ -516,17 +522,22 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
     }
 
-    private func requestEXIF(for phAsset: PHAsset, localIdentifier: String) {
+    private func requestEXIF(for phAsset: PHAsset, localIdentifier: String, generation: Int) {
+        if let cached = metadataCache[localIdentifier] {
+            applyParsedMetadata(cached, representedIdentifier: localIdentifier, generation: generation)
+            return
+        }
+
         let options = PHImageRequestOptions()
         options.isNetworkAccessAllowed = false
         options.deliveryMode = .fastFormat
         options.isSynchronous = false
         PHImageManager.default().requestImageDataAndOrientation(for: phAsset, options: options) { [weak self] data, _, _, _ in
             guard let self, let data else { return }
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-            else { return }
-            applyMetadataProperties(props, representedIdentifier: localIdentifier)
+            Task.detached(priority: .userInitiated) { [weak self] in
+                guard let parsed = Self.parseMetadata(from: data) else { return }
+                await self?.cacheAndApplyParsedMetadata(parsed, representedIdentifier: localIdentifier, generation: generation)
+            }
         }
     }
 
@@ -535,13 +546,66 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         fileFormat = UTType(filenameExtension: item.fileExtension)?.localizedDescription ?? item.fileExtension.uppercased()
         fileSizeBytes = Int(item.fileSizeBytes)
 
+        let representedIdentifier = "archived:\(item.relativePath)"
+        let generation = metadataRequestGeneration
+
+        if let cached = metadataCache[representedIdentifier] {
+            applyParsedMetadata(cached, representedIdentifier: representedIdentifier, generation: generation)
+            return
+        }
+
         let fileURL = URL(fileURLWithPath: item.absolutePath)
-        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return }
-        applyMetadataProperties(props, representedIdentifier: "archived:\(item.relativePath)")
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let parsed = Self.parseMetadata(from: fileURL) else { return }
+            await self?.cacheAndApplyParsedMetadata(parsed, representedIdentifier: representedIdentifier, generation: generation)
+        }
     }
 
-    private func applyMetadataProperties(_ props: [CFString: Any], representedIdentifier: String) {
+    private func cacheAndApplyParsedMetadata(_ parsed: ParsedMetadata, representedIdentifier: String, generation: Int) {
+        metadataCache[representedIdentifier] = parsed
+        applyParsedMetadata(parsed, representedIdentifier: representedIdentifier, generation: generation)
+    }
+
+    private func applyParsedMetadata(_ parsed: ParsedMetadata, representedIdentifier: String, generation: Int) {
+        guard metadataRequestGeneration == generation else { return }
+        guard representedPreviewIdentifier == representedIdentifier else { return }
+
+        exifMake = parsed.make
+        exifModel = parsed.model
+        exifSerialNumber = parsed.serial
+        exifLensModel = parsed.lensModel
+        exifAperture = parsed.aperture
+        exifShutterSpeed = parsed.shutter
+        exifISO = parsed.iso
+        exifFocalLength = parsed.focal
+        exifExposureProgram = parsed.exposureProgram
+        exifFlash = parsed.flash
+        exifMeteringMode = parsed.meteringMode
+        exifExposureCompensation = parsed.exposureCompensation
+        latitude = parsed.latitude ?? latitude
+        longitude = parsed.longitude ?? longitude
+        altitude = parsed.altitude ?? altitude
+    }
+
+    nonisolated private static func parseMetadata(from data: Data) -> ParsedMetadata? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else {
+            return nil
+        }
+        return parseMetadataProperties(props)
+    }
+
+    nonisolated private static func parseMetadata(from fileURL: URL) -> ParsedMetadata? {
+        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else {
+            return nil
+        }
+        return parseMetadataProperties(props)
+    }
+
+    nonisolated private static func parseMetadataProperties(_ props: [CFString: Any]) -> ParsedMetadata {
         let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
         let gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
@@ -586,27 +650,26 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         )
         if let value = gps[kCGImagePropertyGPSAltitude] as? Double { altitudeValue = value }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.representedPreviewIdentifier == representedIdentifier else { return }
-            self.exifMake = make
-            self.exifModel = model
-            self.exifSerialNumber = serial
-            self.exifLensModel = lensModel
-            self.exifAperture = aperture
-            self.exifShutterSpeed = shutter
-            self.exifISO = iso
-            self.exifFocalLength = focal
-            self.exifExposureProgram = exposureProgram
-            self.exifFlash = flash
-            self.exifMeteringMode = meteringMode
-            self.exifExposureCompensation = exposureCompensation
-            self.latitude = latitudeValue ?? self.latitude
-            self.longitude = longitudeValue ?? self.longitude
-            self.altitude = altitudeValue ?? self.altitude
-        }
+        return ParsedMetadata(
+            make: make,
+            model: model,
+            serial: serial,
+            lensModel: lensModel,
+            aperture: aperture,
+            shutter: shutter,
+            iso: iso,
+            focal: focal,
+            exposureProgram: exposureProgram,
+            flash: flash,
+            meteringMode: meteringMode,
+            exposureCompensation: exposureCompensation,
+            latitude: latitudeValue,
+            longitude: longitudeValue,
+            altitude: altitudeValue
+        )
     }
 
-    private func parseGPSCoordinate(value: Any?, ref: String?) -> Double? {
+    nonisolated private static func parseGPSCoordinate(value: Any?, ref: String?) -> Double? {
         guard let value else { return nil }
         let parsed: Double?
         if let number = value as? NSNumber {
@@ -629,7 +692,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
     }
 
-    private func parseCoordinate(_ raw: String) -> Double? {
+    nonisolated private static func parseCoordinate(_ raw: String) -> Double? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
@@ -678,7 +741,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         case west
     }
 
-    private func coordinateDirection(in raw: String) -> CoordinateDirection? {
+    nonisolated private static func coordinateDirection(in raw: String) -> CoordinateDirection? {
         let tokens = raw
             .uppercased()
             .split(whereSeparator: { !$0.isLetter })
@@ -789,6 +852,24 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         default: return "Unknown (\(value))"
         }
     }
+}
+
+private struct ParsedMetadata {
+    let make: String
+    let model: String
+    let serial: String
+    let lensModel: String
+    let aperture: String
+    let shutter: String
+    let iso: String
+    let focal: String
+    let exposureProgram: String
+    let flash: String
+    let meteringMode: String
+    let exposureCompensation: String
+    let latitude: Double?
+    let longitude: Double?
+    let altitude: Double?
 }
 
 private extension String {
@@ -924,6 +1005,7 @@ private struct InspectorReadOnlyView: View {
             }
         }
         .inspectorScrollSetup()
+        .animation(.easeInOut(duration: 0.2), value: viewModel.collapsedSections)
     }
 
     @ViewBuilder
