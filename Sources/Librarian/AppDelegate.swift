@@ -237,8 +237,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appItem.submenu = makeStandardAppMenu(
             appName: appName,
             aboutAction: #selector(showAboutPanelMenuAction(_:)),
-            checkForUpdatesAction: #selector(checkForUpdatesAction(_:)),
-            settingsAction: #selector(showSettingsWindow(_:))
+            settingsAction: #selector(showSettingsWindow(_:)),
+            checkForUpdatesAction: #selector(checkForUpdatesAction(_:))
         )
         mainMenu.addItem(appItem)
 
