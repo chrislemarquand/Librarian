@@ -10,6 +10,8 @@ ARTIFACT="$1"
 : "${NOTARY_PROFILE:?Set NOTARY_PROFILE to a notarytool keychain profile name.}"
 
 xcrun notarytool submit "$ARTIFACT" --keychain-profile "$NOTARY_PROFILE" --wait
-xcrun stapler staple "$ARTIFACT"
 
-spctl -a -vv "$ARTIFACT"
+# Stapler only works with .app, .pkg, and .dmg — skip for ZIP archives.
+if [[ "$ARTIFACT" != *.zip ]]; then
+  xcrun stapler staple "$ARTIFACT"
+fi

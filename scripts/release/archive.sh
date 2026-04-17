@@ -34,4 +34,9 @@ if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+# Re-sign with explicit Hardened Runtime + timestamp (required for notarization).
+echo "Re-signing app bundle for notarization..." >&2
+codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime \
+  --entitlements "$ROOT_DIR/Config/Librarian.entitlements" "$APP_PATH" >&2
+
 echo "$APP_PATH"
