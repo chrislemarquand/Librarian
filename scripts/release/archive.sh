@@ -39,7 +39,7 @@ fi
 # plain executables like osxphotos.
 echo "Signing nested Mach-O binaries..." >&2
 while IFS= read -r f; do
-  if /usr/bin/file "$f" 2>/dev/null | /usr/bin/grep -qE "Mach-O (executable|bundle|dynamically linked shared library)"; then
+  if /usr/bin/file "$f" 2>/dev/null | /usr/bin/grep -q "Mach-O"; then
     codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$f" >&2
   fi
 done < <(find "$APP_PATH" -type f -not -path "*/MacOS/*")
