@@ -13,6 +13,7 @@ ARCHIVE_PATH="$BUILD_DIR/archive/${APP_NAME}.xcarchive"
 : "${APP_NAME:?Set APP_NAME or APP_DISPLAY_NAME in Config/Base.xcconfig.}"
 
 mkdir -p "$BUILD_DIR/archive"
+ARCHIVE_LOG="$BUILD_DIR/archive/xcodebuild.log"
 
 xcodebuild \
   -project "$PROJECT_PATH" \
@@ -25,7 +26,7 @@ xcodebuild \
   DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
-  archive
+  archive 2>&1 | tee "$ARCHIVE_LOG" >&2
 
 APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
 if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
