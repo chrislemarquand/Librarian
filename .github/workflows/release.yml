@@ -37,17 +37,13 @@ jobs:
       - name: Resolve package dependencies
         run: xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Librarian -derivedDataPath build/derived
 
-      - name: Locate Sparkle generate_appcast
+      - name: Install Sparkle tools
         run: |
-          echo "=== artifacts ===" >&2
-          find build/derived/SourcePackages/artifacts -maxdepth 6 2>/dev/null | head -40 >&2 || echo "(artifacts not found)" >&2
-          SPARKLE_GENERATE_APPCAST="$(find build/derived -type f -name 'generate_appcast' 2>/dev/null | head -n 1)"
-          if [[ -z "$SPARKLE_GENERATE_APPCAST" ]]; then
-            echo "Could not locate generate_appcast" >&2
-            exit 1
-          fi
-          echo "Found: $SPARKLE_GENERATE_APPCAST" >&2
-          echo "SPARKLE_GENERATE_APPCAST=$SPARKLE_GENERATE_APPCAST" >> "$GITHUB_ENV"
+          curl -fsSL -o /tmp/sparkle.tar.xz \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.9.1/Sparkle-2.9.1.tar.xz
+          mkdir -p /tmp/sparkle
+          tar -xJf /tmp/sparkle.tar.xz -C /tmp/sparkle
+          echo "SPARKLE_GENERATE_APPCAST=/tmp/sparkle/bin/generate_appcast" >> "$GITHUB_ENV"
 
       - name: Import Developer ID certificate
         env:
