@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-14
+    runs-on: macos-26
     env:
       DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
       DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
@@ -28,20 +28,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout SharedUI
+        run: git clone https://github.com/chrislemarquand/SharedUI.git ../SharedUI
+
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
       - name: Resolve package dependencies
-        run: xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Librarian
+        run: xcodebuild -resolvePackageDependencies -project Librarian.xcodeproj -scheme Librarian -derivedDataPath build/derived
 
-      - name: Locate Sparkle generate_appcast
+      - name: Install Sparkle tools
         run: |
-          SPARKLE_GENERATE_APPCAST="$(find ~/Library/Developer/Xcode/DerivedData -type f -path '*SourcePackages/checkouts/Sparkle/bin/generate_appcast' | head -n 1)"
-          if [[ -z "$SPARKLE_GENERATE_APPCAST" ]]; then
-            echo "Could not locate Sparkle generate_appcast after package resolution" >&2
-            exit 1
-          fi
-          echo "SPARKLE_GENERATE_APPCAST=$SPARKLE_GENERATE_APPCAST" >> "$GITHUB_ENV"
+          curl -fsSL -o /tmp/sparkle.tar.xz \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.9.1/Sparkle-2.9.1.tar.xz
+          mkdir -p /tmp/sparkle
+          tar -xJf /tmp/sparkle.tar.xz -C /tmp/sparkle
+          echo "SPARKLE_GENERATE_APPCAST=/tmp/sparkle/bin/generate_appcast" >> "$GITHUB_ENV"
 
       - name: Import Developer ID certificate
         env:
@@ -73,6 +75,14 @@ jobs:
         env:
           GENERATE_APPCAST: "1"
         run: ./scripts/release/release.sh
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/archive/xcodebuild.log
+          if-no-files-found: ignore
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4

@@ -25,14 +25,21 @@ fi
 ARTIFACT_DIR="$(dirname "$ZIP_PATH")"
 mkdir -p "$APPCAST_OUTPUT_DIR"
 
-# generate_appcast writes appcast.xml to the current directory.
-pushd "$APPCAST_OUTPUT_DIR" >/dev/null
-"$SPARKLE_GENERATE_APPCAST" "$ARTIFACT_DIR"
-popd >/dev/null
+# generate_appcast writes appcast.xml into the archives directory by default.
+# Pass the private key via stdin (--ed-key-file -) when SPARKLE_PRIVATE_KEY
+# is set, so CI doesn't need a keychain entry.
+APPCAST_OUTPUT_FILE="$APPCAST_OUTPUT_DIR/appcast.xml"
 
-if [[ ! -f "$APPCAST_OUTPUT_DIR/appcast.xml" ]]; then
-  echo "generate_appcast completed but appcast.xml was not created in $APPCAST_OUTPUT_DIR" >&2
+if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+  echo "$SPARKLE_PRIVATE_KEY" | \
+    "$SPARKLE_GENERATE_APPCAST" --ed-key-file - -o "$APPCAST_OUTPUT_FILE" "$ARTIFACT_DIR" >&2
+else
+  "$SPARKLE_GENERATE_APPCAST" -o "$APPCAST_OUTPUT_FILE" "$ARTIFACT_DIR" >&2
+fi
+
+if [[ ! -f "$APPCAST_OUTPUT_FILE" ]]; then
+  echo "generate_appcast completed but appcast.xml was not created at $APPCAST_OUTPUT_FILE" >&2
   exit 1
 fi
 
-echo "$APPCAST_OUTPUT_DIR/appcast.xml"
+echo "$APPCAST_OUTPUT_FILE"
