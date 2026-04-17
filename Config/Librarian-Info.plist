@@ -30,5 +30,9 @@
     <string>Librarian needs to control Photos to open and highlight selected items.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Librarian needs access to your photo library to help you curate and archive your photos.</string>
+    <key>SUFeedURL</key>
+    <string>https://chrislemarquand.github.io/Librarian/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>$(SPARKLE_PUBLIC_ED_KEY)</string>
 </dict>
 </plist>

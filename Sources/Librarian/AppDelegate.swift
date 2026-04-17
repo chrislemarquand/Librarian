@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isShowingTerminateConfirmation = false
     private var isPresentingArchiveRelinkFlow = false
     private var allowImmediateTermination = false
+    private var updateService: UpdateService?
     var appModel: AppModel? { mainWindowController?.appModel }
 
     func showAboutPanel() {
@@ -40,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAboutPanelMenuAction(_: Any?) {
         showAboutPanel()
+    }
+
+    @objc func checkForUpdatesAction(_ sender: Any?) {
+        updateService?.checkForUpdates(sender)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -60,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindowController = windowController
         windowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        updateService = UpdateService()
+        updateService?.performBackgroundCheck()
 
         NotificationCenter.default.addObserver(
             forName: .librarianArchiveNeedsRelink,
@@ -229,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appItem.submenu = makeStandardAppMenu(
             appName: appName,
             aboutAction: #selector(showAboutPanelMenuAction(_:)),
+            checkForUpdatesAction: #selector(checkForUpdatesAction(_:)),
             settingsAction: #selector(showSettingsWindow(_:))
         )
         mainMenu.addItem(appItem)
