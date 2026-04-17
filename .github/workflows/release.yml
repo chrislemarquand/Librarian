@@ -39,11 +39,13 @@ jobs:
 
       - name: Locate Sparkle generate_appcast
         run: |
-          SPARKLE_GENERATE_APPCAST="$(find ~/Library/Developer/Xcode/DerivedData -type f -path '*SourcePackages/checkouts/Sparkle/bin/generate_appcast' | head -n 1)"
+          SPARKLE_GENERATE_APPCAST="$(find ~/Library/Developer/Xcode/DerivedData -type f -name 'generate_appcast' | head -n 1)"
           if [[ -z "$SPARKLE_GENERATE_APPCAST" ]]; then
             echo "Could not locate Sparkle generate_appcast after package resolution" >&2
+            find ~/Library/Developer/Xcode/DerivedData -name 'generate_appcast' -o -name 'Sparkle' -type d 2>/dev/null | head -20 >&2
             exit 1
           fi
+          echo "Found generate_appcast at: $SPARKLE_GENERATE_APPCAST" >&2
           echo "SPARKLE_GENERATE_APPCAST=$SPARKLE_GENERATE_APPCAST" >> "$GITHUB_ENV"
 
       - name: Import Developer ID certificate
