@@ -28,8 +28,8 @@ hdiutil create \
   -srcfolder "$STAGING_DIR" \
   -ov \
   -format UDZO \
-  "$DMG_PATH"
+  "$DMG_PATH" >&2
 
-codesign --force --sign "$DEVELOPER_ID_APPLICATION" "$DMG_PATH"
+codesign --force --sign "$DEVELOPER_ID_APPLICATION" "$DMG_PATH" >&2
 
 echo "$DMG_PATH"
