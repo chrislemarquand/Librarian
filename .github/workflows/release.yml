@@ -39,8 +39,8 @@ jobs:
 
       - name: Locate Sparkle generate_appcast
         run: |
-          echo "=== SourcePackages tree ===" >&2
-          find build/derived/SourcePackages -maxdepth 5 2>/dev/null | head -40 >&2 || echo "(SourcePackages not found)" >&2
+          echo "=== artifacts ===" >&2
+          find build/derived/SourcePackages/artifacts -maxdepth 6 2>/dev/null | head -40 >&2 || echo "(artifacts not found)" >&2
           SPARKLE_GENERATE_APPCAST="$(find build/derived -type f -name 'generate_appcast' 2>/dev/null | head -n 1)"
           if [[ -z "$SPARKLE_GENERATE_APPCAST" ]]; then
             echo "Could not locate generate_appcast" >&2
