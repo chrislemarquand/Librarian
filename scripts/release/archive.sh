@@ -19,7 +19,9 @@ xcodebuild \
   -scheme "$SCHEME_NAME" \
   -configuration Release \
   -archivePath "$ARCHIVE_PATH" \
-  -destination 'platform=macOS' \
+  -destination 'platform=macOS,arch=arm64' \
+  ARCHS=arm64 \
+  EXCLUDED_ARCHS=x86_64 \
   DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
