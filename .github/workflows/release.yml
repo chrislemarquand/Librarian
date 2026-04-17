@@ -93,6 +93,24 @@ jobs:
             build/dmg/Librarian.dmg
             build/appcast/appcast.xml
 
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --notes "Automated release for $GITHUB_REF_NAME"
+
+          gh release upload "$GITHUB_REF_NAME" \
+            build/archive/Librarian.zip \
+            build/dmg/Librarian.dmg \
+            build/appcast/appcast.xml \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
       - name: Upload appcast for Pages
         uses: actions/upload-pages-artifact@v3
         with:

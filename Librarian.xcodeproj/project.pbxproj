@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		9A0B1C2D3E4F5A6B7C8D9E0F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 8F0A1B2C3D4E5F6A7B8C9D0E /* GRDB */; };
 		AA1B2C3D4E5F6A7B8C9D0E1F /* SharedUI in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B2C3D4E5F6A7B8C9D0E1F /* SharedUI */; };
+		F20000030000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F20000020000000000000001 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 			files = (
 				9A0B1C2D3E4F5A6B7C8D9E0F /* GRDB in Frameworks */,
 				AA1B2C3D4E5F6A7B8C9D0E1F /* SharedUI in Frameworks */,
+				F20000030000000000000001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -99,6 +101,7 @@
 			packageProductDependencies = (
 				8F0A1B2C3D4E5F6A7B8C9D0E /* GRDB */,
 				BB1B2C3D4E5F6A7B8C9D0E1F /* SharedUI */,
+				F20000020000000000000001 /* Sparkle */,
 			);
 			productName = Librarian;
 			productReference = 46FDD5D42F699C6D0034D51C /* Librarian.app */;
@@ -131,6 +134,7 @@
 			packageReferences = (
 				7E9F1A2B3C4D5E6F7A8B9C0D /* XCRemoteSwiftPackageReference "GRDB" */,
 				CC1B2C3D4E5F6A7B8C9D0E1F /* XCLocalSwiftPackageReference "../SharedUI" */,
+				F20000010000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 46FDD5D52F699C6D0034D51C /* Products */;
@@ -398,6 +402,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		F20000010000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 		7E9F1A2B3C4D5E6F7A8B9C0D /* XCRemoteSwiftPackageReference "GRDB" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift";
@@ -409,6 +421,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		F20000020000000000000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F20000010000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
 		8F0A1B2C3D4E5F6A7B8C9D0E /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7E9F1A2B3C4D5E6F7A8B9C0D /* XCRemoteSwiftPackageReference "GRDB" */;

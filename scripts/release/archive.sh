@@ -34,9 +34,8 @@ if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-# Sign all nested Mach-O binaries that xcodebuild didn't sign (bundled tools,
-# Perl XS extensions, etc.). Detect by file content, not extension, to catch
-# plain executables like osxphotos.
+# Sign bundled Mach-O binaries that xcodebuild may leave unsigned, then
+# re-sign the app so notarization sees a fully consistent bundle.
 echo "Signing nested Mach-O binaries..." >&2
 while IFS= read -r f; do
   if /usr/bin/file "$f" 2>/dev/null | /usr/bin/grep -q "Mach-O"; then
@@ -44,8 +43,22 @@ while IFS= read -r f; do
   fi
 done < <(find "$APP_PATH" -type f -not -path "*/MacOS/*")
 
-# Re-sign the top-level app bundle to incorporate newly-signed nested binaries.
-echo "Re-signing app bundle for notarization..." >&2
+echo "Re-signing nested XPC services..." >&2
+while IFS= read -r xpc; do
+  codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$xpc" >&2
+done < <(find "$APP_PATH" -type d -name "*.xpc" | awk '{ print length, $0 }' | sort -rn | cut -d" " -f2-)
+
+echo "Re-signing nested app bundles..." >&2
+while IFS= read -r nested_app; do
+  codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$nested_app" >&2
+done < <(find "$APP_PATH" -type d -name "*.app" ! -path "$APP_PATH" | awk '{ print length, $0 }' | sort -rn | cut -d" " -f2-)
+
+echo "Re-signing nested frameworks..." >&2
+while IFS= read -r framework; do
+  codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$framework" >&2
+done < <(find "$APP_PATH" -type d -name "*.framework" | awk '{ print length, $0 }' | sort -rn | cut -d" " -f2-)
+
+echo "Re-signing app bundle..." >&2
 codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime \
   --entitlements "$ROOT_DIR/Config/Librarian.entitlements" "$APP_PATH" >&2
 
