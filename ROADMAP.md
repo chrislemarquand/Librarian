@@ -50,4 +50,3 @@ This is the single planning document for Librarian. It replaces `docs/SHIPPING_P
 - Album creation in Photos.
 - Story/meaningfulness engine.
 - OpenAI/cloud intelligence features.
-- App Sandbox/App Store distribution track.
