@@ -122,6 +122,7 @@ private struct InspectorRootView: View {
 
 @MainActor
 private final class InspectorReadOnlyViewModel: ObservableObject {
+    @Published private(set) var displayState = InspectorDisplayState.empty
     @Published private(set) var selectedAsset: IndexedAsset?
     @Published private(set) var selectedArchivedItem: ArchivedItem?
     @Published private(set) var archiveCandidateInfo: ArchiveCandidateInfo?
@@ -186,6 +187,24 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
     }
 
+    private func updateDisplayState(
+        selectedAsset: IndexedAsset? = nil,
+        selectedArchivedItem: ArchivedItem? = nil,
+        multipleSelectionCount: Int? = nil,
+        previewImage: NSImage? = nil,
+        isPreviewLoading: Bool? = nil,
+        metadata: InspectorMetadataState? = nil
+    ) {
+        displayState = InspectorDisplayState(
+            selectedAsset: selectedAsset ?? displayState.selectedAsset,
+            selectedArchivedItem: selectedArchivedItem ?? displayState.selectedArchivedItem,
+            multipleSelectionCount: multipleSelectionCount ?? displayState.multipleSelectionCount,
+            previewImage: previewImage ?? displayState.previewImage,
+            isPreviewLoading: isPreviewLoading ?? displayState.isPreviewLoading,
+            metadata: metadata ?? displayState.metadata
+        )
+    }
+
     @Published private(set) var multipleSelectionCount: Int = 0
 
     func showEmpty() {
@@ -198,6 +217,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         isPreviewLoading = false
         representedPreviewIdentifier = nil
         resetMetadata()
+        updateDisplayState(
+            selectedAsset: nil,
+            selectedArchivedItem: nil,
+            multipleSelectionCount: 0,
+            previewImage: nil,
+            isPreviewLoading: false,
+            metadata: .empty
+        )
     }
 
     func showMultiple(count: Int) {
@@ -210,6 +237,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         isPreviewLoading = false
         representedPreviewIdentifier = nil
         resetMetadata()
+        updateDisplayState(
+            selectedAsset: nil,
+            selectedArchivedItem: nil,
+            multipleSelectionCount: count,
+            previewImage: nil,
+            isPreviewLoading: false,
+            metadata: .empty
+        )
     }
 
     func showAsset(_ asset: IndexedAsset) {
@@ -218,9 +253,17 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         selectedArchivedItem = nil
         archiveCandidateInfo = nil
         representedPreviewIdentifier = asset.localIdentifier
+        updateDisplayState(
+            selectedAsset: asset,
+            selectedArchivedItem: nil,
+            multipleSelectionCount: 0,
+            previewImage: previewImage,
+            isPreviewLoading: isPreviewLoading
+        )
         if let cachedPreview = previewImageCache[asset.localIdentifier] {
             previewImage = cachedPreview
             isPreviewLoading = false
+            updateDisplayState(previewImage: cachedPreview, isPreviewLoading: false)
         }
         requestPreviewImage(for: asset.localIdentifier)
         requestAssetMetadata(for: asset.localIdentifier, generation: metadataRequestGeneration)
@@ -232,9 +275,17 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         selectedArchivedItem = item
         archiveCandidateInfo = nil
         representedPreviewIdentifier = "archived:\(item.relativePath)"
+        updateDisplayState(
+            selectedAsset: nil,
+            selectedArchivedItem: item,
+            multipleSelectionCount: 0,
+            previewImage: previewImage,
+            isPreviewLoading: isPreviewLoading
+        )
         if let cachedPreview = previewImageCache[representedPreviewIdentifier ?? ""] {
             previewImage = cachedPreview
             isPreviewLoading = false
+            updateDisplayState(previewImage: cachedPreview, isPreviewLoading: false)
         }
         requestPreviewImage(forArchivedItem: item)
         requestArchivedItemMetadata(item)
@@ -249,6 +300,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         exifAperture = ""; exifShutterSpeed = ""; exifISO = ""; exifFocalLength = ""
         exifExposureProgram = ""; exifFlash = ""; exifMeteringMode = ""; exifExposureCompensation = ""
         overallScore = nil; aiCaption = ""; namedPersonCount = nil; detectedPersonCount = nil; extractedText = ""
+        updateDisplayState(metadata: .empty)
     }
 
     func toggleSection(_ title: String) {
@@ -591,6 +643,38 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         detectedPersonCount = snapshot.detectedPersonCount
         extractedText = snapshot.extractedText
         archiveCandidateInfo = snapshot.archiveCandidateInfo
+        updateDisplayState(
+            metadata: InspectorMetadataState(
+                originalFilename: originalFilename,
+                fileFormat: fileFormat,
+                fileSizeBytes: fileSizeBytes,
+                latitude: latitude,
+                longitude: longitude,
+                altitude: altitude,
+                isBurst: isBurst,
+                isEdited: isEdited,
+                hasLivePhotoVideo: hasLivePhotoVideo,
+                albums: albums,
+                exifMake: exifMake,
+                exifModel: exifModel,
+                exifSerialNumber: exifSerialNumber,
+                exifLensModel: exifLensModel,
+                exifAperture: exifAperture,
+                exifShutterSpeed: exifShutterSpeed,
+                exifISO: exifISO,
+                exifFocalLength: exifFocalLength,
+                exifExposureProgram: exifExposureProgram,
+                exifFlash: exifFlash,
+                exifMeteringMode: exifMeteringMode,
+                exifExposureCompensation: exifExposureCompensation,
+                overallScore: overallScore,
+                aiCaption: aiCaption,
+                namedPersonCount: namedPersonCount,
+                detectedPersonCount: detectedPersonCount,
+                extractedText: extractedText,
+                archiveCandidateInfo: archiveCandidateInfo
+            )
+        )
     }
 
     private func requestEXIF(for phAsset: PHAsset, localIdentifier: String, generation: Int) {
@@ -656,6 +740,38 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         latitude = parsed.latitude ?? latitude
         longitude = parsed.longitude ?? longitude
         altitude = parsed.altitude ?? altitude
+        updateDisplayState(
+            metadata: InspectorMetadataState(
+                originalFilename: originalFilename,
+                fileFormat: fileFormat,
+                fileSizeBytes: fileSizeBytes,
+                latitude: latitude,
+                longitude: longitude,
+                altitude: altitude,
+                isBurst: isBurst,
+                isEdited: isEdited,
+                hasLivePhotoVideo: hasLivePhotoVideo,
+                albums: albums,
+                exifMake: exifMake,
+                exifModel: exifModel,
+                exifSerialNumber: exifSerialNumber,
+                exifLensModel: exifLensModel,
+                exifAperture: exifAperture,
+                exifShutterSpeed: exifShutterSpeed,
+                exifISO: exifISO,
+                exifFocalLength: exifFocalLength,
+                exifExposureProgram: exifExposureProgram,
+                exifFlash: exifFlash,
+                exifMeteringMode: exifMeteringMode,
+                exifExposureCompensation: exifExposureCompensation,
+                overallScore: overallScore,
+                aiCaption: aiCaption,
+                namedPersonCount: namedPersonCount,
+                detectedPersonCount: detectedPersonCount,
+                extractedText: extractedText,
+                archiveCandidateInfo: archiveCandidateInfo
+            )
+        )
     }
 
     nonisolated private static func parseMetadata(from data: Data) -> ParsedMetadata? {
@@ -923,6 +1039,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
                 }
                 self.previewImage = image
                 self.isPreviewLoading = false
+                self.updateDisplayState(previewImage: image, isPreviewLoading: false)
             }
         }
     }
@@ -940,6 +1057,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             }
             self.previewImage = image
             self.isPreviewLoading = false
+            self.updateDisplayState(previewImage: image, isPreviewLoading: false)
         }
     }
 
@@ -1031,6 +1149,86 @@ private struct AssetMetadataSnapshot {
     let detectedPersonCount: Int?
     let extractedText: String
     let archiveCandidateInfo: ArchiveCandidateInfo?
+}
+
+private struct InspectorDisplayState {
+    let selectedAsset: IndexedAsset?
+    let selectedArchivedItem: ArchivedItem?
+    let multipleSelectionCount: Int
+    let previewImage: NSImage?
+    let isPreviewLoading: Bool
+    let metadata: InspectorMetadataState
+
+    static let empty = InspectorDisplayState(
+        selectedAsset: nil,
+        selectedArchivedItem: nil,
+        multipleSelectionCount: 0,
+        previewImage: nil,
+        isPreviewLoading: false,
+        metadata: .empty
+    )
+}
+
+private struct InspectorMetadataState {
+    let originalFilename: String
+    let fileFormat: String
+    let fileSizeBytes: Int?
+    let latitude: Double?
+    let longitude: Double?
+    let altitude: Double?
+    let isBurst: Bool
+    let isEdited: Bool
+    let hasLivePhotoVideo: Bool
+    let albums: [String]
+    let exifMake: String
+    let exifModel: String
+    let exifSerialNumber: String
+    let exifLensModel: String
+    let exifAperture: String
+    let exifShutterSpeed: String
+    let exifISO: String
+    let exifFocalLength: String
+    let exifExposureProgram: String
+    let exifFlash: String
+    let exifMeteringMode: String
+    let exifExposureCompensation: String
+    let overallScore: Double?
+    let aiCaption: String
+    let namedPersonCount: Int?
+    let detectedPersonCount: Int?
+    let extractedText: String
+    let archiveCandidateInfo: ArchiveCandidateInfo?
+
+    static let empty = InspectorMetadataState(
+        originalFilename: "",
+        fileFormat: "",
+        fileSizeBytes: nil,
+        latitude: nil,
+        longitude: nil,
+        altitude: nil,
+        isBurst: false,
+        isEdited: false,
+        hasLivePhotoVideo: false,
+        albums: [],
+        exifMake: "",
+        exifModel: "",
+        exifSerialNumber: "",
+        exifLensModel: "",
+        exifAperture: "",
+        exifShutterSpeed: "",
+        exifISO: "",
+        exifFocalLength: "",
+        exifExposureProgram: "",
+        exifFlash: "",
+        exifMeteringMode: "",
+        exifExposureCompensation: "",
+        overallScore: nil,
+        aiCaption: "",
+        namedPersonCount: nil,
+        detectedPersonCount: nil,
+        extractedText: "",
+        archiveCandidateInfo: nil
+    )
 }
 
 private extension String {
