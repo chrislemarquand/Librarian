@@ -12,6 +12,19 @@ ARCHIVE_PATH="$BUILD_DIR/archive/${APP_NAME}.xcarchive"
 : "${DEVELOPER_ID_APPLICATION:?Set DEVELOPER_ID_APPLICATION to your Developer ID Application identity.}"
 : "${APP_NAME:?Set APP_NAME or APP_DISPLAY_NAME in Config/Base.xcconfig.}"
 
+# Derive MARKETING_VERSION from the git tag (e.g. v0.2 → 0.2) when available.
+# CURRENT_PROJECT_VERSION uses the total commit count — always monotonically increasing.
+# These override whatever is in the project file, making the project file irrelevant for CI builds.
+GIT_TAG="${GITHUB_REF_NAME:-$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || true)}"
+if [[ "$GIT_TAG" =~ ^v([0-9].*)$ ]]; then
+  MARKETING_VERSION="${BASH_REMATCH[1]}"
+else
+  MARKETING_VERSION="${MARKETING_VERSION:-$(grep -E '^MARKETING_VERSION' "$ROOT_DIR/Config/Base.xcconfig" | awk -F'=' '{gsub(/[[:space:]]/, "", $2); print $2}')}"
+fi
+BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
+
+echo "Building version $MARKETING_VERSION (build $BUILD_NUMBER)" >&2
+
 mkdir -p "$BUILD_DIR/archive"
 ARCHIVE_LOG="$BUILD_DIR/archive/xcodebuild.log"
 
@@ -26,6 +39,8 @@ xcodebuild \
   DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
+  MARKETING_VERSION="$MARKETING_VERSION" \
+  CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   archive 2>&1 | tee "$ARCHIVE_LOG" >&2
 
 APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
