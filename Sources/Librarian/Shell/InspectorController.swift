@@ -167,6 +167,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private var assetSnapshotCache: [String: AssetMetadataSnapshot] = [:]
     private var metadataCache: [String: ParsedMetadata] = [:]
     private var previewImageCache: [String: NSImage] = [:]
+    private var displayStateCache: [String: InspectorDisplayState] = [:]
 
     // v2 key so old section-name collapse state doesn't carry over.
     private static let collapsedSectionsKey = "ui.librarian.inspector.collapsed.sections.v2"
@@ -200,7 +201,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         isPreviewLoading: DisplayStateUpdate<Bool> = .keep,
         metadata: DisplayStateUpdate<InspectorMetadataState> = .keep
     ) {
-        displayState = InspectorDisplayState(
+        let nextState = InspectorDisplayState(
             selectedAsset: resolvedUpdate(selectedAsset, current: displayState.selectedAsset),
             selectedArchivedItem: resolvedUpdate(selectedArchivedItem, current: displayState.selectedArchivedItem),
             multipleSelectionCount: resolvedUpdate(multipleSelectionCount, current: displayState.multipleSelectionCount),
@@ -208,6 +209,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             isPreviewLoading: resolvedUpdate(isPreviewLoading, current: displayState.isPreviewLoading),
             metadata: resolvedUpdate(metadata, current: displayState.metadata)
         )
+        applyDisplayState(nextState)
     }
 
     private func resolvedUpdate<T>(_ update: DisplayStateUpdate<T>, current: T) -> T {
@@ -217,6 +219,79 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         case .set(let value):
             return value
         }
+    }
+
+    private func applyDisplayState(_ state: InspectorDisplayState) {
+        guard !displayStatesEqual(displayState, state) else { return }
+        displayState = state
+        if let identifier = representedPreviewIdentifier {
+            displayStateCache[identifier] = state
+        }
+    }
+
+    private func displayStatesEqual(_ lhs: InspectorDisplayState, _ rhs: InspectorDisplayState) -> Bool {
+        lhs.selectedAsset?.localIdentifier == rhs.selectedAsset?.localIdentifier &&
+        lhs.selectedArchivedItem?.relativePath == rhs.selectedArchivedItem?.relativePath &&
+        lhs.multipleSelectionCount == rhs.multipleSelectionCount &&
+        lhs.previewImage === rhs.previewImage &&
+        lhs.isPreviewLoading == rhs.isPreviewLoading &&
+        metadataStatesEqual(lhs.metadata, rhs.metadata)
+    }
+
+    private func metadataStatesEqual(_ lhs: InspectorMetadataState, _ rhs: InspectorMetadataState) -> Bool {
+        lhs.originalFilename == rhs.originalFilename &&
+        lhs.fileFormat == rhs.fileFormat &&
+        lhs.fileSizeBytes == rhs.fileSizeBytes &&
+        lhs.latitude == rhs.latitude &&
+        lhs.longitude == rhs.longitude &&
+        lhs.altitude == rhs.altitude &&
+        lhs.isBurst == rhs.isBurst &&
+        lhs.isEdited == rhs.isEdited &&
+        lhs.hasLivePhotoVideo == rhs.hasLivePhotoVideo &&
+        lhs.albums == rhs.albums &&
+        lhs.exifMake == rhs.exifMake &&
+        lhs.exifModel == rhs.exifModel &&
+        lhs.exifSerialNumber == rhs.exifSerialNumber &&
+        lhs.exifLensModel == rhs.exifLensModel &&
+        lhs.exifAperture == rhs.exifAperture &&
+        lhs.exifShutterSpeed == rhs.exifShutterSpeed &&
+        lhs.exifISO == rhs.exifISO &&
+        lhs.exifFocalLength == rhs.exifFocalLength &&
+        lhs.exifExposureProgram == rhs.exifExposureProgram &&
+        lhs.exifFlash == rhs.exifFlash &&
+        lhs.exifMeteringMode == rhs.exifMeteringMode &&
+        lhs.exifExposureCompensation == rhs.exifExposureCompensation &&
+        lhs.overallScore == rhs.overallScore &&
+        lhs.aiCaption == rhs.aiCaption &&
+        lhs.namedPersonCount == rhs.namedPersonCount &&
+        lhs.detectedPersonCount == rhs.detectedPersonCount &&
+        lhs.extractedText == rhs.extractedText &&
+        archiveCandidateInfoEqual(lhs.archiveCandidateInfo, rhs.archiveCandidateInfo)
+    }
+
+    private func archiveCandidateInfoEqual(_ lhs: ArchiveCandidateInfo?, _ rhs: ArchiveCandidateInfo?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.status == rhs.status &&
+            lhs.lastError == rhs.lastError &&
+            lhs.queuedAt == rhs.queuedAt &&
+            lhs.exportedAt == rhs.exportedAt &&
+            lhs.deletedAt == rhs.deletedAt &&
+            lhs.archivePath == rhs.archivePath
+        default:
+            return false
+        }
+    }
+
+    private func hydrateFromDisplayState(_ state: InspectorDisplayState) {
+        selectedAsset = state.selectedAsset
+        selectedArchivedItem = state.selectedArchivedItem
+        multipleSelectionCount = state.multipleSelectionCount
+        previewImage = state.previewImage
+        isPreviewLoading = state.isPreviewLoading
+        applyMetadataState(state.metadata)
     }
 
     private(set) var multipleSelectionCount: Int = 0
@@ -263,18 +338,26 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     func showAsset(_ asset: IndexedAsset) {
         metadataRequestGeneration += 1
-        selectedAsset = asset
-        selectedArchivedItem = nil
-        archiveCandidateInfo = nil
         representedPreviewIdentifier = asset.localIdentifier
-        updateDisplayState(
-            selectedAsset: .set(asset),
-            selectedArchivedItem: .set(nil),
-            multipleSelectionCount: .set(0),
-            previewImage: .set(previewImage),
-            isPreviewLoading: .set(isPreviewLoading),
-            metadata: .set(currentMetadataState)
-        )
+        if let cachedState = displayStateCache[asset.localIdentifier] {
+            hydrateFromDisplayState(cachedState)
+            applyDisplayState(cachedState)
+        } else {
+            selectedAsset = asset
+            selectedArchivedItem = nil
+            multipleSelectionCount = 0
+            previewImage = nil
+            isPreviewLoading = false
+            resetMetadata()
+            updateDisplayState(
+                selectedAsset: .set(asset),
+                selectedArchivedItem: .set(nil),
+                multipleSelectionCount: .set(0),
+                previewImage: .set(nil),
+                isPreviewLoading: .set(false),
+                metadata: .set(currentMetadataState)
+            )
+        }
         if let cachedPreview = previewImageCache[asset.localIdentifier] {
             previewImage = cachedPreview
             isPreviewLoading = false
@@ -286,18 +369,26 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     func showArchivedItem(_ item: ArchivedItem) {
         metadataRequestGeneration += 1
-        selectedAsset = nil
-        selectedArchivedItem = item
-        archiveCandidateInfo = nil
         representedPreviewIdentifier = "archived:\(item.relativePath)"
-        updateDisplayState(
-            selectedAsset: .set(nil),
-            selectedArchivedItem: .set(item),
-            multipleSelectionCount: .set(0),
-            previewImage: .set(previewImage),
-            isPreviewLoading: .set(isPreviewLoading),
-            metadata: .set(currentMetadataState)
-        )
+        if let cachedState = displayStateCache[representedPreviewIdentifier ?? ""] {
+            hydrateFromDisplayState(cachedState)
+            applyDisplayState(cachedState)
+        } else {
+            selectedAsset = nil
+            selectedArchivedItem = item
+            multipleSelectionCount = 0
+            previewImage = nil
+            isPreviewLoading = false
+            resetMetadata()
+            updateDisplayState(
+                selectedAsset: .set(nil),
+                selectedArchivedItem: .set(item),
+                multipleSelectionCount: .set(0),
+                previewImage: .set(nil),
+                isPreviewLoading: .set(false),
+                metadata: .set(currentMetadataState)
+            )
+        }
         if let cachedPreview = previewImageCache[representedPreviewIdentifier ?? ""] {
             previewImage = cachedPreview
             isPreviewLoading = false
@@ -316,7 +407,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         exifAperture = ""; exifShutterSpeed = ""; exifISO = ""; exifFocalLength = ""
         exifExposureProgram = ""; exifFlash = ""; exifMeteringMode = ""; exifExposureCompensation = ""
         overallScore = nil; aiCaption = ""; namedPersonCount = nil; detectedPersonCount = nil; extractedText = ""
-        updateDisplayState(metadata: .set(.empty))
     }
 
     private var currentMetadataState: InspectorMetadataState {
@@ -350,6 +440,37 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             extractedText: extractedText,
             archiveCandidateInfo: archiveCandidateInfo
         )
+    }
+
+    private func applyMetadataState(_ metadata: InspectorMetadataState) {
+        originalFilename = metadata.originalFilename
+        fileFormat = metadata.fileFormat
+        fileSizeBytes = metadata.fileSizeBytes
+        latitude = metadata.latitude
+        longitude = metadata.longitude
+        altitude = metadata.altitude
+        isBurst = metadata.isBurst
+        isEdited = metadata.isEdited
+        hasLivePhotoVideo = metadata.hasLivePhotoVideo
+        albums = metadata.albums
+        exifMake = metadata.exifMake
+        exifModel = metadata.exifModel
+        exifSerialNumber = metadata.exifSerialNumber
+        exifLensModel = metadata.exifLensModel
+        exifAperture = metadata.exifAperture
+        exifShutterSpeed = metadata.exifShutterSpeed
+        exifISO = metadata.exifISO
+        exifFocalLength = metadata.exifFocalLength
+        exifExposureProgram = metadata.exifExposureProgram
+        exifFlash = metadata.exifFlash
+        exifMeteringMode = metadata.exifMeteringMode
+        exifExposureCompensation = metadata.exifExposureCompensation
+        overallScore = metadata.overallScore
+        aiCaption = metadata.aiCaption
+        namedPersonCount = metadata.namedPersonCount
+        detectedPersonCount = metadata.detectedPersonCount
+        extractedText = metadata.extractedText
+        archiveCandidateInfo = metadata.archiveCandidateInfo
     }
 
     func toggleSection(_ title: String) {
