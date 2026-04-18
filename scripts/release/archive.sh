@@ -13,15 +13,20 @@ ARCHIVE_PATH="$BUILD_DIR/archive/${APP_NAME}.xcarchive"
 : "${APP_NAME:?Set APP_NAME or APP_DISPLAY_NAME in Config/Base.xcconfig.}"
 
 # Derive MARKETING_VERSION from the git tag (e.g. v0.2 → 0.2) when available.
-# CURRENT_PROJECT_VERSION uses the total commit count — always monotonically increasing.
-# These override whatever is in the project file, making the project file irrelevant for CI builds.
+# CURRENT_PROJECT_VERSION is computed from the version number as MAJOR*10000 + MINOR*100 + PATCH
+# (e.g. 0.2 → 200, 1.0 → 10000) so it is always monotonically increasing and does not require
+# a full git history (actions/checkout does a shallow clone by default).
 GIT_TAG="${GITHUB_REF_NAME:-$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || true)}"
 if [[ "$GIT_TAG" =~ ^v([0-9].*)$ ]]; then
   MARKETING_VERSION="${BASH_REMATCH[1]}"
 else
   MARKETING_VERSION="${MARKETING_VERSION:-$(grep -E '^MARKETING_VERSION' "$ROOT_DIR/Config/Base.xcconfig" | awk -F'=' '{gsub(/[[:space:]]/, "", $2); print $2}')}"
 fi
-BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
+if [[ "$MARKETING_VERSION" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
+  BUILD_NUMBER=$(( ${BASH_REMATCH[1]} * 10000 + ${BASH_REMATCH[2]} * 100 + ${BASH_REMATCH[4]:-0} ))
+else
+  BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo 1)"
+fi
 
 echo "Building version $MARKETING_VERSION (build $BUILD_NUMBER)" >&2
 
