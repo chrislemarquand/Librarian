@@ -58,7 +58,7 @@ extension AppModel {
             .init(id: "rights-copyright", section: "Rights", label: "Copyright", availability: .both, isEnabled: true),
             .init(id: "rights-creator", section: "Rights", label: "Creator", availability: .both, isEnabled: true),
 
-            .init(id: "library-favorite", section: "Library", label: "Favorite", availability: .photo, isEnabled: true),
+            .init(id: "library-favorite", section: "Library", label: "Favourite", availability: .photo, isEnabled: true),
             .init(id: "library-hidden", section: "Library", label: "Hidden", availability: .photo, isEnabled: true),
             .init(id: "library-edited", section: "Library", label: "Edited", availability: .photo, isEnabled: true),
             .init(id: "library-burst", section: "Library", label: "Burst Photo", availability: .photo, isEnabled: true),

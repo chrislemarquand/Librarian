@@ -261,11 +261,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     func sections(for asset: IndexedAsset) -> [InspectorSection] {
         var result: [InspectorSection] = []
 
-        let cloudLabel: String
-        if asset.hasLocalOriginal { cloudLabel = "Downloaded" }
-        else if asset.isCloudOnly { cloudLabel = "Cloud only" }
-        else { cloudLabel = asset.iCloudDownloadState }
-
         let dateRows: [SectionRow] = [
             makeRow(id: "datetime-original", title: "Date Time Original", value: formattedDate(asset.creationDate)),
             makeRow(id: "datetime-digitized", title: "Date Time Digitized", value: nil),
@@ -309,14 +304,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
 
         let libraryRows: [SectionRow] = [
-            makeRow(id: "library-favorite", title: "Favorite", value: yesNo(asset.isFavorite)),
-            makeRow(id: "library-hidden", title: "Hidden", value: yesNo(asset.isHidden)),
-            makeRow(id: "library-edited", title: "Edited", value: yesNo(isEdited)),
-            makeRow(id: "library-burst", title: "Burst Photo", value: yesNo(isBurst)),
-            makeRow(id: "library-live-photo", title: "Live Photo", value: yesNo(hasLivePhotoVideo)),
-            makeRow(id: "library-icloud", title: "iCloud", value: cloudLabel),
             makeRow(id: "library-albums", title: "Albums", value: albums.isEmpty ? nil : albums.joined(separator: ", ")),
-            makeRow(id: "library-shared", title: "Shared Library", value: yesNo(asset.isCloudShared)),
         ].compactMap { $0 }
         if !libraryRows.isEmpty {
             result.append(InspectorSection(title: "Library", rows: libraryRows))
@@ -353,6 +341,78 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
 
         return result
+    }
+
+    func libraryStatusSymbols(for asset: IndexedAsset) -> [InspectorStatusSymbolRow.Item] {
+        var items: [InspectorStatusSymbolRow.Item] = []
+
+        if model.isInspectorFieldEnabled("library-icloud") {
+            if asset.hasLocalOriginal {
+                items.append(.init(
+                    id: "library-icloud-downloaded",
+                    symbolName: "checkmark.icloud",
+                    accessibilityLabel: "iCloud downloaded",
+                    toolTip: "Downloaded from iCloud"
+                ))
+            } else if asset.isCloudOnly {
+                items.append(.init(
+                    id: "library-icloud-cloud-only",
+                    symbolName: "icloud",
+                    accessibilityLabel: "iCloud cloud only",
+                    toolTip: "Stored only in iCloud"
+                ))
+            }
+        }
+        if model.isInspectorFieldEnabled("library-shared"), asset.isCloudShared {
+            items.append(.init(
+                id: "library-shared",
+                symbolName: "person.2.fill",
+                accessibilityLabel: "Shared Library",
+                toolTip: "In Shared Library"
+            ))
+        }
+        if model.isInspectorFieldEnabled("library-favorite"), asset.isFavorite {
+            items.append(.init(
+                id: "library-favorite",
+                symbolName: "heart.fill",
+                accessibilityLabel: "Favourite",
+                toolTip: "Marked as Favourite"
+            ))
+        }
+        if model.isInspectorFieldEnabled("library-edited"), isEdited {
+            items.append(.init(
+                id: "library-edited",
+                symbolName: "pencil",
+                accessibilityLabel: "Edited",
+                toolTip: "Edited in Photos"
+            ))
+        }
+        if model.isInspectorFieldEnabled("library-live-photo"), hasLivePhotoVideo {
+            items.append(.init(
+                id: "library-live-photo",
+                symbolName: "livephoto",
+                accessibilityLabel: "Live Photo",
+                toolTip: "Live Photo"
+            ))
+        }
+        if model.isInspectorFieldEnabled("library-burst"), isBurst {
+            items.append(.init(
+                id: "library-burst",
+                symbolName: "photo.stack",
+                accessibilityLabel: "Burst Photo",
+                toolTip: "Burst Photo"
+            ))
+        }
+        if model.isInspectorFieldEnabled("library-hidden"), asset.isHidden {
+            items.append(.init(
+                id: "library-hidden",
+                symbolName: "eye.slash",
+                accessibilityLabel: "Hidden",
+                toolTip: "Hidden in Photos"
+            ))
+        }
+
+        return items
     }
 
     func sections(forArchivedItem item: ArchivedItem) -> [InspectorSection] {
@@ -863,10 +923,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         return String(format: "%.1f MP", megapixels)
     }
 
-    private func yesNo(_ value: Bool) -> String {
-        value ? "Yes" : "No"
-    }
-
     private func makeRow(id: String, title: String, value: String?) -> SectionRow? {
         guard model.isInspectorFieldEnabled(id) else { return nil }
         let resolvedValue = value?.nonEmpty ?? "—"
@@ -970,6 +1026,8 @@ private struct InspectorReadOnlyView: View {
             if let asset = viewModel.selectedAsset {
                 VStack(alignment: .leading, spacing: 16) {
                     InspectorHeaderView(title: viewModel.title, subtitle: viewModel.subtitle.isEmpty ? nil : viewModel.subtitle)
+
+                    InspectorStatusSymbolRow(items: viewModel.libraryStatusSymbols(for: asset))
 
                     InspectorSectionContainer(
                         "Preview",
