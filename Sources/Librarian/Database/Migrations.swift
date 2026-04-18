@@ -297,5 +297,15 @@ enum LibrarianMigrations {
             try db.create(index: "asset_isFavorite", on: "asset", columns: ["isFavorite"])
             try db.create(index: "asset_isDeletedFromPhotos_mediaType", on: "asset", columns: ["isDeletedFromPhotos", "mediaType"])
         }
+
+        migrator.registerMigration("v20_add_library_metadata_fields") { db in
+            try db.alter(table: "asset") { t in
+                t.add(column: "photoTitle",          .text)
+                t.add(column: "photoDescription",    .text)
+                t.add(column: "photoKeywords",       .text)
+                t.add(column: "dateAddedToLibrary",  .datetime)
+                t.add(column: "place",               .text)
+            }
+        }
     }
 }

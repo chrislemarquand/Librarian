@@ -193,7 +193,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     // Camera & Capture (EXIF, async)
     private(set) var exifMake: String = ""
     private(set) var exifModel: String = ""
-    private(set) var exifSerialNumber: String = ""
     private(set) var exifLensModel: String = ""
     private(set) var exifAperture: String = ""
     private(set) var exifShutterSpeed: String = ""
@@ -204,8 +203,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private(set) var exifMeteringMode: String = ""
     private(set) var exifExposureCompensation: String = ""
     // Analysis
+    private(set) var photoTitle: String = ""
+    private(set) var photoDescription: String = ""
+    private(set) var photoKeywords: String = ""
+    private(set) var dateAdded: Date? = nil
+    private(set) var place: String = ""
     private(set) var overallScore: Double? = nil
     private(set) var aiCaption: String = ""
+    private(set) var labels: String = ""
     private(set) var namedPersonCount: Int? = nil
     private(set) var detectedPersonCount: Int? = nil
     private(set) var extractedText: String = ""
@@ -310,7 +315,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         lhs.albums == rhs.albums &&
         lhs.exifMake == rhs.exifMake &&
         lhs.exifModel == rhs.exifModel &&
-        lhs.exifSerialNumber == rhs.exifSerialNumber &&
         lhs.exifLensModel == rhs.exifLensModel &&
         lhs.exifAperture == rhs.exifAperture &&
         lhs.exifShutterSpeed == rhs.exifShutterSpeed &&
@@ -320,8 +324,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         lhs.exifFlash == rhs.exifFlash &&
         lhs.exifMeteringMode == rhs.exifMeteringMode &&
         lhs.exifExposureCompensation == rhs.exifExposureCompensation &&
+        lhs.photoTitle == rhs.photoTitle &&
+        lhs.photoDescription == rhs.photoDescription &&
+        lhs.photoKeywords == rhs.photoKeywords &&
+        lhs.dateAdded == rhs.dateAdded &&
+        lhs.place == rhs.place &&
         lhs.overallScore == rhs.overallScore &&
         lhs.aiCaption == rhs.aiCaption &&
+        lhs.labels == rhs.labels &&
         lhs.namedPersonCount == rhs.namedPersonCount &&
         lhs.detectedPersonCount == rhs.detectedPersonCount &&
         lhs.extractedText == rhs.extractedText &&
@@ -542,10 +552,11 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         latitude = nil; longitude = nil; altitude = nil
         isBurst = false; isEdited = false; hasLivePhotoVideo = false
         albums = []
-        exifMake = ""; exifModel = ""; exifSerialNumber = ""; exifLensModel = ""
+        exifMake = ""; exifModel = ""; exifLensModel = ""
         exifAperture = ""; exifShutterSpeed = ""; exifISO = ""; exifFocalLength = ""
         exifExposureProgram = ""; exifFlash = ""; exifMeteringMode = ""; exifExposureCompensation = ""
-        overallScore = nil; aiCaption = ""; namedPersonCount = nil; detectedPersonCount = nil; extractedText = ""
+        photoTitle = ""; photoDescription = ""; photoKeywords = ""; dateAdded = nil; place = ""
+        overallScore = nil; aiCaption = ""; labels = ""; namedPersonCount = nil; detectedPersonCount = nil; extractedText = ""
     }
 
     private var currentMetadataState: InspectorMetadataState {
@@ -562,7 +573,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             albums: albums,
             exifMake: exifMake,
             exifModel: exifModel,
-            exifSerialNumber: exifSerialNumber,
             exifLensModel: exifLensModel,
             exifAperture: exifAperture,
             exifShutterSpeed: exifShutterSpeed,
@@ -572,8 +582,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             exifFlash: exifFlash,
             exifMeteringMode: exifMeteringMode,
             exifExposureCompensation: exifExposureCompensation,
+            photoTitle: photoTitle,
+            photoDescription: photoDescription,
+            photoKeywords: photoKeywords,
+            dateAdded: dateAdded,
+            place: place,
             overallScore: overallScore,
             aiCaption: aiCaption,
+            labels: labels,
             namedPersonCount: namedPersonCount,
             detectedPersonCount: detectedPersonCount,
             extractedText: extractedText,
@@ -594,7 +610,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         albums = metadata.albums
         exifMake = metadata.exifMake
         exifModel = metadata.exifModel
-        exifSerialNumber = metadata.exifSerialNumber
         exifLensModel = metadata.exifLensModel
         exifAperture = metadata.exifAperture
         exifShutterSpeed = metadata.exifShutterSpeed
@@ -604,8 +619,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         exifFlash = metadata.exifFlash
         exifMeteringMode = metadata.exifMeteringMode
         exifExposureCompensation = metadata.exifExposureCompensation
+        photoTitle = metadata.photoTitle
+        photoDescription = metadata.photoDescription
+        photoKeywords = metadata.photoKeywords
+        dateAdded = metadata.dateAdded
+        place = metadata.place
         overallScore = metadata.overallScore
         aiCaption = metadata.aiCaption
+        labels = metadata.labels
         namedPersonCount = metadata.namedPersonCount
         detectedPersonCount = metadata.detectedPersonCount
         extractedText = metadata.extractedText
@@ -630,51 +651,53 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
         let dateRows: [SectionRow] = [
             makeRow(id: "datetime-original", title: "Original", value: formattedDate(asset.creationDate)),
-            makeRow(id: "datetime-digitized", title: "Digitised", value: nil),
             makeRow(id: "datetime-modified", title: "Modified", value: formattedDate(asset.modificationDate)),
+            makeRow(id: "datetime-added",    title: "Added",    value: formattedDate(dateAdded)),
         ].compactMap { $0 }
         if !dateRows.isEmpty {
             result.append(InspectorSection(title: "Date and Time", rows: dateRows))
         }
 
+        let libraryRows: [SectionRow] = [
+            makeRow(id: "descriptive-title",       title: "Title",       value: photoTitle.nonEmpty),
+            makeRow(id: "descriptive-description", title: "Description", value: photoDescription.nonEmpty),
+            makeRow(id: "descriptive-keywords",    title: "Keywords",    value: photoKeywords.nonEmpty),
+            makeRow(id: "library-albums", title: "Albums", value: albums.isEmpty ? nil : albums.joined(separator: ", ")),
+        ].compactMap { $0 }
+        if !libraryRows.isEmpty {
+            result.append(InspectorSection(title: "Library", rows: libraryRows))
+        }
+
+        let locationRows: [SectionRow] = [
+            makeRow(id: "location-latitude",  title: "Latitude",  value: formatCoordinate(latitude)),
+            makeRow(id: "location-longitude", title: "Longitude", value: formatCoordinate(longitude)),
+            makeRow(id: "location-place",     title: "Place",     value: place.nonEmpty),
+        ].compactMap { $0 }
+        if !locationRows.isEmpty {
+            result.append(InspectorSection(title: "Location", rows: locationRows))
+        }
+
         let cameraRows: [SectionRow] = [
-            makeRow(id: "camera-make", title: "Make", value: exifMake.nonEmpty),
-            makeRow(id: "camera-model", title: "Model", value: exifModel.nonEmpty),
-            makeRow(id: "camera-serial", title: "Serial Number", value: exifSerialNumber.nonEmpty),
-            makeRow(id: "camera-lens-model", title: "Lens Model", value: exifLensModel.nonEmpty),
+            makeRow(id: "camera-make",       title: "Make",  value: exifMake.nonEmpty),
+            makeRow(id: "camera-model",      title: "Model", value: exifModel.nonEmpty),
+            makeRow(id: "camera-lens-model", title: "Lens",  value: exifLensModel.nonEmpty),
         ].compactMap { $0 }
         if !cameraRows.isEmpty {
             result.append(InspectorSection(title: "Camera", rows: cameraRows))
         }
 
         let captureRows: [SectionRow] = [
-            makeRow(id: "capture-aperture", title: "Aperture", value: exifAperture.nonEmpty),
-            makeRow(id: "capture-shutter", title: "Shutter Speed", value: exifShutterSpeed.nonEmpty),
-            makeRow(id: "capture-iso", title: "ISO", value: exifISO.nonEmpty),
-            makeRow(id: "capture-focal-length", title: "Focal Length", value: exifFocalLength.nonEmpty),
-            makeRow(id: "capture-exposure-program", title: "Exposure Program", value: exifExposureProgram.nonEmpty),
-            makeRow(id: "capture-flash", title: "Flash", value: exifFlash.nonEmpty),
-            makeRow(id: "capture-metering-mode", title: "Metering Mode", value: exifMeteringMode.nonEmpty),
+            makeRow(id: "capture-aperture",              title: "Aperture",              value: exifAperture.nonEmpty),
+            makeRow(id: "capture-shutter",               title: "Shutter Speed",         value: exifShutterSpeed.nonEmpty),
+            makeRow(id: "capture-iso",                   title: "ISO",                   value: exifISO.nonEmpty),
+            makeRow(id: "capture-focal-length",          title: "Focal Length",          value: exifFocalLength.nonEmpty),
+            makeRow(id: "capture-exposure-program",      title: "Exposure Program",      value: exifExposureProgram.nonEmpty),
+            makeRow(id: "capture-flash",                 title: "Flash",                 value: exifFlash.nonEmpty),
+            makeRow(id: "capture-metering-mode",         title: "Metering Mode",         value: exifMeteringMode.nonEmpty),
             makeRow(id: "capture-exposure-compensation", title: "Exposure Compensation", value: exifExposureCompensation.nonEmpty),
         ].compactMap { $0 }
         if !captureRows.isEmpty {
             result.append(InspectorSection(title: "Capture", rows: captureRows))
-        }
-
-        let locationRows: [SectionRow] = [
-            makeRow(id: "location-latitude", title: "Latitude", value: formatCoordinate(latitude)),
-            makeRow(id: "location-longitude", title: "Longitude", value: formatCoordinate(longitude)),
-            makeRow(id: "location-direction", title: "Direction", value: nil),
-        ].compactMap { $0 }
-        if !locationRows.isEmpty {
-            result.append(InspectorSection(title: "Location", rows: locationRows))
-        }
-
-        let libraryRows: [SectionRow] = [
-            makeRow(id: "library-albums", title: "Albums", value: albums.isEmpty ? nil : albums.joined(separator: ", ")),
-        ].compactMap { $0 }
-        if !libraryRows.isEmpty {
-            result.append(InspectorSection(title: "Library", rows: libraryRows))
         }
 
         var analysisRows: [SectionRow] = []
@@ -684,27 +707,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             ].compactMap { $0 })
         }
         analysisRows.append(contentsOf: [
-            makeRow(id: "analysis-caption", title: "Caption", value: aiCaption.nonEmpty),
+            makeRow(id: "analysis-caption",         title: "Caption",         value: aiCaption.nonEmpty),
+            makeRow(id: "analysis-labels",          title: "Labels",          value: labels.nonEmpty),
             makeRow(id: "analysis-people-detected", title: "People Detected", value: detectedPersonCount.map(String.init)),
-            makeRow(id: "analysis-people-named", title: "Named People", value: namedPersonCount.map(String.init)),
-            makeRow(id: "analysis-extracted-text", title: "Extracted Text", value: extractedText.nonEmpty),
+            makeRow(id: "analysis-people-named",    title: "Named People",    value: namedPersonCount.map(String.init)),
+            makeRow(id: "analysis-extracted-text",  title: "Extracted Text",  value: extractedText.nonEmpty),
         ].compactMap { $0 })
         if !analysisRows.isEmpty {
             result.append(InspectorSection(title: "Analysis", rows: analysisRows))
-        }
-
-        if let info = archiveCandidateInfo {
-            let archiveRows: [SectionRow] = [
-                makeRow(id: "archive-status", title: "Status", value: archiveStatusLabel(info.status)),
-                makeRow(id: "archive-queued", title: "Queued", value: formattedDate(info.queuedAt)),
-                makeRow(id: "archive-exported", title: "Exported", value: info.exportedAt.map { formattedDate($0) }),
-                makeRow(id: "archive-deleted", title: "Deleted", value: info.deletedAt.map { formattedDate($0) }),
-                makeRow(id: "archive-path", title: "Archive Path", value: info.archivePath?.nonEmpty),
-                makeRow(id: "archive-last-error", title: "Last Error", value: info.lastError?.nonEmpty),
-            ].compactMap { $0 }
-            if !archiveRows.isEmpty {
-                result.append(InspectorSection(title: "Archive Status", rows: archiveRows))
-            }
         }
 
         return result
@@ -787,7 +797,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
         let dateRows: [SectionRow] = [
             makeRow(id: "datetime-original", title: "Original", value: formattedDate(item.captureDate)),
-            makeRow(id: "datetime-digitized", title: "Digitised", value: nil),
             makeRow(id: "datetime-modified", title: "Modified", value: formattedDate(item.fileModificationDate)),
         ].compactMap { $0 }
         if !dateRows.isEmpty {
@@ -795,23 +804,22 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
 
         let cameraRows: [SectionRow] = [
-            makeRow(id: "camera-make", title: "Make", value: exifMake.nonEmpty),
-            makeRow(id: "camera-model", title: "Model", value: exifModel.nonEmpty),
-            makeRow(id: "camera-serial", title: "Serial Number", value: exifSerialNumber.nonEmpty),
-            makeRow(id: "camera-lens-model", title: "Lens Model", value: exifLensModel.nonEmpty),
+            makeRow(id: "camera-make",       title: "Make",  value: exifMake.nonEmpty),
+            makeRow(id: "camera-model",      title: "Model", value: exifModel.nonEmpty),
+            makeRow(id: "camera-lens-model", title: "Lens",  value: exifLensModel.nonEmpty),
         ].compactMap { $0 }
         if !cameraRows.isEmpty {
             result.append(InspectorSection(title: "Camera", rows: cameraRows))
         }
 
         let captureRows: [SectionRow] = [
-            makeRow(id: "capture-aperture", title: "Aperture", value: exifAperture.nonEmpty),
-            makeRow(id: "capture-shutter", title: "Shutter Speed", value: exifShutterSpeed.nonEmpty),
-            makeRow(id: "capture-iso", title: "ISO", value: exifISO.nonEmpty),
-            makeRow(id: "capture-focal-length", title: "Focal Length", value: exifFocalLength.nonEmpty),
-            makeRow(id: "capture-exposure-program", title: "Exposure Program", value: exifExposureProgram.nonEmpty),
-            makeRow(id: "capture-flash", title: "Flash", value: exifFlash.nonEmpty),
-            makeRow(id: "capture-metering-mode", title: "Metering Mode", value: exifMeteringMode.nonEmpty),
+            makeRow(id: "capture-aperture",              title: "Aperture",              value: exifAperture.nonEmpty),
+            makeRow(id: "capture-shutter",               title: "Shutter Speed",         value: exifShutterSpeed.nonEmpty),
+            makeRow(id: "capture-iso",                   title: "ISO",                   value: exifISO.nonEmpty),
+            makeRow(id: "capture-focal-length",          title: "Focal Length",          value: exifFocalLength.nonEmpty),
+            makeRow(id: "capture-exposure-program",      title: "Exposure Program",      value: exifExposureProgram.nonEmpty),
+            makeRow(id: "capture-flash",                 title: "Flash",                 value: exifFlash.nonEmpty),
+            makeRow(id: "capture-metering-mode",         title: "Metering Mode",         value: exifMeteringMode.nonEmpty),
             makeRow(id: "capture-exposure-compensation", title: "Exposure Compensation", value: exifExposureCompensation.nonEmpty),
         ].compactMap { $0 }
         if !captureRows.isEmpty {
@@ -819,9 +827,8 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
 
         let locationRows: [SectionRow] = [
-            makeRow(id: "location-latitude", title: "Latitude", value: formatCoordinate(latitude)),
+            makeRow(id: "location-latitude",  title: "Latitude",  value: formatCoordinate(latitude)),
             makeRow(id: "location-longitude", title: "Longitude", value: formatCoordinate(longitude)),
-            makeRow(id: "location-direction", title: "Direction", value: nil),
         ].compactMap { $0 }
         if !locationRows.isEmpty {
             result.append(InspectorSection(title: "Location", rows: locationRows))
@@ -955,8 +962,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         isEdited = snapshot.isEdited
         hasLivePhotoVideo = snapshot.hasLivePhotoVideo
         albums = snapshot.albums
+        photoTitle = snapshot.photoTitle
+        photoDescription = snapshot.photoDescription
+        photoKeywords = snapshot.photoKeywords
+        dateAdded = snapshot.dateAdded
+        place = snapshot.place
         overallScore = snapshot.overallScore
         aiCaption = snapshot.aiCaption
+        labels = snapshot.labels
         namedPersonCount = snapshot.namedPersonCount
         detectedPersonCount = snapshot.detectedPersonCount
         extractedText = snapshot.extractedText
@@ -1029,7 +1042,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
         exifMake = parsed.make
         exifModel = parsed.model
-        exifSerialNumber = parsed.serial
         exifLensModel = parsed.lensModel
         exifAperture = parsed.aperture
         exifShutterSpeed = parsed.shutter
@@ -1071,7 +1083,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
         var make = ""
         var model = ""
-        var serial = ""
         var lensModel = ""
         var aperture = ""
         var shutter = ""
@@ -1087,7 +1098,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
         if let value = tiff[kCGImagePropertyTIFFMake] as? String { make = value }
         if let value = tiff[kCGImagePropertyTIFFModel] as? String { model = value }
-        if let value = exif[kCGImagePropertyExifBodySerialNumber] as? String { serial = value }
         if let value = exif[kCGImagePropertyExifLensModel] as? String { lensModel = value }
         if let f = exif[kCGImagePropertyExifFNumber] as? Double { aperture = String(format: "f/%.1f", f) }
         if let t = exif[kCGImagePropertyExifExposureTime] as? Double, t > 0 {
@@ -1118,7 +1128,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         return ParsedMetadata(
             make: make,
             model: model,
-            serial: serial,
             lensModel: lensModel,
             aperture: aperture,
             shutter: shutter,
@@ -1282,8 +1291,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             isEdited: phAsset.adjustmentFormatIdentifier != nil,
             hasLivePhotoVideo: hasLivePhotoVideo,
             albums: albums,
+            photoTitle: analysis?.photoTitle ?? "",
+            photoDescription: analysis?.photoDescription ?? "",
+            photoKeywords: analysis?.photoKeywords ?? "",
+            dateAdded: analysis?.dateAddedToLibrary,
+            place: analysis?.place ?? "",
             overallScore: analysis?.overallScore,
             aiCaption: analysis?.aiCaption ?? "",
+            labels: analysis?.formattedLabels ?? "",
             namedPersonCount: analysis?.namedPersonCount,
             detectedPersonCount: analysis?.detectedPersonCount,
             extractedText: analysis?.visionOcrText ?? "",
@@ -1417,8 +1432,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     private func makeRow(id: String, title: String, value: String?) -> SectionRow? {
-        guard model.isInspectorFieldEnabled(id) else { return nil }
-        let resolvedValue = value?.nonEmpty ?? "—"
+        guard model.isInspectorFieldEnabled(id), let resolvedValue = value?.nonEmpty else { return nil }
         return SectionRow(title: title, value: resolvedValue)
     }
 
@@ -1456,7 +1470,6 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 private struct ParsedMetadata {
     let make: String
     let model: String
-    let serial: String
     let lensModel: String
     let aperture: String
     let shutter: String
@@ -1482,8 +1495,14 @@ private struct AssetMetadataSnapshot {
     let isEdited: Bool
     let hasLivePhotoVideo: Bool
     let albums: [String]
+    let photoTitle: String
+    let photoDescription: String
+    let photoKeywords: String
+    let dateAdded: Date?
+    let place: String
     let overallScore: Double?
     let aiCaption: String
+    let labels: String
     let namedPersonCount: Int?
     let detectedPersonCount: Int?
     let extractedText: String
@@ -1521,7 +1540,6 @@ private struct InspectorMetadataState {
     let albums: [String]
     let exifMake: String
     let exifModel: String
-    let exifSerialNumber: String
     let exifLensModel: String
     let exifAperture: String
     let exifShutterSpeed: String
@@ -1531,8 +1549,14 @@ private struct InspectorMetadataState {
     let exifFlash: String
     let exifMeteringMode: String
     let exifExposureCompensation: String
+    let photoTitle: String
+    let photoDescription: String
+    let photoKeywords: String
+    let dateAdded: Date?
+    let place: String
     let overallScore: Double?
     let aiCaption: String
+    let labels: String
     let namedPersonCount: Int?
     let detectedPersonCount: Int?
     let extractedText: String
@@ -1551,7 +1575,6 @@ private struct InspectorMetadataState {
         albums: [],
         exifMake: "",
         exifModel: "",
-        exifSerialNumber: "",
         exifLensModel: "",
         exifAperture: "",
         exifShutterSpeed: "",
@@ -1561,8 +1584,14 @@ private struct InspectorMetadataState {
         exifFlash: "",
         exifMeteringMode: "",
         exifExposureCompensation: "",
+        photoTitle: "",
+        photoDescription: "",
+        photoKeywords: "",
+        dateAdded: nil,
+        place: "",
         overallScore: nil,
         aiCaption: "",
+        labels: "",
         namedPersonCount: nil,
         detectedPersonCount: nil,
         extractedText: "",

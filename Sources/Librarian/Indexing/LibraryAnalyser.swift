@@ -63,13 +63,19 @@ struct LibraryAnalyser {
                     }
 
                     let analysedAt = Date()
-                    let encoder = JSONEncoder() // used to serialise labels array to JSON string
+                    let encoder = JSONEncoder()
+                    let dateParser: ISO8601DateFormatter = {
+                        let f = ISO8601DateFormatter()
+                        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                        return f
+                    }()
                     let results: [AssetAnalysisResult] = records.map { record in
                         let labels = record.l ?? []
                         let labelsJSON: String? = labels.isEmpty
                             ? nil
                             : (try? String(data: encoder.encode(labels), encoding: .utf8)) ?? nil
                         let persons = record.p ?? []
+                        let dateAdded = record.a.flatMap { dateParser.date(from: $0) }
                         return AssetAnalysisResult(
                             uuid: record.u,
                             overallScore: record.s,
@@ -79,7 +85,12 @@ struct LibraryAnalyser {
                             detectedPersonCount: 0,
                             labelsJSON: labelsJSON,
                             fingerprint: record.f,
-                            aiCaption: record.c
+                            aiCaption: record.c,
+                            photoTitle: record.t,
+                            photoDescription: record.d,
+                            photoKeywords: record.k,
+                            dateAddedToLibrary: dateAdded,
+                            place: record.n
                         )
                     }
 
@@ -510,6 +521,8 @@ data = json.load(open(sys.argv[1]))
 out = []
 for x in data:
     sc = x.get("score") or {}
+    place_info = x.get("place") or {}
+    place_name = place_info.get("name") or None
     out.append({
         "u": x.get("uuid", ""),
         "s": sc.get("overall"),
@@ -517,7 +530,12 @@ for x in data:
         "p": [n for n in (x.get("persons") or []) if n != "_UNKNOWN_"],
         "l": x.get("labels_normalized") or [],
         "f": x.get("fingerprint"),
-        "c": x.get("ai_caption")
+        "c": x.get("ai_caption"),
+        "t": x.get("title") or None,
+        "d": x.get("description") or None,
+        "k": ", ".join(x.get("keywords") or []) or None,
+        "a": x.get("date_added"),
+        "n": place_name
     })
 with open(sys.argv[2], "w") as f:
     json.dump(out, f)
@@ -551,11 +569,16 @@ with open(sys.argv[2], "w") as f:
 // Compact record produced by the Python extraction step.
 // Single-letter keys to minimise output size.
 private struct OsxPhotosQueryRecord: Decodable {
-    let u: String   // uuid
-    let s: Double?  // score.overall
-    let z: Int?     // original_filesize
+    let u: String    // uuid
+    let s: Double?   // score.overall
+    let z: Int?      // original_filesize
     let p: [String]? // persons (pre-filtered, no _UNKNOWN_)
     let l: [String]? // labels_normalized
-    let f: String?  // fingerprint
-    let c: String?  // ai_caption
+    let f: String?   // fingerprint
+    let c: String?   // ai_caption
+    let t: String?   // title
+    let d: String?   // description
+    let k: String?   // keywords (comma-joined)
+    let a: String?   // date_added (ISO 8601)
+    let n: String?   // place name
 }

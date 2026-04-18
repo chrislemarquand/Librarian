@@ -769,12 +769,27 @@ final class AssetRepository: @unchecked Sendable {
         let namedPersonCount: Int?
         let detectedPersonCount: Int?
         let visionOcrText: String?
+        let labelsJSON: String?
+        let photoTitle: String?
+        let photoDescription: String?
+        let photoKeywords: String?
+        let dateAddedToLibrary: Date?
+        let place: String?
+
+        var formattedLabels: String {
+            guard let json = labelsJSON,
+                  let data = json.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode([String].self, from: data)
+            else { return "" }
+            return decoded.joined(separator: ", ")
+        }
     }
 
     func fetchAnalysisFields(localIdentifier: String) throws -> AnalysisFields? {
         try db.read { db in
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT overallScore, aiCaption, namedPersonCount, detectedPersonCount, visionOcrText
+                SELECT overallScore, aiCaption, namedPersonCount, detectedPersonCount, visionOcrText,
+                       labelsJSON, photoTitle, photoDescription, photoKeywords, dateAddedToLibrary, place
                 FROM asset WHERE localIdentifier = ? LIMIT 1
             """, arguments: [localIdentifier]) else { return nil }
             return AnalysisFields(
@@ -782,7 +797,13 @@ final class AssetRepository: @unchecked Sendable {
                 aiCaption: row["aiCaption"],
                 namedPersonCount: row["namedPersonCount"],
                 detectedPersonCount: row["detectedPersonCount"],
-                visionOcrText: row["visionOcrText"]
+                visionOcrText: row["visionOcrText"],
+                labelsJSON: row["labelsJSON"],
+                photoTitle: row["photoTitle"],
+                photoDescription: row["photoDescription"],
+                photoKeywords: row["photoKeywords"],
+                dateAddedToLibrary: row["dateAddedToLibrary"],
+                place: row["place"]
             )
         }
     }
@@ -996,6 +1017,11 @@ final class AssetRepository: @unchecked Sendable {
                                 labelsJSON = ?,
                                 fingerprint = ?,
                                 aiCaption = ?,
+                                photoTitle = ?,
+                                photoDescription = ?,
+                                photoKeywords = ?,
+                                dateAddedToLibrary = ?,
+                                place = ?,
                                 analysedAt = ?
                             WHERE localIdentifier LIKE ? || '/%'
                         """,
@@ -1008,6 +1034,11 @@ final class AssetRepository: @unchecked Sendable {
                             result.labelsJSON,
                             result.fingerprint,
                             result.aiCaption,
+                            result.photoTitle,
+                            result.photoDescription,
+                            result.photoKeywords,
+                            result.dateAddedToLibrary,
+                            result.place,
                             analysedAt,
                             result.uuid
                         ]

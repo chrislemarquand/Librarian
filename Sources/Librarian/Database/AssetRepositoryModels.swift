@@ -61,6 +61,11 @@ struct AssetAnalysisResult {
     let labelsJSON: String?
     let fingerprint: String?
     let aiCaption: String?
+    let photoTitle: String?
+    let photoDescription: String?
+    let photoKeywords: String?
+    let dateAddedToLibrary: Date?
+    let place: String?
 }
 
 struct VisionAnalysisCandidate {
