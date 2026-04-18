@@ -139,6 +139,42 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func filterQueuedForArchive(identifiers: [String]) throws -> [String] {
+        guard !identifiers.isEmpty else { return [] }
+        return try db.read { db in
+            let placeholders = identifiers.map { _ in "?" }.joined(separator: ",")
+            let arguments = StatementArguments(identifiers)
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT assetLocalIdentifier FROM archive_candidate
+                    WHERE assetLocalIdentifier IN (\(placeholders))
+                    AND status = '\(ArchiveCandidateStatus.pending.rawValue)'
+                """,
+                arguments: arguments
+            )
+            return rows.compactMap { $0["assetLocalIdentifier"] as String? }
+        }
+    }
+
+    func filterPendingArchiveCandidates(identifiers: [String]) throws -> [String] {
+        guard !identifiers.isEmpty else { return [] }
+        return try db.read { db in
+            let placeholders = identifiers.map { _ in "?" }.joined(separator: ",")
+            let arguments = StatementArguments(identifiers)
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT localIdentifier FROM asset
+                    WHERE localIdentifier IN (\(placeholders))
+                    AND localIdentifier NOT IN (SELECT assetLocalIdentifier FROM archive_candidate)
+                """,
+                arguments: arguments
+            )
+            return rows.compactMap { $0["localIdentifier"] as String? }
+        }
+    }
+
     func fetchArchiveCandidateInfo(localIdentifier: String) throws -> ArchiveCandidateInfo? {
         try db.read { db in
             guard let row = try Row.fetchOne(

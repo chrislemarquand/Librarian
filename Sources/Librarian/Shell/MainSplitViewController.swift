@@ -13,6 +13,9 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     private let contentController: ContentController
     private let inspectorController: InspectorController
 
+    private let _undoManager = UndoManager()
+    override var undoManager: UndoManager? { _undoManager }
+
     private var inspectorKeyMonitor: Any?
     private var keyboardParityMonitor: Any?
     private var sidebarBadgeTask: Task<Void, Never>?
@@ -230,6 +233,49 @@ final class MainSplitViewController: ThreePaneSplitViewController {
             self.refreshSidebarItemsWithBadges()
             self.toolbarDelegate.refresh(model: self.model)
             self.refreshWindowSubtitle()
+            if self.model.isIndexing || self.model.isSendingArchive {
+                self._undoManager.removeAllActions()
+            }
+        }
+    }
+
+    private func undoSetAside(identifiers: [String]) {
+        guard !model.isSendingArchive else { return }
+        let active: [String]
+        do {
+            active = try model.database.assetRepository.filterPendingArchiveCandidates(identifiers: identifiers)
+        } catch {
+            return
+        }
+        guard !active.isEmpty else { return }
+        do {
+            try model.queueAssetsForArchive(localIdentifiers: active)
+            model.setStatusMessage("Set aside \(active.count) photos.", autoClearAfterSuccess: true)
+            contentController.refreshDisplayedAssets()
+            toolbarDelegate.refresh(model: model)
+            _undoManager.setActionName("Set Aside")
+        } catch {
+            model.setStatusMessage("Couldn't redo Set Aside. \(error.localizedDescription)")
+        }
+    }
+
+    private func undoPutBack(identifiers: [String]) {
+        guard !model.isSendingArchive else { return }
+        let active: [String]
+        do {
+            active = try model.database.assetRepository.filterQueuedForArchive(identifiers: identifiers)
+        } catch {
+            return
+        }
+        guard !active.isEmpty else { return }
+        do {
+            try model.unqueueAssetsForArchive(localIdentifiers: active)
+            model.setStatusMessage("Put back \(active.count) photos.", autoClearAfterSuccess: true)
+            contentController.refreshDisplayedAssets()
+            toolbarDelegate.refresh(model: model)
+            _undoManager.setActionName("Put Back")
+        } catch {
+            model.setStatusMessage("Couldn't redo Put Back. \(error.localizedDescription)")
         }
     }
 
@@ -375,13 +421,24 @@ final class MainSplitViewController: ThreePaneSplitViewController {
     }
 
     @objc func setAsideSelectionAction(_ sender: Any?) {
+        let identifiers = contentController.selectedAssetIdentifiers()
+        guard !identifiers.isEmpty else { return }
         contentController.queueSelectedAssetsForArchive()
+        _undoManager.registerUndo(withTarget: self, handler: { target in
+            target.undoPutBack(identifiers: identifiers)
+        })
+        _undoManager.setActionName("Set Aside")
         toolbarDelegate.refresh(model: model)
     }
 
     @objc func putBackSelectionAction(_ sender: Any?) {
         if canPutBackSelection {
+            let identifiers = contentController.selectedAssetIdentifiers()
             contentController.putBackSelectedArchiveAssets()
+            _undoManager.registerUndo(withTarget: self, handler: { target in
+                target.undoSetAside(identifiers: identifiers)
+            })
+            _undoManager.setActionName("Put Back")
         } else if canPutBackFailedItems {
             do {
                 let removed = try model.unqueueFailedArchiveAssets()

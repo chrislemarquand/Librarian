@@ -1069,7 +1069,7 @@ final class ContentController: NSViewController {
         }
     }
 
-    private func selectedAssetIdentifiers() -> [String] {
+    func selectedAssetIdentifiers() -> [String] {
         collectionView.selectionIndexPaths
             .map(\.item)
             .filter { $0 >= 0 && $0 < displayAssets.count }
