@@ -177,6 +177,7 @@ final class AppModel: ObservableObject {
                 await startInitialIndex()
             } else {
                 AppLog.shared.info("Skipping full launch re-index; existing index count is \(indexedAssetCount)")
+                Task.detached(priority: .utility) { [weak self] in await self?.runAlbumMembershipSync(reason: "startup") }
                 scheduleAnalysisAutoResume(
                     reason: "authorizedWithExistingCatalogue",
                     initialDelayMilliseconds: Self.analysisAutoResumeLaunchDelayMilliseconds
@@ -219,6 +220,21 @@ final class AppModel: ObservableObject {
 
     func rebuildIndexManually() async {
         await startIndexing(reason: "manualRebuild", userVisibleProgress: true)
+    }
+
+    func runAlbumMembershipSync(reason: String) async {
+        let allAlbums = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil)
+        var albumMemberIDs: Set<String> = []
+        allAlbums.enumerateObjects { collection, _, _ in
+            let assets = PHAsset.fetchAssets(in: collection, options: nil)
+            assets.enumerateObjects { asset, _, _ in albumMemberIDs.insert(asset.localIdentifier) }
+        }
+        try? database.assetRepository.syncAlbumMembership(identifiers: Array(albumMemberIDs))
+        AppLog.shared.info("Album membership synced (\(reason)): \(albumMemberIDs.count) in-album assets")
+        await MainActor.run {
+            assetDataVersion &+= 1
+            NotificationCenter.default.post(name: .librarianContentDataChanged, object: nil)
+        }
     }
 
     private func startBackgroundSync(reason: String) async {
