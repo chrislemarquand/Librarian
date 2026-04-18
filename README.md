@@ -65,7 +65,7 @@ All analysis runs on your Mac. There's no cloud upload, no subscription, and no 
 
 - macOS 26 or later
 - Apple Photos library
-- Apple silicon Mac recommended
+- Apple silicon Mac
 
 ---
 
