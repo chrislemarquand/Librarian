@@ -171,6 +171,7 @@ private nonisolated func runVisionAnalysisStage(
         guard !candidates.isEmpty else { break }
 
         var batchAnalysed: [VisionCandidateResult] = []
+        var batchFailed: [VisionAnalysisCandidate] = []
         batchAnalysed.reserveCapacity(candidates.count)
 
         for candidate in candidates {
@@ -179,6 +180,7 @@ private nonisolated func runVisionAnalysisStage(
                 if let result = analyseVisionCandidate(candidate, imageManager: imageManager) {
                     batchAnalysed.append(result)
                 } else {
+                    batchFailed.append(candidate)
                     failedCount += 1
                 }
             }
@@ -193,6 +195,8 @@ private nonisolated func runVisionAnalysisStage(
         }
 
         let analysedAt = Date()
+        // Failed assets get an empty result so visionAnalysedAt is stamped and they
+        // don't re-enter the candidate queue on subsequent analysis runs.
         let writeResults = batchAnalysed.map {
             VisionAnalysisWriteResult(
                 localIdentifier: $0.localIdentifier,
@@ -200,6 +204,8 @@ private nonisolated func runVisionAnalysisStage(
                 saliencyScore: $0.saliencyScore,
                 featurePrintData: $0.featurePrintData
             )
+        } + batchFailed.map {
+            VisionAnalysisWriteResult(localIdentifier: $0.localIdentifier, ocrText: nil, saliencyScore: nil, featurePrintData: nil)
         }
         try await database.assetRepository.upsertVisionAnalysisData(writeResults, analysedAt: analysedAt)
         analysed.append(contentsOf: batchAnalysed)
