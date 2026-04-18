@@ -21,6 +21,7 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         case archived
         case duplicates
         case lowQuality
+        case notInAlbum
         case receiptsAndDocuments
         case whatsapp
     }
@@ -39,8 +40,9 @@ struct SidebarItem: Hashable, AppKitSidebarItemType {
         SidebarItem(section: .library, kind: .favourites,           title: "Favourites",  symbolName: "heart",                     badgeText: nil),
         SidebarItem(section: .queues,  kind: .receiptsAndDocuments, title: "Documents",   symbolName: "doc.text",             badgeText: nil),
         SidebarItem(section: .queues,  kind: .duplicates,           title: "Duplicates",  symbolName: "photo.on.rectangle",   badgeText: nil),
-        SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality", symbolName: "wand.and.stars.inverse", badgeText: nil),
-        SidebarItem(section: .queues,  kind: .screenshots,          title: "Screenshots", symbolName: "camera.viewfinder",     badgeText: nil),
+        SidebarItem(section: .queues,  kind: .lowQuality,           title: "Low Quality",  symbolName: "wand.and.stars.inverse", badgeText: nil),
+        SidebarItem(section: .queues,  kind: .notInAlbum,           title: "Not in Album", symbolName: "rectangle.slash",        badgeText: nil),
+        SidebarItem(section: .queues,  kind: .screenshots,          title: "Screenshots",  symbolName: "camera.viewfinder",      badgeText: nil),
         SidebarItem(section: .queues,  kind: .whatsapp,             title: "WhatsApp",    symbolName: "message",               badgeText: nil),
         SidebarItem(section: .archive, kind: .setAsideForArchive,   title: "Set Aside",   symbolName: "tray.full",                 badgeText: nil),
         SidebarItem(section: .archive, kind: .archived,             title: "Archive",     symbolName: "archivebox",                badgeText: nil),
@@ -99,6 +101,7 @@ extension SidebarItem.Kind {
         case .archived: return "archived"
         case .duplicates: return "duplicates"
         case .lowQuality: return "lowQuality"
+        case .notInAlbum: return "notInAlbum"
         case .receiptsAndDocuments: return "receiptsAndDocuments"
         case .whatsapp: return "whatsapp"
         }
@@ -114,6 +117,7 @@ extension SidebarItem.Kind {
         case .archived: return "archived"
         case .duplicates: return "duplicates"
         case .lowQuality: return "lowQuality"
+        case .notInAlbum: return "notInAlbum"
         case .receiptsAndDocuments: return "receiptsAndDocuments"
         case .whatsapp: return "whatsapp"
         }

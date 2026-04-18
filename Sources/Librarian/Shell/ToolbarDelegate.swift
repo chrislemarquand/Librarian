@@ -220,7 +220,7 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
         let isGalleryContext: Bool
         switch model.selectedSidebarItem?.kind ?? .allPhotos {
         case .allPhotos, .recents, .favourites, .screenshots, .setAsideForArchive, .archived,
-             .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
+             .duplicates, .lowQuality, .notInAlbum, .receiptsAndDocuments, .whatsapp:
             isGalleryContext = true
         }
         zoomOutItem?.isEnabled = isGalleryContext && model.canDecreaseGalleryZoom

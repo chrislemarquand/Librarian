@@ -333,7 +333,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         let count = (try? model.database.assetRepository.countForSidebarKind(kind)) ?? 0
         let text: String
         switch kind {
-        case .setAsideForArchive, .archived, .duplicates, .lowQuality, .receiptsAndDocuments, .screenshots, .whatsapp:
+        case .setAsideForArchive, .archived, .duplicates, .lowQuality, .notInAlbum, .receiptsAndDocuments, .screenshots, .whatsapp:
             text = count == 1 ? "1 item" : "\(count.formatted()) items"
         case .allPhotos, .recents, .favourites:
             text = count == 1 ? "1 photo" : "\(count.formatted()) photos"
@@ -437,7 +437,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         case .allPhotos, .recents, .favourites:
             return nil
 
-        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
+        case .screenshots, .duplicates, .lowQuality, .notInAlbum, .receiptsAndDocuments, .whatsapp:
             return nil
 
         case .setAsideForArchive:

@@ -384,6 +384,9 @@ final class ContentController: NSViewController {
             case .whatsapp:
                 let rows = (try? database.assetRepository.fetchWhatsAppForGrid(limit: pageSize, offset: offset)) ?? []
                 assets = rows.map { .photos($0) }
+            case .notInAlbum:
+                let rows = (try? database.assetRepository.fetchNotInAlbumForGrid(limit: pageSize, offset: offset)) ?? []
+                assets = rows.map { .photos($0) }
             }
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -572,6 +575,7 @@ final class ContentController: NSViewController {
         case .lowQuality: return "wand.and.stars.inverse"
         case .receiptsAndDocuments: return "doc.text"
         case .whatsapp: return "message"
+        case .notInAlbum: return "rectangle.slash"
         }
     }
 
@@ -657,6 +661,8 @@ final class ContentController: NSViewController {
             return EmptyContentResult(.unavailable(title: "No Documents", symbolName: "doc.text", description: "No document-focused photos found."))
         case .whatsapp:
             return EmptyContentResult(.unavailable(title: "No WhatsApp Media", symbolName: "message", description: "No WhatsApp media found."))
+        case .notInAlbum:
+            return EmptyContentResult(.unavailable(title: "All Photos Are in Albums", symbolName: "rectangle.slash", description: "Every photo in your library belongs to at least one album."))
         }
     }
 
@@ -1242,7 +1248,7 @@ final class ContentController: NSViewController {
                 isEnabled: hasPhotoTargets
             ))
 
-        case .screenshots, .duplicates, .lowQuality, .receiptsAndDocuments, .whatsapp:
+        case .screenshots, .duplicates, .lowQuality, .notInAlbum, .receiptsAndDocuments, .whatsapp:
             menu.addItem(ContextMenuSupport.makeMenuItem(
                 title: "Set Aside",
                 action: #selector(setAsideFromContextMenu(_:)),

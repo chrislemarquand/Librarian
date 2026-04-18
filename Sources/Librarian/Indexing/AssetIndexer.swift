@@ -67,6 +67,15 @@ struct AssetIndexer {
                         }
                     }
 
+                    // Collect all asset IDs that belong to at least one user-created album.
+                    let allAlbums = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil)
+                    var albumMemberIDs: Set<String> = []
+                    allAlbums.enumerateObjects { collection, _, _ in
+                        let assets = PHAsset.fetchAssets(in: collection, options: nil)
+                        assets.enumerateObjects { asset, _, _ in albumMemberIDs.insert(asset.localIdentifier) }
+                    }
+                    try self.database.assetRepository.syncAlbumMembership(identifiers: Array(albumMemberIDs))
+
                     try await self.database.jobRepository.markCompleted(job)
                     continuation.finish()
                 } catch {

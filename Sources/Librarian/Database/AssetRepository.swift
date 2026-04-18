@@ -231,6 +231,26 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func syncAlbumMembership(identifiers: [String]) throws {
+        try db.write { db in
+            try db.execute(sql: "UPDATE asset SET isInAnyAlbum = 0")
+        }
+        guard !identifiers.isEmpty else { return }
+        let chunkSize = 500
+        var offset = 0
+        while offset < identifiers.count {
+            let chunk = Array(identifiers[offset ..< min(offset + chunkSize, identifiers.count)])
+            let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
+            try db.write { db in
+                try db.execute(
+                    sql: "UPDATE asset SET isInAnyAlbum = 1 WHERE localIdentifier IN (\(placeholders))",
+                    arguments: StatementArguments(chunk)
+                )
+            }
+            offset += chunkSize
+        }
+    }
+
     func setScreenshotDecision(identifiers: [String], decision: ScreenshotReviewDecision, at date: Date = Date()) throws {
         guard !identifiers.isEmpty else { return }
         // 3 params per row; SQLite limit ~999 params → batch at 300
@@ -479,6 +499,22 @@ final class AssetRepository: @unchecked Sendable {
         }
     }
 
+    func fetchNotInAlbumForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
+        try db.read { db in
+            let request = SQLRequest<IndexedAsset>(
+                sql: """
+                    SELECT a.*
+                    FROM asset_active a
+                    WHERE a.isInAnyAlbum = 0
+                    ORDER BY a.creationDate DESC, a.localIdentifier DESC
+                    LIMIT ? OFFSET ?
+                """,
+                arguments: [limit, offset]
+            )
+            return try request.fetchAll(db)
+        }
+    }
+
     func fetchWhatsAppForGrid(limit: Int, offset: Int = 0) throws -> [IndexedAsset] {
         try db.read { db in
             let request = SQLRequest<IndexedAsset>(
@@ -569,6 +605,10 @@ final class AssetRepository: @unchecked Sendable {
         case .whatsapp:
             return try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM asset_active WHERE isWhatsApp = 1
+            """) ?? 0
+        case .notInAlbum:
+            return try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM asset_active WHERE isInAnyAlbum = 0
             """) ?? 0
         case .setAsideForArchive:
             return try Int.fetchOne(db, sql: """

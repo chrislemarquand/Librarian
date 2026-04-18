@@ -307,5 +307,12 @@ enum LibrarianMigrations {
                 t.add(column: "place",               .text)
             }
         }
+
+        migrator.registerMigration("v21_add_isInAnyAlbum") { db in
+            try db.alter(table: "asset") { t in
+                t.add(column: "isInAnyAlbum", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(index: "asset_isInAnyAlbum", on: "asset", columns: ["isInAnyAlbum"])
+        }
     }
 }
