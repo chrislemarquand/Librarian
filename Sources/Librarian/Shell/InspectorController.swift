@@ -741,7 +741,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             }
         }
         if model.isInspectorFieldEnabled("library-shared"), asset.isCloudShared {
-            items.append(.init(
+            items.append(InspectorStatusSymbolRow.Item(
                 id: "library-shared",
                 symbolName: "person.2.fill",
                 accessibilityLabel: "Shared Library",
@@ -749,7 +749,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             ))
         }
         if model.isInspectorFieldEnabled("library-favorite"), asset.isFavorite {
-            items.append(.init(
+            items.append(InspectorStatusSymbolRow.Item(
                 id: "library-favorite",
                 symbolName: "heart.fill",
                 accessibilityLabel: "Favourite",
@@ -757,7 +757,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             ))
         }
         if model.isInspectorFieldEnabled("library-edited"), isEdited {
-            items.append(.init(
+            items.append(InspectorStatusSymbolRow.Item(
                 id: "library-edited",
                 symbolName: "pencil",
                 accessibilityLabel: "Edited",
@@ -765,7 +765,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             ))
         }
         if model.isInspectorFieldEnabled("library-live-photo"), hasLivePhotoVideo {
-            items.append(.init(
+            items.append(InspectorStatusSymbolRow.Item(
                 id: "library-live-photo",
                 symbolName: "livephoto",
                 accessibilityLabel: "Live Photo",
@@ -773,7 +773,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             ))
         }
         if model.isInspectorFieldEnabled("library-burst"), isBurst {
-            items.append(.init(
+            items.append(InspectorStatusSymbolRow.Item(
                 id: "library-burst",
                 symbolName: "photo.stack",
                 accessibilityLabel: "Burst Photo",
@@ -781,7 +781,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             ))
         }
         if model.isInspectorFieldEnabled("library-hidden"), asset.isHidden {
-            items.append(.init(
+            items.append(InspectorStatusSymbolRow.Item(
                 id: "library-hidden",
                 symbolName: "eye.slash",
                 accessibilityLabel: "Hidden",
