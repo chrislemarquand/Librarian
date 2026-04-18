@@ -402,14 +402,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		F20000010000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.0.0;
-			};
-		};
 		7E9F1A2B3C4D5E6F7A8B9C0D /* XCRemoteSwiftPackageReference "GRDB" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift";
@@ -418,14 +410,17 @@
 				minimumVersion = 6.0.0;
 			};
 		};
+		F20000010000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		F20000020000000000000001 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F20000010000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
 		8F0A1B2C3D4E5F6A7B8C9D0E /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7E9F1A2B3C4D5E6F7A8B9C0D /* XCRemoteSwiftPackageReference "GRDB" */;
@@ -435,6 +430,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC1B2C3D4E5F6A7B8C9D0E1F /* XCLocalSwiftPackageReference "../SharedUI" */;
 			productName = SharedUI;
+		};
+		F20000020000000000000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F20000010000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

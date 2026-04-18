@@ -163,7 +163,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private let model: AppModel
     private var representedPreviewIdentifier: String?
     private var metadataRequestGeneration = 0
+    private var assetSnapshotCache: [String: AssetMetadataSnapshot] = [:]
     private var metadataCache: [String: ParsedMetadata] = [:]
+    private var previewImageCache: [String: NSImage] = [:]
 
     // v2 key so old section-name collapse state doesn't carry over.
     private static let collapsedSectionsKey = "ui.librarian.inspector.collapsed.sections.v2"
@@ -215,9 +217,11 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         selectedAsset = asset
         selectedArchivedItem = nil
         archiveCandidateInfo = nil
-        previewImage = nil
-        resetMetadata()
         representedPreviewIdentifier = asset.localIdentifier
+        if let cachedPreview = previewImageCache[asset.localIdentifier] {
+            previewImage = cachedPreview
+            isPreviewLoading = false
+        }
         requestPreviewImage(for: asset.localIdentifier)
         requestAssetMetadata(for: asset.localIdentifier, generation: metadataRequestGeneration)
     }
@@ -227,9 +231,11 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         selectedAsset = nil
         selectedArchivedItem = item
         archiveCandidateInfo = nil
-        previewImage = nil
-        resetMetadata()
         representedPreviewIdentifier = "archived:\(item.relativePath)"
+        if let cachedPreview = previewImageCache[representedPreviewIdentifier ?? ""] {
+            previewImage = cachedPreview
+            isPreviewLoading = false
+        }
         requestPreviewImage(forArchivedItem: item)
         requestArchivedItemMetadata(item)
     }
@@ -262,9 +268,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         var result: [InspectorSection] = []
 
         let dateRows: [SectionRow] = [
-            makeRow(id: "datetime-original", title: "Date Time Original", value: formattedDate(asset.creationDate)),
-            makeRow(id: "datetime-digitized", title: "Date Time Digitized", value: nil),
-            makeRow(id: "datetime-modified", title: "Date Time", value: formattedDate(asset.modificationDate)),
+            makeRow(id: "datetime-original", title: "Original", value: formattedDate(asset.creationDate)),
+            makeRow(id: "datetime-digitized", title: "Digitised", value: nil),
+            makeRow(id: "datetime-modified", title: "Modified", value: formattedDate(asset.modificationDate)),
         ].compactMap { $0 }
         if !dateRows.isEmpty {
             result.append(InspectorSection(title: "Date and Time", rows: dateRows))
@@ -419,9 +425,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         var result: [InspectorSection] = []
 
         let dateRows: [SectionRow] = [
-            makeRow(id: "datetime-original", title: "Date Time Original", value: formattedDate(item.captureDate)),
-            makeRow(id: "datetime-digitized", title: "Date Time Digitized", value: nil),
-            makeRow(id: "datetime-modified", title: "Date Time", value: formattedDate(item.fileModificationDate)),
+            makeRow(id: "datetime-original", title: "Original", value: formattedDate(item.captureDate)),
+            makeRow(id: "datetime-digitized", title: "Digitised", value: nil),
+            makeRow(id: "datetime-modified", title: "Modified", value: formattedDate(item.fileModificationDate)),
         ].compactMap { $0 }
         if !dateRows.isEmpty {
             result.append(InspectorSection(title: "Date and Time", rows: dateRows))
@@ -522,6 +528,26 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private func requestAssetMetadata(for localIdentifier: String, generation: Int) {
         guard let phAsset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else { return }
 
+        if let cachedSnapshot = assetSnapshotCache[localIdentifier] {
+            applyAssetMetadataSnapshot(
+                cachedSnapshot,
+                representedIdentifier: localIdentifier,
+                generation: generation
+            )
+        } else {
+            let snapshot = Self.buildAssetMetadataSnapshot(
+                localIdentifier: localIdentifier,
+                phAsset: phAsset,
+                database: model.database
+            )
+            assetSnapshotCache[localIdentifier] = snapshot
+            applyAssetMetadataSnapshot(
+                snapshot,
+                representedIdentifier: localIdentifier,
+                generation: generation
+            )
+        }
+
         let database = model.database
         Task.detached(priority: .userInitiated) { [weak self] in
             let snapshot = Self.buildAssetMetadataSnapshot(
@@ -547,6 +573,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     ) {
         guard metadataRequestGeneration == generation else { return }
         guard representedPreviewIdentifier == representedIdentifier else { return }
+        assetSnapshotCache[representedIdentifier] = snapshot
 
         originalFilename = snapshot.originalFilename
         fileFormat = snapshot.fileFormat
@@ -680,9 +707,15 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
         if let speeds = exif[kCGImagePropertyExifISOSpeedRatings] as? [Int], let first = speeds.first { iso = "ISO \(first)" }
         if let fl = exif[kCGImagePropertyExifFocalLength] as? Double { focal = String(format: "%.0f mm", fl) }
-        if let value = exif[kCGImagePropertyExifExposureProgram] as? Int { exposureProgram = "\(value)" }
-        if let value = exif[kCGImagePropertyExifFlash] as? Int { flash = "\(value)" }
-        if let value = exif[kCGImagePropertyExifMeteringMode] as? Int { meteringMode = "\(value)" }
+        if let value = exif[kCGImagePropertyExifExposureProgram] as? Int {
+            exposureProgram = ExifEnumLabels.exposureProgram(value)
+        }
+        if let value = exif[kCGImagePropertyExifFlash] as? Int {
+            flash = ExifEnumLabels.flash(value)
+        }
+        if let value = exif[kCGImagePropertyExifMeteringMode] as? Int {
+            meteringMode = ExifEnumLabels.meteringMode(value)
+        }
         if let value = exif[kCGImagePropertyExifExposureBiasValue] as? Double { exposureCompensation = String(format: "%+.1f", value) }
         latitudeValue = parseGPSCoordinate(
             value: gps[kCGImagePropertyGPSLatitude],
@@ -824,16 +857,13 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         let latitude: Double?
         let longitude: Double?
         let altitude: Double?
-        if let location = phAsset.location {
-            if location.horizontalAccuracy >= 0 {
-                latitude = location.coordinate.latitude
-                longitude = location.coordinate.longitude
-            } else {
-                latitude = nil
-                longitude = nil
-            }
-
-            altitude = location.verticalAccuracy >= 0 ? location.altitude : nil
+        if let location = phAsset.location,
+           CLLocationCoordinate2DIsValid(location.coordinate),
+           (-90 ... 90).contains(location.coordinate.latitude),
+           (-180 ... 180).contains(location.coordinate.longitude) {
+            latitude = location.coordinate.latitude
+            longitude = location.coordinate.longitude
+            altitude = location.altitude.isFinite ? location.altitude : nil
         } else {
             latitude = nil
             longitude = nil
@@ -888,6 +918,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard self.representedPreviewIdentifier == localIdentifier else { return }
+                if let image {
+                    self.previewImageCache[localIdentifier] = image
+                }
                 self.previewImage = image
                 self.isPreviewLoading = false
             }
@@ -902,6 +935,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
                 NSImage(contentsOfFile: item.absolutePath)
             }.value
             guard let self, self.representedPreviewIdentifier == identifier else { return }
+            if let image {
+                self.previewImageCache[identifier] = image
+            }
             self.previewImage = image
             self.isPreviewLoading = false
         }

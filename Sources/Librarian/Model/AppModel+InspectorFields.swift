@@ -28,9 +28,9 @@ struct InspectorFieldCatalogEntry: Hashable, Identifiable {
 extension AppModel {
     static func defaultInspectorFieldCatalog() -> [InspectorFieldCatalogEntry] {
         [
-            .init(id: "datetime-original", section: "Date and Time", label: "Date Time Original", availability: .both, isEnabled: true),
-            .init(id: "datetime-digitized", section: "Date and Time", label: "Date Time Digitized", availability: .both, isEnabled: true),
-            .init(id: "datetime-modified", section: "Date and Time", label: "Date Time", availability: .both, isEnabled: true),
+            .init(id: "datetime-original", section: "Date and Time", label: "Original", availability: .both, isEnabled: true),
+            .init(id: "datetime-digitized", section: "Date and Time", label: "Digitised", availability: .both, isEnabled: true),
+            .init(id: "datetime-modified", section: "Date and Time", label: "Modified", availability: .both, isEnabled: true),
 
             .init(id: "camera-make", section: "Camera", label: "Make", availability: .both, isEnabled: true),
             .init(id: "camera-model", section: "Camera", label: "Model", availability: .both, isEnabled: true),
