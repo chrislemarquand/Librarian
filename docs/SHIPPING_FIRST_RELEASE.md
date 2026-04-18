@@ -58,45 +58,32 @@ rm /tmp/sparkle_key.txt
 
 ## Shipping a release
 
-### 1. Bump the version
+### 1. Push a version tag
 
-In `Config/Base.xcconfig`:
-- `MARKETING_VERSION` — the user-facing version, e.g. `1.0`
-- `CURRENT_PROJECT_VERSION` — an integer build number, increment by 1 each release
-
-### 2. Build, sign, notarize, and package
+Do not edit `MARKETING_VERSION` or `CURRENT_PROJECT_VERSION` manually. Push an annotated tag and CI derives them automatically:
 
 ```bash
-cd "/Users/chrislemarquand/Xcode Projects/Librarian"
-GENERATE_APPCAST=1 ./scripts/release/release.sh
+git tag -a v1.0 -m "Librarian v1.0"
+git push origin v1.0
 ```
 
-This will:
-1. Archive a signed Release build
-2. Zip and notarize it
-3. Create and notarize a DMG
-4. Generate a signed `appcast.xml` entry using your Sparkle private key
+The build number is computed as `MAJOR×10000 + MINOR×100 + PATCH` (e.g. `v1.0` → `10000`).
 
-The DMG lands at `build/dmg/Librarian.dmg`.
+### 2. CI does the rest
 
-### 3. Publish the appcast
+Pushing the tag triggers the GitHub Actions release workflow, which:
+1. Archives a signed Release build with version from the tag.
+2. Zips and notarises the app.
+3. Creates and notarises a DMG.
+4. Generates a signed `appcast.xml` pointed at the GitHub release assets.
+5. Creates a GitHub release with all artifacts attached.
+6. Pushes `appcast.xml` to the `gh-pages` branch.
 
-The appcast entry is generated into `appcast.xml` in the project root (or alongside the ZIP). Take that file and push it to the `gh-pages` branch:
+Monitor the Actions tab on GitHub. When complete, Sparkle will detect the update on next background check in any existing install.
 
-```bash
-git checkout gh-pages
-cp /path/to/generated/appcast.xml ./appcast.xml
-git add appcast.xml
-git commit -m "Publish appcast for vX.Y"
-git push
-git checkout -
-```
+### 3. Distribute the DMG
 
-GitHub Pages will serve it within a minute or so. Once live, any existing install of Librarian will pick up the update on next background check.
-
-### 4. Distribute the DMG
-
-Upload `build/dmg/Librarian.dmg` wherever you're distributing from (GitHub Releases is the obvious choice — create a release on the repo and attach the DMG).
+The DMG is attached to the GitHub release automatically. Share the release URL or link directly to the DMG asset.
 
 ## Key locations
 

@@ -2,6 +2,26 @@
 
 All notable changes to Librarian are tracked here.
 
+## 2026-04
+
+### Added
+- "Not in Album" queue (SFSymbol `rectangle.slash`) between Low Quality and Screenshots, showing photos that appear in no user album in Photos.
+- Startup album membership sync: on launch with an existing catalogue, PhotoKit album membership is rescanned in the background so the Not in Album queue is always current without requiring a full re-index.
+- Put Back button added to the default toolbar, grouped alongside Set Aside.
+- "Open Archive Folder in Finder" added to the File menu below Set Archive Location.
+- "Clear Set Aside…" added to the Photo menu.
+- Open source credits with copyright notices added to the about box: osxphotos (Rhet Turnbull, MIT), ExifTool (Phil Harvey, Artistic/GPL), Sparkle (Andy Matuschak et al., MIT), WhatsNewKit (Sven Tiigi, MIT).
+
+### Changed
+- Inspector metadata fields now use `.monospacedDigit()` instead of `.monospaced()`, preserving proportional text with aligned numerals.
+
+### Fixed
+- CI release pipeline: version and build number are now derived from the git tag (`MAJOR×10000 + MINOR×100 + PATCH`), eliminating the shallow-clone `git rev-list` issue that caused Sparkle to report "up to date" after a real version bump.
+- CI release pipeline: appcast enclosure URL now correctly targets GitHub release assets via `--download-url-prefix`, not GitHub Pages.
+
+### Shipped
+- v0.2: first release delivered via CI pipeline with working end-to-end Sparkle auto-update.
+
 ## 2026-03-24
 
 ### Added

@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-03-24
+Last updated: 2026-04-18
 
 This is the single planning document for Librarian. It replaces `docs/SHIPPING_PLAN.md` and earlier roadmap variants.
 
@@ -8,9 +8,11 @@ This is the single planning document for Librarian. It replaces `docs/SHIPPING_P
 
 - Core archive/export safety boundary is implemented and stable in day-to-day use.
 - Import and archive-organisation flows are unified around the archive import sheet.
-- Multi-library handling is currently a simple launch-time/current-path change check with an informational prompt.
+- Multi-library handling is a simple launch-time/current-path change check with an informational prompt.
 - osxphotos is bundled and executed through a dedicated runner boundary for analysis/export.
-- Duplicates queue currently uses Vision near-duplicate clustering only (not legacy fingerprint OR logic).
+- Duplicates queue uses Vision near-duplicate clustering only (not legacy fingerprint OR logic).
+- "Not in Album" queue is implemented; album membership is rescanned from PhotoKit on each launch.
+- Release pipeline is proven end-to-end: CI builds, signs, notarises, generates appcast, and delivers via Sparkle. v0.2 shipped successfully.
 
 ## Completed Blocks
 
@@ -39,8 +41,8 @@ This is the single planning document for Librarian. It replaces `docs/SHIPPING_P
 ## Remaining Before v1 Ship
 
 1. Full manual flow validation pass on primary Photos library:
-   - index -> analyse -> review queues -> set aside -> export -> verify Archive -> delete from Photos.
-2. Release dry run using release scripts and checklist, including `./scripts/release/trust_boundary_smoke.sh`.
+   - index → analyse → review queues → set aside → export → verify Archive → delete from Photos.
+2. ~~Release dry run using release scripts and checklist~~ — done: v0.2 proven end-to-end via CI and Sparkle.
 
 ## Out of Scope for v1
 
