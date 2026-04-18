@@ -1655,7 +1655,7 @@ private struct InspectorReadOnlyView: View {
                                         InspectorFieldLabel(row.title)
                                     } value: {
                                         Text(row.value)
-                                            .font(.body.monospaced())
+                                            .font(.body.monospacedDigit())
                                             .foregroundStyle(.primary)
                                             .lineLimit(2)
                                             .truncationMode(.middle)
@@ -1699,7 +1699,7 @@ private struct InspectorReadOnlyView: View {
                                         InspectorFieldLabel(row.title)
                                     } value: {
                                         Text(row.value)
-                                            .font(.body.monospaced())
+                                            .font(.body.monospacedDigit())
                                             .foregroundStyle(.primary)
                                             .lineLimit(2)
                                             .truncationMode(.middle)
