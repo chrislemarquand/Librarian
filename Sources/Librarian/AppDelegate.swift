@@ -33,7 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentAboutPanel(
             purpose: "Curate and archive your Apple Photos Library.",
             credits: [
-                .init(text: "Uses osxphotos by Rhet Turnbull", linkURL: "https://github.com/RhetTbull/osxphotos"),
+                .init(text: "osxphotos © 2019-2021 Rhet Turnbull (MIT)", linkURL: "https://github.com/RhetTbull/osxphotos"),
+                .init(text: "ExifTool © 2003-2024 Phil Harvey (Artistic/GPL)", linkURL: "https://exiftool.org"),
+                .init(text: "Sparkle © 2006 Andy Matuschak et al. (MIT)", linkURL: "https://sparkle-project.org"),
+                .init(text: "WhatsNewKit © 2022 Sven Tiigi (MIT)", linkURL: "https://github.com/SvenTiigi/WhatsNewKit"),
             ],
             copyright: "© 2026 Chris Le Marquand"
         )

@@ -59,6 +59,7 @@ final class ToolbarDelegate: NSObject, ToolbarShellContent {
             .librarianZoomIn,
             .space,
             .librarianSetAside,
+            .librarianPutBack,
             .space,
             .librarianSendToArchive,
             .flexibleSpace,
