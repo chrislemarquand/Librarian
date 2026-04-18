@@ -1,5 +1,6 @@
 import Cocoa
 import MapKit
+import OSLog
 import Photos
 import SwiftUI
 import Combine
@@ -8,6 +9,7 @@ import SharedUI
 import ImageIO
 
 final class InspectorController: NSViewController {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Librarian", category: "inspector-trace")
 
     let model: AppModel
     private let viewModel: InspectorReadOnlyViewModel
@@ -92,19 +94,34 @@ final class InspectorController: NSViewController {
     }
 
     @objc private func selectionChanged() {
+        logger.debug("selectionChanged selectedAssetCount=\(self.model.selectedAssetCount, privacy: .public) selectedAsset=\(Self.shortAssetID(self.model.selectedAsset?.localIdentifier), privacy: .public) selectedArchived=\(Self.shortArchivedID(self.model.selectedArchivedItem?.relativePath), privacy: .public)")
         refreshForSelection()
     }
 
     private func refreshForSelection() {
         if model.selectedAssetCount > 1 {
+            logger.debug("refreshForSelection -> multiple count=\(self.model.selectedAssetCount, privacy: .public)")
             showMultiple(count: model.selectedAssetCount)
         } else if let asset = model.selectedAsset {
+            logger.debug("refreshForSelection -> asset \(Self.shortAssetID(asset.localIdentifier), privacy: .public)")
             showAsset(asset)
         } else if let archivedItem = model.selectedArchivedItem {
+            logger.debug("refreshForSelection -> archived \(Self.shortArchivedID(archivedItem.relativePath), privacy: .public)")
             viewModel.showArchivedItem(archivedItem)
         } else {
+            logger.debug("refreshForSelection -> empty")
             showEmpty()
         }
+    }
+
+    private static func shortAssetID(_ localIdentifier: String?) -> String {
+        guard let localIdentifier else { return "nil" }
+        return localIdentifier.split(separator: "/").first.map(String.init) ?? localIdentifier
+    }
+
+    private static func shortArchivedID(_ relativePath: String?) -> String {
+        guard let relativePath else { return "nil" }
+        return URL(fileURLWithPath: relativePath).lastPathComponent
     }
 }
 
@@ -122,6 +139,8 @@ private struct InspectorRootView: View {
 
 @MainActor
 private final class InspectorReadOnlyViewModel: ObservableObject {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Librarian", category: "inspector-trace")
+
     @Published private(set) var displayState = InspectorDisplayState.empty
     private(set) var selectedAsset: IndexedAsset?
     private(set) var selectedArchivedItem: ArchivedItem?
@@ -199,7 +218,8 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         multipleSelectionCount: DisplayStateUpdate<Int> = .keep,
         previewImage: DisplayStateUpdate<NSImage?> = .keep,
         isPreviewLoading: DisplayStateUpdate<Bool> = .keep,
-        metadata: DisplayStateUpdate<InspectorMetadataState> = .keep
+        metadata: DisplayStateUpdate<InspectorMetadataState> = .keep,
+        source: String = #function
     ) {
         let nextState = InspectorDisplayState(
             selectedAsset: resolvedUpdate(selectedAsset, current: displayState.selectedAsset),
@@ -209,7 +229,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             isPreviewLoading: resolvedUpdate(isPreviewLoading, current: displayState.isPreviewLoading),
             metadata: resolvedUpdate(metadata, current: displayState.metadata)
         )
-        applyDisplayState(nextState)
+        applyDisplayState(nextState, source: source)
     }
 
     private func resolvedUpdate<T>(_ update: DisplayStateUpdate<T>, current: T) -> T {
@@ -221,11 +241,17 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         }
     }
 
-    private func applyDisplayState(_ state: InspectorDisplayState) {
-        guard !displayStatesEqual(displayState, state) else { return }
+    private func applyDisplayState(_ state: InspectorDisplayState, source: String) {
+        let previousState = displayState
+        guard !displayStatesEqual(previousState, state) else {
+            trace("displayState skipped source=\(source) summary=\(displayStateSummary(state))")
+            return
+        }
         displayState = state
+        trace("displayState applied source=\(source) from=\(displayStateSummary(previousState)) to=\(displayStateSummary(state))")
         if let identifier = representedPreviewIdentifier {
             displayStateCache[identifier] = state
+            trace("displayState cached identifier=\(shortIdentifier(identifier))")
         }
     }
 
@@ -297,6 +323,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private(set) var multipleSelectionCount: Int = 0
 
     func showEmpty() {
+        trace("showEmpty")
         metadataRequestGeneration += 1
         selectedAsset = nil
         selectedArchivedItem = nil
@@ -317,6 +344,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     func showMultiple(count: Int) {
+        trace("showMultiple count=\(count)")
         metadataRequestGeneration += 1
         selectedAsset = nil
         selectedArchivedItem = nil
@@ -337,11 +365,12 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     func showAsset(_ asset: IndexedAsset) {
+        trace("showAsset asset=\(shortIdentifier(asset.localIdentifier)) cachedState=\(displayStateCache[asset.localIdentifier] != nil) cachedPreview=\(previewImageCache[asset.localIdentifier] != nil) cachedSnapshot=\(assetSnapshotCache[asset.localIdentifier] != nil) cachedMetadata=\(metadataCache[asset.localIdentifier] != nil)")
         metadataRequestGeneration += 1
         representedPreviewIdentifier = asset.localIdentifier
         if let cachedState = displayStateCache[asset.localIdentifier] {
             hydrateFromDisplayState(cachedState)
-            applyDisplayState(cachedState)
+            applyDisplayState(cachedState, source: "showAsset.cachedState")
         } else {
             selectedAsset = asset
             selectedArchivedItem = nil
@@ -355,24 +384,27 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
                 multipleSelectionCount: .set(0),
                 previewImage: .set(nil),
                 isPreviewLoading: .set(false),
-                metadata: .set(currentMetadataState)
+                metadata: .set(currentMetadataState),
+                source: "showAsset.initial"
             )
         }
         if let cachedPreview = previewImageCache[asset.localIdentifier] {
             previewImage = cachedPreview
             isPreviewLoading = false
-            updateDisplayState(previewImage: .set(cachedPreview), isPreviewLoading: .set(false))
+            updateDisplayState(previewImage: .set(cachedPreview), isPreviewLoading: .set(false), source: "showAsset.cachedPreview")
         }
         requestPreviewImage(for: asset.localIdentifier)
         requestAssetMetadata(for: asset.localIdentifier, generation: metadataRequestGeneration)
     }
 
     func showArchivedItem(_ item: ArchivedItem) {
+        let identifier = "archived:\(item.relativePath)"
+        trace("showArchivedItem item=\(shortIdentifier(identifier)) cachedState=\(displayStateCache[identifier] != nil) cachedPreview=\(previewImageCache[identifier] != nil) cachedMetadata=\(metadataCache[identifier] != nil)")
         metadataRequestGeneration += 1
-        representedPreviewIdentifier = "archived:\(item.relativePath)"
+        representedPreviewIdentifier = identifier
         if let cachedState = displayStateCache[representedPreviewIdentifier ?? ""] {
             hydrateFromDisplayState(cachedState)
-            applyDisplayState(cachedState)
+            applyDisplayState(cachedState, source: "showArchivedItem.cachedState")
         } else {
             selectedAsset = nil
             selectedArchivedItem = item
@@ -386,13 +418,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
                 multipleSelectionCount: .set(0),
                 previewImage: .set(nil),
                 isPreviewLoading: .set(false),
-                metadata: .set(currentMetadataState)
+                metadata: .set(currentMetadataState),
+                source: "showArchivedItem.initial"
             )
         }
         if let cachedPreview = previewImageCache[representedPreviewIdentifier ?? ""] {
             previewImage = cachedPreview
             isPreviewLoading = false
-            updateDisplayState(previewImage: .set(cachedPreview), isPreviewLoading: .set(false))
+            updateDisplayState(previewImage: .set(cachedPreview), isPreviewLoading: .set(false), source: "showArchivedItem.cachedPreview")
         }
         requestPreviewImage(forArchivedItem: item)
         requestArchivedItemMetadata(item)
@@ -748,9 +781,11 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     }
 
     private func requestAssetMetadata(for localIdentifier: String, generation: Int) {
+        trace("requestAssetMetadata start asset=\(shortIdentifier(localIdentifier)) generation=\(generation)")
         guard let phAsset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else { return }
 
         if let cachedSnapshot = assetSnapshotCache[localIdentifier] {
+            trace("requestAssetMetadata cachedSnapshot asset=\(shortIdentifier(localIdentifier))")
             applyAssetMetadataSnapshot(
                 cachedSnapshot,
                 representedIdentifier: localIdentifier,
@@ -793,9 +828,16 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         representedIdentifier: String,
         generation: Int
     ) {
-        guard metadataRequestGeneration == generation else { return }
-        guard representedPreviewIdentifier == representedIdentifier else { return }
+        guard metadataRequestGeneration == generation else {
+            trace("applyAssetMetadataSnapshot dropped generationMismatch asset=\(shortIdentifier(representedIdentifier)) generation=\(generation) current=\(metadataRequestGeneration)")
+            return
+        }
+        guard representedPreviewIdentifier == representedIdentifier else {
+            trace("applyAssetMetadataSnapshot dropped identifierMismatch asset=\(shortIdentifier(representedIdentifier)) current=\(shortIdentifier(representedPreviewIdentifier))")
+            return
+        }
         assetSnapshotCache[representedIdentifier] = snapshot
+        trace("applyAssetMetadataSnapshot applied asset=\(shortIdentifier(representedIdentifier)) location=\(snapshot.latitude != nil && snapshot.longitude != nil) albums=\(snapshot.albums.count) analysis=\(snapshot.overallScore != nil)")
 
         originalFilename = snapshot.originalFilename
         fileFormat = snapshot.fileFormat
@@ -813,15 +855,17 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         detectedPersonCount = snapshot.detectedPersonCount
         extractedText = snapshot.extractedText
         archiveCandidateInfo = snapshot.archiveCandidateInfo
-        updateDisplayState(metadata: .set(currentMetadataState))
+        updateDisplayState(metadata: .set(currentMetadataState), source: "applyAssetMetadataSnapshot")
     }
 
     private func requestEXIF(for phAsset: PHAsset, localIdentifier: String, generation: Int) {
         if let cached = metadataCache[localIdentifier] {
+            trace("requestEXIF cached asset=\(shortIdentifier(localIdentifier))")
             applyParsedMetadata(cached, representedIdentifier: localIdentifier, generation: generation)
             return
         }
 
+        trace("requestEXIF start asset=\(shortIdentifier(localIdentifier)) generation=\(generation)")
         let options = PHImageRequestOptions()
         options.isNetworkAccessAllowed = false
         options.deliveryMode = .fastFormat
@@ -839,12 +883,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         originalFilename = item.filename
         fileFormat = UTType(filenameExtension: item.fileExtension)?.localizedDescription ?? item.fileExtension.uppercased()
         fileSizeBytes = Int(item.fileSizeBytes)
-        updateDisplayState(metadata: .set(currentMetadataState))
+        updateDisplayState(metadata: .set(currentMetadataState), source: "requestArchivedItemMetadata.initial")
 
         let representedIdentifier = "archived:\(item.relativePath)"
         let generation = metadataRequestGeneration
+        trace("requestArchivedItemMetadata start item=\(shortIdentifier(representedIdentifier)) generation=\(generation)")
 
         if let cached = metadataCache[representedIdentifier] {
+            trace("requestArchivedItemMetadata cached item=\(shortIdentifier(representedIdentifier))")
             applyParsedMetadata(cached, representedIdentifier: representedIdentifier, generation: generation)
             return
         }
@@ -858,12 +904,20 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     private func cacheAndApplyParsedMetadata(_ parsed: ParsedMetadata, representedIdentifier: String, generation: Int) {
         metadataCache[representedIdentifier] = parsed
+        trace("cacheAndApplyParsedMetadata identifier=\(shortIdentifier(representedIdentifier)) make=\(!parsed.make.isEmpty) model=\(!parsed.model.isEmpty) gps=\(parsed.latitude != nil && parsed.longitude != nil)")
         applyParsedMetadata(parsed, representedIdentifier: representedIdentifier, generation: generation)
     }
 
     private func applyParsedMetadata(_ parsed: ParsedMetadata, representedIdentifier: String, generation: Int) {
-        guard metadataRequestGeneration == generation else { return }
-        guard representedPreviewIdentifier == representedIdentifier else { return }
+        guard metadataRequestGeneration == generation else {
+            trace("applyParsedMetadata dropped generationMismatch identifier=\(shortIdentifier(representedIdentifier)) generation=\(generation) current=\(metadataRequestGeneration)")
+            return
+        }
+        guard representedPreviewIdentifier == representedIdentifier else {
+            trace("applyParsedMetadata dropped identifierMismatch identifier=\(shortIdentifier(representedIdentifier)) current=\(shortIdentifier(representedPreviewIdentifier))")
+            return
+        }
+        trace("applyParsedMetadata applied identifier=\(shortIdentifier(representedIdentifier)) make=\(!parsed.make.isEmpty) model=\(!parsed.model.isEmpty) gps=\(parsed.latitude != nil && parsed.longitude != nil)")
 
         exifMake = parsed.make
         exifModel = parsed.model
@@ -880,7 +934,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         latitude = parsed.latitude ?? latitude
         longitude = parsed.longitude ?? longitude
         altitude = parsed.altitude ?? altitude
-        updateDisplayState(metadata: .set(currentMetadataState))
+        updateDisplayState(metadata: .set(currentMetadataState), source: "applyParsedMetadata")
     }
 
     nonisolated private static func parseMetadata(from data: Data) -> ParsedMetadata? {
@@ -1131,12 +1185,14 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private func requestPreviewImage(for localIdentifier: String) {
         guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else {
             isPreviewLoading = false
-            updateDisplayState(isPreviewLoading: .set(false))
+            trace("requestPreviewImage missingAsset asset=\(shortIdentifier(localIdentifier))")
+            updateDisplayState(isPreviewLoading: .set(false), source: "requestPreviewImage.missingAsset")
             return
         }
 
+        trace("requestPreviewImage start asset=\(shortIdentifier(localIdentifier))")
         isPreviewLoading = true
-        updateDisplayState(isPreviewLoading: .set(true))
+        updateDisplayState(isPreviewLoading: .set(true), source: "requestPreviewImage.start")
         _ = model.photosService.requestThumbnail(
             for: asset,
             targetSize: CGSize(width: 520, height: 520),
@@ -1144,33 +1200,79 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         ) { [weak self] image in
             DispatchQueue.main.async {
                 guard let self else { return }
-                guard self.representedPreviewIdentifier == localIdentifier else { return }
+                guard self.representedPreviewIdentifier == localIdentifier else {
+                    self.trace("requestPreviewImage dropped identifierMismatch asset=\(self.shortIdentifier(localIdentifier)) current=\(self.shortIdentifier(self.representedPreviewIdentifier))")
+                    return
+                }
                 if let image {
                     self.previewImageCache[localIdentifier] = image
                 }
                 self.previewImage = image
                 self.isPreviewLoading = false
-                self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false))
+                self.trace("requestPreviewImage completed asset=\(self.shortIdentifier(localIdentifier)) image=\(image != nil)")
+                self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false), source: "requestPreviewImage.completed")
             }
         }
     }
 
     private func requestPreviewImage(forArchivedItem item: ArchivedItem) {
+        trace("requestPreviewImage archived start item=\(shortIdentifier(item.relativePath))")
         isPreviewLoading = true
-        updateDisplayState(isPreviewLoading: .set(true))
+        updateDisplayState(isPreviewLoading: .set(true), source: "requestPreviewImage.archived.start")
         let identifier = "archived:\(item.relativePath)"
         Task { [weak self] in
             let image = await Task.detached(priority: .userInitiated) {
                 NSImage(contentsOfFile: item.absolutePath)
             }.value
-            guard let self, self.representedPreviewIdentifier == identifier else { return }
+            guard let self, self.representedPreviewIdentifier == identifier else {
+                self?.trace("requestPreviewImage archived dropped identifierMismatch item=\(self?.shortIdentifier(identifier) ?? "nil") current=\(self?.shortIdentifier(self?.representedPreviewIdentifier) ?? "nil")")
+                return
+            }
             if let image {
                 self.previewImageCache[identifier] = image
             }
             self.previewImage = image
             self.isPreviewLoading = false
-            self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false))
+            self.trace("requestPreviewImage archived completed item=\(self.shortIdentifier(identifier)) image=\(image != nil)")
+            self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false), source: "requestPreviewImage.archived.completed")
         }
+    }
+
+    func traceRenderedState(_ state: InspectorDisplayState) {
+        let renderMode: String
+        let sectionTitles: [String]
+        if let asset = selectedAsset {
+            renderMode = "asset"
+            sectionTitles = sections(for: asset).map(\.title)
+        } else if let archivedItem = selectedArchivedItem {
+            renderMode = "archived"
+            sectionTitles = sections(forArchivedItem: archivedItem).map(\.title)
+        } else if multipleSelectionCount > 1 {
+            renderMode = "multiple"
+            sectionTitles = []
+        } else {
+            renderMode = "empty"
+            sectionTitles = []
+        }
+        trace("view rendered mode=\(renderMode) summary=\(displayStateSummary(state)) sections=\(sectionTitles.joined(separator: "|")) hasMap=\(locationCoordinate != nil)")
+    }
+
+    private func trace(_ message: String) {
+        Self.logger.debug("\(message, privacy: .public)")
+    }
+
+    private func shortIdentifier(_ identifier: String?) -> String {
+        guard let identifier else { return "nil" }
+        if identifier.hasPrefix("archived:") {
+            let path = String(identifier.dropFirst("archived:".count))
+            return URL(fileURLWithPath: path).lastPathComponent
+        }
+        return identifier.split(separator: "/").first.map(String.init) ?? identifier
+    }
+
+    private func displayStateSummary(_ state: InspectorDisplayState) -> String {
+        let metadata = state.metadata
+        return "asset=\(shortIdentifier(state.selectedAsset?.localIdentifier)) archived=\(shortIdentifier(state.selectedArchivedItem?.relativePath)) multiple=\(state.multipleSelectionCount) preview=\(state.previewImage != nil) loading=\(state.isPreviewLoading) title=\(!metadata.originalFilename.isEmpty) camera=\(!metadata.exifMake.isEmpty || !metadata.exifModel.isEmpty) capture=\(!metadata.exifAperture.isEmpty || !metadata.exifShutterSpeed.isEmpty || !metadata.exifISO.isEmpty) location=\(metadata.latitude != nil && metadata.longitude != nil) analysis=\(metadata.overallScore != nil || !metadata.aiCaption.isEmpty || metadata.detectedPersonCount != nil || metadata.namedPersonCount != nil || !metadata.extractedText.isEmpty)"
     }
 
     private func formattedDate(_ date: Date?) -> String {
@@ -1479,6 +1581,12 @@ private struct InspectorReadOnlyView: View {
         }
         .inspectorScrollSetup()
         .animation(.easeInOut(duration: 0.2), value: viewModel.collapsedSections)
+        .onAppear {
+            viewModel.traceRenderedState(viewModel.displayState)
+        }
+        .onReceive(viewModel.$displayState.dropFirst()) { state in
+            viewModel.traceRenderedState(state)
+        }
     }
 
     @ViewBuilder
