@@ -256,6 +256,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let archiveLocationItem = NSMenuItem(title: "Set Archive Location…", action: #selector(MainSplitViewController.setArchiveLocationAction(_:)), keyEquivalent: "")
         archiveLocationItem.image = NSImage(systemSymbolName: "folder.badge.gear", accessibilityDescription: nil)
         fileMenu.addItem(archiveLocationItem)
+        let openArchiveFolderItem = NSMenuItem(title: "Open Archive Folder in Finder", action: #selector(MainSplitViewController.openArchiveFolderInFinderAction(_:)), keyEquivalent: "")
+        openArchiveFolderItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+        fileMenu.addItem(openArchiveFolderItem)
         fileMenu.addItem(.separator())
         let openInPhotosItem = NSMenuItem(title: "Open in Photos", action: #selector(MainSplitViewController.openSelectionInPhotos(_:)), keyEquivalent: "o")
         openInPhotosItem.image = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)
@@ -296,6 +299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         putBackItem.keyEquivalentModifierMask = [.command, .option]
         putBackItem.image = NSImage(systemSymbolName: "arrow.uturn.left.circle", accessibilityDescription: nil)
         photoMenu.addItem(putBackItem)
+        let clearSetAsideItem = NSMenuItem(title: "Clear Set Aside…", action: #selector(MainSplitViewController.clearSetAsideAction(_:)), keyEquivalent: "")
+        clearSetAsideItem.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
+        photoMenu.addItem(clearSetAsideItem)
         photoMenu.addItem(.separator())
         let sendToArchiveItem = NSMenuItem(title: "Send Selected to Archive…", action: #selector(MainSplitViewController.sendToArchiveAction(_:)), keyEquivalent: "s")
         sendToArchiveItem.keyEquivalentModifierMask = [.command, .option, .shift]

@@ -480,7 +480,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         }
     }
 
-    @objc private func clearSetAsideAction(_ sender: Any?) {
+    @objc func clearSetAsideAction(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "Clear Set Aside?"
         alert.informativeText = "All photos in Set Aside will be returned to their boxes."
@@ -501,7 +501,7 @@ final class MainSplitViewController: ThreePaneSplitViewController {
         }
     }
 
-    @objc private func openArchiveFolderInFinderAction(_ sender: Any?) {
+    @objc func openArchiveFolderInFinderAction(_ sender: Any?) {
         guard let url = model.archiveRootURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
@@ -750,6 +750,12 @@ extension MainSplitViewController {
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(addPhotosToArchiveAction(_:)) {
             return !model.isImportingArchive && model.archiveRootURL != nil
+        }
+        if item.action == #selector(openArchiveFolderInFinderAction(_:)) {
+            return model.archiveRootURL != nil
+        }
+        if item.action == #selector(clearSetAsideAction(_:)) {
+            return model.pendingArchiveCandidateCount > 0 && !model.isSendingArchive
         }
         if item.action == #selector(putBackSelectionAction(_:)) {
             return canPutBackSelection || canPutBackFailedItems
