@@ -10,6 +10,7 @@ import ImageIO
 
 final class InspectorController: NSViewController {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Librarian", category: "inspector-trace")
+    private var pendingEmptySelectionWorkItem: DispatchWorkItem?
 
     let model: AppModel
     private let viewModel: InspectorReadOnlyViewModel
@@ -100,18 +101,47 @@ final class InspectorController: NSViewController {
 
     private func refreshForSelection() {
         if model.selectedAssetCount > 1 {
+            cancelPendingEmptySelection()
             logger.debug("refreshForSelection -> multiple count=\(self.model.selectedAssetCount, privacy: .public)")
             showMultiple(count: model.selectedAssetCount)
         } else if let asset = model.selectedAsset {
+            cancelPendingEmptySelection()
             logger.debug("refreshForSelection -> asset \(Self.shortAssetID(asset.localIdentifier), privacy: .public)")
             showAsset(asset)
         } else if let archivedItem = model.selectedArchivedItem {
+            cancelPendingEmptySelection()
             logger.debug("refreshForSelection -> archived \(Self.shortArchivedID(archivedItem.relativePath), privacy: .public)")
             viewModel.showArchivedItem(archivedItem)
         } else {
-            logger.debug("refreshForSelection -> empty")
-            showEmpty()
+            scheduleEmptySelectionRefresh()
         }
+    }
+
+    private func scheduleEmptySelectionRefresh() {
+        pendingEmptySelectionWorkItem?.cancel()
+        logger.debug("refreshForSelection -> empty scheduled")
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingEmptySelectionWorkItem = nil
+            guard self.model.selectedAssetCount == 0,
+                  self.model.selectedAsset == nil,
+                  self.model.selectedArchivedItem == nil
+            else {
+                self.logger.debug("refreshForSelection -> empty cancelled by newer selection")
+                return
+            }
+            self.logger.debug("refreshForSelection -> empty committed")
+            self.showEmpty()
+        }
+
+        pendingEmptySelectionWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func cancelPendingEmptySelection() {
+        pendingEmptySelectionWorkItem?.cancel()
+        pendingEmptySelectionWorkItem = nil
     }
 
     private static func shortAssetID(_ localIdentifier: String?) -> String {
@@ -183,6 +213,9 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private let model: AppModel
     private var representedPreviewIdentifier: String?
     private var metadataRequestGeneration = 0
+    private var pendingAssetSelection: IndexedAsset?
+    private var pendingArchivedSelection: ArchivedItem?
+    private var pendingCommitTimeoutItem: DispatchWorkItem?
     private var assetSnapshotCache: [String: AssetMetadataSnapshot] = [:]
     private var metadataCache: [String: ParsedMetadata] = [:]
     private var previewImageCache: [String: NSImage] = [:]
@@ -320,10 +353,76 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         applyMetadataState(state.metadata)
     }
 
+    private func cancelPending() {
+        pendingCommitTimeoutItem?.cancel()
+        pendingCommitTimeoutItem = nil
+        pendingAssetSelection = nil
+        pendingArchivedSelection = nil
+    }
+
+    private func schedulePendingCommitTimeout() {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingCommitTimeoutItem = nil
+            if self.pendingAssetSelection != nil {
+                self.trace("commitPending timeout asset")
+                self.commitPendingAsset(source: "timeout")
+            } else if self.pendingArchivedSelection != nil {
+                self.trace("commitPending timeout archived")
+                self.commitPendingArchivedItem(source: "timeout")
+            }
+        }
+        pendingCommitTimeoutItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
+    }
+
+    private func commitPendingAsset(source: String) {
+        guard let asset = pendingAssetSelection else { return }
+        pendingAssetSelection = nil
+        pendingArchivedSelection = nil
+        pendingCommitTimeoutItem?.cancel()
+        pendingCommitTimeoutItem = nil
+        selectedAsset = asset
+        selectedArchivedItem = nil
+        multipleSelectionCount = 0
+        trace("commitPendingAsset asset=\(shortIdentifier(asset.localIdentifier)) source=\(source)")
+        updateDisplayState(
+            selectedAsset: .set(asset),
+            selectedArchivedItem: .set(nil),
+            multipleSelectionCount: .set(0),
+            previewImage: .set(previewImage),
+            isPreviewLoading: .set(isPreviewLoading),
+            metadata: .set(currentMetadataState),
+            source: source
+        )
+    }
+
+    private func commitPendingArchivedItem(source: String) {
+        guard let item = pendingArchivedSelection else { return }
+        pendingAssetSelection = nil
+        pendingArchivedSelection = nil
+        pendingCommitTimeoutItem?.cancel()
+        pendingCommitTimeoutItem = nil
+        selectedAsset = nil
+        selectedArchivedItem = item
+        multipleSelectionCount = 0
+        trace("commitPendingArchivedItem item=\(shortIdentifier("archived:\(item.relativePath)")) source=\(source)")
+        updateDisplayState(
+            selectedAsset: .set(nil),
+            selectedArchivedItem: .set(item),
+            multipleSelectionCount: .set(0),
+            previewImage: .set(previewImage),
+            isPreviewLoading: .set(isPreviewLoading),
+            metadata: .set(currentMetadataState),
+            source: source
+        )
+    }
+
     private(set) var multipleSelectionCount: Int = 0
 
     func showEmpty() {
         trace("showEmpty")
+        cancelPending()
         metadataRequestGeneration += 1
         selectedAsset = nil
         selectedArchivedItem = nil
@@ -345,6 +444,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     func showMultiple(count: Int) {
         trace("showMultiple count=\(count)")
+        cancelPending()
         metadataRequestGeneration += 1
         selectedAsset = nil
         selectedArchivedItem = nil
@@ -366,32 +466,35 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
 
     func showAsset(_ asset: IndexedAsset) {
         trace("showAsset asset=\(shortIdentifier(asset.localIdentifier)) cachedState=\(displayStateCache[asset.localIdentifier] != nil) cachedPreview=\(previewImageCache[asset.localIdentifier] != nil) cachedSnapshot=\(assetSnapshotCache[asset.localIdentifier] != nil) cachedMetadata=\(metadataCache[asset.localIdentifier] != nil)")
+        cancelPending()
         metadataRequestGeneration += 1
         representedPreviewIdentifier = asset.localIdentifier
         if let cachedState = displayStateCache[asset.localIdentifier] {
             hydrateFromDisplayState(cachedState)
             applyDisplayState(cachedState, source: "showAsset.cachedState")
-        } else {
+        } else if let cachedPreview = previewImageCache[asset.localIdentifier] {
             selectedAsset = asset
             selectedArchivedItem = nil
             multipleSelectionCount = 0
-            previewImage = nil
+            previewImage = cachedPreview
             isPreviewLoading = false
             resetMetadata()
             updateDisplayState(
                 selectedAsset: .set(asset),
                 selectedArchivedItem: .set(nil),
                 multipleSelectionCount: .set(0),
-                previewImage: .set(nil),
+                previewImage: .set(cachedPreview),
                 isPreviewLoading: .set(false),
                 metadata: .set(currentMetadataState),
-                source: "showAsset.initial"
+                source: "showAsset.cachedPreview"
             )
-        }
-        if let cachedPreview = previewImageCache[asset.localIdentifier] {
-            previewImage = cachedPreview
+        } else {
+            pendingAssetSelection = asset
+            previewImage = nil
             isPreviewLoading = false
-            updateDisplayState(previewImage: .set(cachedPreview), isPreviewLoading: .set(false), source: "showAsset.cachedPreview")
+            resetMetadata()
+            schedulePendingCommitTimeout()
+            trace("showAsset deferred pending=\(shortIdentifier(asset.localIdentifier))")
         }
         requestPreviewImage(for: asset.localIdentifier)
         requestAssetMetadata(for: asset.localIdentifier, generation: metadataRequestGeneration)
@@ -400,32 +503,35 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     func showArchivedItem(_ item: ArchivedItem) {
         let identifier = "archived:\(item.relativePath)"
         trace("showArchivedItem item=\(shortIdentifier(identifier)) cachedState=\(displayStateCache[identifier] != nil) cachedPreview=\(previewImageCache[identifier] != nil) cachedMetadata=\(metadataCache[identifier] != nil)")
+        cancelPending()
         metadataRequestGeneration += 1
         representedPreviewIdentifier = identifier
-        if let cachedState = displayStateCache[representedPreviewIdentifier ?? ""] {
+        if let cachedState = displayStateCache[identifier] {
             hydrateFromDisplayState(cachedState)
             applyDisplayState(cachedState, source: "showArchivedItem.cachedState")
-        } else {
+        } else if let cachedPreview = previewImageCache[identifier] {
             selectedAsset = nil
             selectedArchivedItem = item
             multipleSelectionCount = 0
-            previewImage = nil
+            previewImage = cachedPreview
             isPreviewLoading = false
             resetMetadata()
             updateDisplayState(
                 selectedAsset: .set(nil),
                 selectedArchivedItem: .set(item),
                 multipleSelectionCount: .set(0),
-                previewImage: .set(nil),
+                previewImage: .set(cachedPreview),
                 isPreviewLoading: .set(false),
                 metadata: .set(currentMetadataState),
-                source: "showArchivedItem.initial"
+                source: "showArchivedItem.cachedPreview"
             )
-        }
-        if let cachedPreview = previewImageCache[representedPreviewIdentifier ?? ""] {
-            previewImage = cachedPreview
+        } else {
+            pendingArchivedSelection = item
+            previewImage = nil
             isPreviewLoading = false
-            updateDisplayState(previewImage: .set(cachedPreview), isPreviewLoading: .set(false), source: "showArchivedItem.cachedPreview")
+            resetMetadata()
+            schedulePendingCommitTimeout()
+            trace("showArchivedItem deferred pending=\(shortIdentifier(identifier))")
         }
         requestPreviewImage(forArchivedItem: item)
         requestArchivedItemMetadata(item)
@@ -855,6 +961,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         detectedPersonCount = snapshot.detectedPersonCount
         extractedText = snapshot.extractedText
         archiveCandidateInfo = snapshot.archiveCandidateInfo
+        guard pendingAssetSelection == nil else { return }
         updateDisplayState(metadata: .set(currentMetadataState), source: "applyAssetMetadataSnapshot")
     }
 
@@ -883,6 +990,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         originalFilename = item.filename
         fileFormat = UTType(filenameExtension: item.fileExtension)?.localizedDescription ?? item.fileExtension.uppercased()
         fileSizeBytes = Int(item.fileSizeBytes)
+        guard pendingArchivedSelection == nil else { return }
         updateDisplayState(metadata: .set(currentMetadataState), source: "requestArchivedItemMetadata.initial")
 
         let representedIdentifier = "archived:\(item.relativePath)"
@@ -934,6 +1042,7 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         latitude = parsed.latitude ?? latitude
         longitude = parsed.longitude ?? longitude
         altitude = parsed.altitude ?? altitude
+        guard pendingAssetSelection == nil, pendingArchivedSelection == nil else { return }
         updateDisplayState(metadata: .set(currentMetadataState), source: "applyParsedMetadata")
     }
 
@@ -1186,13 +1295,19 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
         guard let asset = model.photosService.fetchAsset(localIdentifier: localIdentifier) else {
             isPreviewLoading = false
             trace("requestPreviewImage missingAsset asset=\(shortIdentifier(localIdentifier))")
-            updateDisplayState(isPreviewLoading: .set(false), source: "requestPreviewImage.missingAsset")
+            if pendingAssetSelection?.localIdentifier == localIdentifier {
+                commitPendingAsset(source: "requestPreviewImage.missingAsset")
+            } else {
+                updateDisplayState(isPreviewLoading: .set(false), source: "requestPreviewImage.missingAsset")
+            }
             return
         }
 
         trace("requestPreviewImage start asset=\(shortIdentifier(localIdentifier))")
         isPreviewLoading = true
-        updateDisplayState(isPreviewLoading: .set(true), source: "requestPreviewImage.start")
+        if pendingAssetSelection?.localIdentifier != localIdentifier {
+            updateDisplayState(isPreviewLoading: .set(true), source: "requestPreviewImage.start")
+        }
         _ = model.photosService.requestThumbnail(
             for: asset,
             targetSize: CGSize(width: 520, height: 520),
@@ -1210,7 +1325,11 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
                 self.previewImage = image
                 self.isPreviewLoading = false
                 self.trace("requestPreviewImage completed asset=\(self.shortIdentifier(localIdentifier)) image=\(image != nil)")
-                self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false), source: "requestPreviewImage.completed")
+                if self.pendingAssetSelection?.localIdentifier == localIdentifier {
+                    self.commitPendingAsset(source: "requestPreviewImage.completed")
+                } else {
+                    self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false), source: "requestPreviewImage.completed")
+                }
             }
         }
     }
@@ -1218,8 +1337,10 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
     private func requestPreviewImage(forArchivedItem item: ArchivedItem) {
         trace("requestPreviewImage archived start item=\(shortIdentifier(item.relativePath))")
         isPreviewLoading = true
-        updateDisplayState(isPreviewLoading: .set(true), source: "requestPreviewImage.archived.start")
         let identifier = "archived:\(item.relativePath)"
+        if pendingArchivedSelection.map({ "archived:\($0.relativePath)" }) != identifier {
+            updateDisplayState(isPreviewLoading: .set(true), source: "requestPreviewImage.archived.start")
+        }
         Task { [weak self] in
             let image = await Task.detached(priority: .userInitiated) {
                 NSImage(contentsOfFile: item.absolutePath)
@@ -1234,7 +1355,11 @@ private final class InspectorReadOnlyViewModel: ObservableObject {
             self.previewImage = image
             self.isPreviewLoading = false
             self.trace("requestPreviewImage archived completed item=\(self.shortIdentifier(identifier)) image=\(image != nil)")
-            self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false), source: "requestPreviewImage.archived.completed")
+            if self.pendingArchivedSelection.map({ "archived:\($0.relativePath)" }) == identifier {
+                self.commitPendingArchivedItem(source: "requestPreviewImage.archived.completed")
+            } else {
+                self.updateDisplayState(previewImage: .set(image), isPreviewLoading: .set(false), source: "requestPreviewImage.archived.completed")
+            }
         }
     }
 
