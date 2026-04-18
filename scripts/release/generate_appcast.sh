@@ -25,16 +25,28 @@ fi
 ARTIFACT_DIR="$(dirname "$ZIP_PATH")"
 mkdir -p "$APPCAST_OUTPUT_DIR"
 
+# Construct the download URL prefix so Sparkle fetches the zip from the
+# GitHub release assets, not from GitHub Pages (which only hosts appcast.xml).
+GIT_TAG="${GITHUB_REF_NAME:-$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || true)}"
+GITHUB_REPO="${GITHUB_REPOSITORY:-chrislemarquand/Librarian}"
+if [[ -n "$GIT_TAG" ]]; then
+  DOWNLOAD_URL_PREFIX="https://github.com/${GITHUB_REPO}/releases/download/${GIT_TAG}/"
+  echo "Appcast download URL prefix: $DOWNLOAD_URL_PREFIX" >&2
+fi
+
 # generate_appcast writes appcast.xml into the archives directory by default.
 # Pass the private key via stdin (--ed-key-file -) when SPARKLE_PRIVATE_KEY
 # is set, so CI doesn't need a keychain entry.
 APPCAST_OUTPUT_FILE="$APPCAST_OUTPUT_DIR/appcast.xml"
 
+EXTRA_ARGS=()
+[[ -n "${DOWNLOAD_URL_PREFIX:-}" ]] && EXTRA_ARGS+=(--download-url-prefix "$DOWNLOAD_URL_PREFIX")
+
 if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   echo "$SPARKLE_PRIVATE_KEY" | \
-    "$SPARKLE_GENERATE_APPCAST" --ed-key-file - -o "$APPCAST_OUTPUT_FILE" "$ARTIFACT_DIR" >&2
+    "$SPARKLE_GENERATE_APPCAST" --ed-key-file - -o "$APPCAST_OUTPUT_FILE" "${EXTRA_ARGS[@]}" "$ARTIFACT_DIR" >&2
 else
-  "$SPARKLE_GENERATE_APPCAST" -o "$APPCAST_OUTPUT_FILE" "$ARTIFACT_DIR" >&2
+  "$SPARKLE_GENERATE_APPCAST" -o "$APPCAST_OUTPUT_FILE" "${EXTRA_ARGS[@]}" "$ARTIFACT_DIR" >&2
 fi
 
 if [[ ! -f "$APPCAST_OUTPUT_FILE" ]]; then
