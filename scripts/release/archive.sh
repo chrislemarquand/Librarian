@@ -56,8 +56,13 @@ fi
 
 # Sign bundled Mach-O binaries that xcodebuild may leave unsigned, then
 # re-sign the app so notarization sees a fully consistent bundle.
+# osxphotos is excluded: it is a PyInstaller frozen executable whose embedded
+# dylibs (including libpython) carry the original build's Team ID. Re-signing
+# the outer Mach-O changes the process Team ID without touching the frozen
+# dylibs, so macOS refuses to load libpython at runtime ("different Team IDs").
 echo "Signing nested Mach-O binaries..." >&2
 while IFS= read -r f; do
+  [[ "$(basename "$f")" == "osxphotos" ]] && continue
   if /usr/bin/file "$f" 2>/dev/null | /usr/bin/grep -q "Mach-O"; then
     codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$f" >&2
   fi

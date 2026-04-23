@@ -2,6 +2,14 @@
 
 All notable changes to Librarian are tracked here.
 
+## 2026-04-23
+
+### Fixed
+- Export: bundled osxphotos binary is no longer re-signed during the release build. Re-signing changed the process Team ID without touching the PyInstaller-frozen dylibs (including libpython), so macOS refused to load them at runtime on other machines ("mapping process and mapped file have different Team IDs").
+
+### Shipped
+- v0.2.1
+
 ## 2026-04
 
 ### Added
