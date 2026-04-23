@@ -56,15 +56,20 @@ fi
 
 # Sign bundled Mach-O binaries that xcodebuild may leave unsigned, then
 # re-sign the app so notarization sees a fully consistent bundle.
-# osxphotos is excluded: it is a PyInstaller frozen executable whose embedded
-# dylibs (including libpython) carry the original build's Team ID. Re-signing
-# the outer Mach-O changes the process Team ID without touching the frozen
-# dylibs, so macOS refuses to load libpython at runtime ("different Team IDs").
+# osxphotos is handled separately: it is a PyInstaller frozen executable whose
+# embedded dylibs (including libpython) carry the original build's Team ID.
+# Re-signing with --options runtime is required for notarization, but we must
+# also pass disable-library-validation so macOS allows loading those dylibs at
+# runtime without enforcing Team ID consistency.
 echo "Signing nested Mach-O binaries..." >&2
 while IFS= read -r f; do
-  [[ "$(basename "$f")" == "osxphotos" ]] && continue
   if /usr/bin/file "$f" 2>/dev/null | /usr/bin/grep -q "Mach-O"; then
-    codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$f" >&2
+    if [[ "$(basename "$f")" == "osxphotos" ]]; then
+      codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime \
+        --entitlements "$ROOT_DIR/Config/osxphotos.entitlements" "$f" >&2
+    else
+      codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp --options runtime "$f" >&2
+    fi
   fi
 done < <(find "$APP_PATH" -type f -not -path "*/MacOS/*")
 
